@@ -2,10 +2,14 @@
 import { lpAuth, CLOUD_ENV } from './utils/api';
 import { collectSession } from './utils/analytics';
 
+// 会话心跳间隔：后台解除/作废邀请码后，最多在此延迟内把用户踢出登录态
+const SESSION_GUARD_INTERVAL = 20000;
+
 App({
   globalData: {
     appId: 'learning-planet',
     appName: '课小满',
+    sessionTimer: null,
   },
 
   onLaunch: function () {
@@ -14,6 +18,11 @@ App({
     }
     // 暴露登录就绪 Promise，首页 onShow 等它完成后再加载，避免未绑定先请求业务接口被弹回
     this.lpReady = this.ensureLogin();
+  },
+
+  onShow: function () {
+    // 回到前台立即校验一次会话（后台解除邀请码后，切回小程序即刻生效）
+    if (this.globalData.sessionTimer) this.heartbeat();
   },
 
   // 启动即登录：wx.login 拿会话 token → 已绑定（家长/家属/学生/管理员）进首页，未绑定进身份选择页
@@ -26,12 +35,36 @@ App({
         wx.setStorageSync('lp_role', res.role || res.staff.role || 'student');
         // 冷启动静默采集会话画像（失败不影响）
         collectSession();
+        this.startSessionGuard();
         this._go('/pages/home/home');
       } else {
+        // 锁定/未绑定提示带给身份页展示（绑定解除 或 账号被后台锁定）
+        if (res && res.locked && res.msg) wx.setStorageSync('lp_lock_msg', res.msg);
         this._go('/pages/identity/identity' + (res && res.locked ? '?locked=1' : ''));
       }
     } catch (e) {
       this._go('/pages/identity/identity');
+    }
+  },
+
+  // 会话心跳：轮询后端实时复核绑定状态。
+  // 403/401 时 request 内部已清除登录态并跳回身份页，这里只需停止轮询
+  heartbeat() {
+    lpAuth.sessionCheck()
+      .then(() => {})
+      .catch(() => this.stopSessionGuard());
+  },
+
+  startSessionGuard() {
+    this.stopSessionGuard();
+    this.heartbeat();
+    this.globalData.sessionTimer = setInterval(() => this.heartbeat(), SESSION_GUARD_INTERVAL);
+  },
+
+  stopSessionGuard() {
+    if (this.globalData.sessionTimer) {
+      clearInterval(this.globalData.sessionTimer);
+      this.globalData.sessionTimer = null;
     }
   },
 
@@ -45,6 +78,7 @@ App({
 
   // 供页面调用的重新登录（token 失效/被锁定后回到绑定页）
   reAuth() {
+    this.stopSessionGuard();
     wx.removeStorageSync('lp_token');
     wx.removeStorageSync('lp_staff');
     wx.removeStorageSync('lp_role');

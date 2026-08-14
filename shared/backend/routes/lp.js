@@ -72,6 +72,13 @@ async function taskInScope(req, task) {
   return false;
 }
 
+// ==================== 会话心跳 ====================
+// 轻量实时复核：后台解除绑定/作废邀请码后，前端轮询此接口立即收到 403 并清除登录态。
+// 只读、无业务计算，仅依赖 lpAuth 中间件已完成的「绑定 + 员工在职」实时校验。
+router.get("/session", async (req, res) => {
+  res.json(ok({ role: req.lpRole, staffId: req.lp.staffId }));
+});
+
 // ==================== 我的资料 ====================
 router.get("/profile", async (req, res) => {
   try {

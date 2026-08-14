@@ -18,7 +18,7 @@ INSERT INTO t_roles (role_id, role_code, role_name, role_status, created_at, upd
   (4, 'family', '家属', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE role_name = VALUES(role_name);
 
--- 2. 菜单（与 routes/admin.js DEFAULT_MENU_GROUPS 保持一致，1~37）
+-- 2. 菜单（与 routes/admin.js DEFAULT_MENU_GROUPS 保持一致，1~38）
 INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, menu_type, menu_status, created_at, updated_at) VALUES
   (1, 0, '仪表盘', '/dashboard', 'DashboardOutlined', 1, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (3, 1, '监控仪表盘', '/dashboard/monitor', 'LineChartOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -50,7 +50,8 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (32, 5, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (33, 5, '消息发送记录', '/module/subscribe_sends', 'SendOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (36, 5, '孩子档案', '/module/lp_children', 'SolutionOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (37, 5, '家属关系', '/module/lp_family_members', 'TeamOutlined', 9, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (37, 5, '家属关系', '/module/lp_family_members', 'TeamOutlined', 9, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (38, 5, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 10, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_path = VALUES(menu_path);
 
 -- 3. 角色-菜单（管理员全部；学生：学习仪表盘 + 学习管理：待办任务+任务+打卡+合集+绑定管理）
@@ -97,7 +98,8 @@ INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (56, 'family', 28, CURRENT_TIMESTAMP),
   (57, 'family', 36, CURRENT_TIMESTAMP),
   (58, 'family', 34, CURRENT_TIMESTAMP),
-  (59, 'family', 35, CURRENT_TIMESTAMP)
+  (59, 'family', 35, CURRENT_TIMESTAMP),
+  (60, 'admin', 38, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_id = VALUES(menu_id);
 
 -- 4. 数据字典
@@ -134,8 +136,8 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, updated_
   ('child_id', '孩子档案ID', 1, 1, 1, CURRENT_TIMESTAMP),
   ('staff_id', '管理员ID', 9002, 9001, 1, CURRENT_TIMESTAMP),
   ('role_id', '角色ID', 5, 1, 1, CURRENT_TIMESTAMP),
-  ('menu_id', '菜单ID', 38, 1, 1, CURRENT_TIMESTAMP),
-  ('role_menu_id', '角色菜单ID', 60, 1, 1, CURRENT_TIMESTAMP),
+  ('menu_id', '菜单ID', 39, 1, 1, CURRENT_TIMESTAMP),
+  ('role_menu_id', '角色菜单ID', 61, 1, 1, CURRENT_TIMESTAMP),
   ('dict_type_id', '字典类型ID', 4, 1, 1, CURRENT_TIMESTAMP),
   ('dict_item_id', '字典项ID', 13, 1, 1, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE current_value = GREATEST(current_value, VALUES(current_value));

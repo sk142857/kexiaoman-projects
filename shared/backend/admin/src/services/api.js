@@ -85,6 +85,9 @@ export const crudApi = {
   batchDelete: (biz, ids) => api.post(`/admin/api/${biz}/batchDelete`, { ids }),
   // 内容审核：action = approve / reject（endpoint 默认 review，用户资料审核为 reviewProfile）
   review: (biz, id, action, endpoint = 'review') => api.post(`/admin/api/${biz}/${endpoint}`, { id, action }),
+  // 用户账号锁定/解锁（按 user_id，含时效；操作写入 staff_events 审计）
+  userLock: (id, data) => api.post('/admin/api/users/lock', { id, ...data }),
+  userUnlock: (id) => api.post('/admin/api/users/unlock', { id }),
   // 任务打卡
   taskCheckin: (data) => api.post('/admin/api/tasks/checkin', data),
   // 待办任务（学生卡片视图数据源）
@@ -98,9 +101,9 @@ export const crudApi = {
   taskDeleteStats: (taskId) => api.get('/admin/api/tasks/deleteStats', { params: { taskId } }),
   // 上传图片（base64 → 云存储）
   upload: (biz, file) => api.post('/admin/api/upload', { biz, file }),
-  // 课小满邀请码：生成 / 作废（作废即锁定该学生的小程序访问）
-  generateInvite: (id) => api.post('/admin/api/staff/generateInvite', { id }),
-  revokeInvite: (id) => api.post('/admin/api/staff/revokeInvite', { id }),
+  // 课小满邀请码独立管理（t_lp_invites，仅管理员）：作废 / 重新生成
+  lpInviteRevoke: (id) => api.post('/admin/api/lp_invites/revoke', { id }),
+  lpInviteRegenerate: (id) => api.post('/admin/api/lp_invites/regenerate', { id }),
   // 课小满绑定关系管理（openid ↔ 学生账号）：列表 / 详情 / 解除绑定 / 变更绑定
   lpStudentList: (params) => api.get('/admin/api/lp_students/list', { params }),
   lpStudentDetail: (id) => api.get('/admin/api/lp_students/detail', { params: { id } }),

@@ -16,7 +16,7 @@ const { nextSeq } = require("../seq");
 const { logStaffEvent } = require("../staffAudit");
 const { logTaskEvent } = require("../taskTimeline");
 const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = require("../apps");
-const { genUniqueInviteCode, createInvite, LP_APP, LP_ROLES } = require("./lpAuth");
+const { createInvite, inviteById } = require("./lpAuth");
 const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
 const { sendReviewNotification } = require("../subscribeLib");
@@ -276,6 +276,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "31", name: "绑定管理", path: "/module/lp_students", icon: "LinkOutlined", type: "leaf" },
     { id: "36", name: "孩子档案", path: "/module/lp_children", icon: "SolutionOutlined", type: "leaf" },
     { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "TeamOutlined", type: "leaf" },
+    { id: "38", name: "邀请码管理", path: "/module/lp_invites", icon: "KeyOutlined", type: "leaf" },
     { id: "32", name: "订阅授权", path: "/module/subscribe_grants", icon: "BellOutlined", type: "leaf" },
     { id: "33", name: "消息发送记录", path: "/module/subscribe_sends", icon: "SendOutlined", type: "leaf" },
   ]},
@@ -540,7 +541,113 @@ router.use("/api/users", crudRouter({
   search: ["openid", "nickname", "user_uid"],
   filters: ["user_status", "profile_review_status"],
   appField: "app_id",
+  // 丰富展示：绑定身份角色、绑定账号、邀请码、账号锁定状态（列表/详情均附加）
+  enrich: enrichUsersLp,
 }));
+
+// ==================== 用户列表丰富展示 ====================
+// 用户 ↔ 绑定（lp_students）↔ 员工角色（staff）↔ 绑定邀请码（lp_invites.bound_openid）
+async function enrichUsersLp(list) {
+  const rows = Array.isArray(list) ? list : (list ? [list] : []);
+  if (rows.length === 0) return list;
+  const openids = [...new Set(rows.map(r => r.openid).filter(Boolean))];
+  const bindMap = {};
+  const staffMap = {};
+  const inviteMap = {};
+  try {
+    if (openids.length > 0) {
+      const { data: binds, error: bErr } = await db.from("lp_students")
+        .select("openid, staff_id, bound_status").eq("app_id", "learning-planet")
+        .in("openid", openids).limit(openids.length);
+      if (!bErr) (binds || []).forEach(b => { if (!bindMap[b.openid]) bindMap[b.openid] = b; });
+      const staffIds = [...new Set((binds || []).map(b => Number(b.staff_id)).filter(v => v > 0))];
+      if (staffIds.length > 0) {
+        const { data: staffs, error: sErr } = await db.from("staff")
+          .select("staff_id, staff_nickname, staff_role").in("staff_id", staffIds).limit(staffIds.length);
+        if (!sErr) (staffs || []).forEach(s => { staffMap[String(s.staff_id)] = s; });
+      }
+      const { data: invites, error: iErr } = await db.from("lp_invites")
+        .select("invite_id, invite_code, status, bound_openid")
+        .eq("app_id", "learning-planet").in("bound_openid", openids)
+        .order("invite_id", { ascending: false }).limit(Math.max(50, openids.length * 2));
+      if (!iErr) (invites || []).forEach(iv => { if (!inviteMap[iv.bound_openid]) inviteMap[iv.bound_openid] = iv; });
+    }
+  } catch (_) { /* 关联信息缺失不影响主列表 */ }
+  const now = Date.now();
+  return rows.map(r => {
+    const bind = bindMap[r.openid] || null;
+    const staff = bind ? staffMap[String(bind.staff_id)] : null;
+    const inv = inviteMap[r.openid] || null;
+    const lockedUntil = r.locked_until ? new Date(r.locked_until).getTime() : 0;
+    const lockActive = lockedUntil > now;
+    return {
+      ...r,
+      _boundStaffId: bind ? String(bind.staff_id) : "",
+      _boundStaffNickname: staff ? staff.staff_nickname : "",
+      _role: staff ? staff.staff_role : "",
+      _boundStatus: bind ? bind.bound_status : 0,
+      _inviteCode: inv ? inv.invite_code : "",
+      _inviteStatus: inv ? inv.status : "",
+      _lockActive: lockActive,
+      _lockStatus: lockActive ? "locked" : (Number(r.user_status) === 0 ? "disabled" : "normal"),
+      _lockRemainMs: lockActive ? lockedUntil - now : 0,
+    };
+  });
+}
+
+// ==================== 用户账号锁定（按 user_id，含时效） ====================
+// 锁定后该用户小程序登录/请求实时被拦（lpAuth 按 t_users.locked_until 复核）；
+// 锁定与解锁均写入 staff_events 审计，便于追踪操作人/原因/时效
+router.post("/api/users/lock", adminAuth, async (req, res) => {
+  try {
+    if (req.staff.role !== "admin") return res.json(fail("无权操作", 403));
+    const { id, hours, reason } = req.body || {};
+    const uid = Number(id);
+    if (!uid) return res.json(fail("缺少用户ID"));
+    const { data: rows } = await db.from("users")
+      .select("openid, user_uid, nickname").eq("user_id", uid).limit(1);
+    const u = rows && rows[0];
+    if (!u) return res.json(fail("用户不存在"));
+    const h = Math.max(1, Math.min(Number(hours) || 24, 24 * 365)); // 1 小时 ~ 365 天
+    const until = new Date(Date.now() + h * 3600 * 1000);
+    await db.from("users").update({
+      locked_until: until,
+      locked_reason: String(reason || "").slice(0, 255),
+      locked_by: (req.staff && req.staff.username) || "",
+      locked_at: nowSql(),
+      updated_at: nowSql(),
+    }).eq("user_id", uid);
+    const durationText = h % 24 === 0 ? `${h / 24} 天` : `${h} 小时`;
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "锁定用户账号", module: "users", apiPath: "/api/users/lock", bizId: uid, extra: { user_uid: u.user_uid, nickname: u.nickname, hours: h, until: until.toISOString(), reason: reason || "" } });
+    res.json(ok({ locked_until: until, durationText }, `已锁定 ${durationText}`));
+  } catch (e) {
+    console.error("[admin] users lock error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/api/users/unlock", adminAuth, async (req, res) => {
+  try {
+    if (req.staff.role !== "admin") return res.json(fail("无权操作", 403));
+    const { id } = req.body || {};
+    const uid = Number(id);
+    if (!uid) return res.json(fail("缺少用户ID"));
+    const { data: rows } = await db.from("users")
+      .select("openid, user_uid, nickname").eq("user_id", uid).limit(1);
+    const u = rows && rows[0];
+    if (!u) return res.json(fail("用户不存在"));
+    await db.from("users").update({
+      locked_until: null,
+      locked_reason: "",
+      updated_at: nowSql(),
+    }).eq("user_id", uid);
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "解锁用户账号", module: "users", apiPath: "/api/users/unlock", bizId: uid, extra: { user_uid: u.user_uid, nickname: u.nickname } });
+    res.json(ok(null, "已解锁"));
+  } catch (e) {
+    console.error("[admin] users unlock error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
 
 // 服务监控（只读）
 router.use("/api/monitors", crudRouter({
@@ -680,34 +787,42 @@ router.post("/api/audit/report", adminAuth, async (req, res) => {
   }
 });
 
+// ==================== 员工删除/停用后的课小满关联数据清理 ====================
+// 后台删除或停用 t_staff（学生/家长/家属）时同步作废其相关邀请码，
+// 避免孤儿码仍显示「待绑定」、已绑定码指向已不存在的账号：
+//   1) 其名下仍为 available 的邀请码（学生码/家属共享码）→ 作废（绑定校验依赖 owner 在职）
+//   2) 已绑定到该员工（bound_staff_id）的邀请码 → 作废（该小程序用户访问已由 lpAuth 实时锁定）
+async function cleanupStaffLpData(staffId) {
+  const id = Number(staffId);
+  if (!id) return;
+  await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
+    .eq("owner_staff_id", id).eq("status", "available");
+  await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
+    .eq("bound_staff_id", id).eq("status", "bound");
+}
+
 // 管理员管理
 // - passwordFields：staff_password 只在非空时写入并做 bcrypt 哈希（新增/重置密码）
 // - exclude：列表/详情响应剔除密码哈希，避免泄露
-// - onAfterCreate：新增账号自动生成邀请码，保证每位用户都有可用邀请码（统一维护）
 router.use("/api/staff", adminAuth, crudRouter({
   table: "staff", pk: "staff_id",
   writable: ["staff_username", "staff_nickname", "staff_role", "staff_status", "staff_password"],
-  search: ["staff_username", "staff_nickname", "invite_code"],
+  search: ["staff_username", "staff_nickname"],
   passwordFields: ["staff_password"],
   exclude: ["staff_password"],
-  filters: ["staff_role", "invite_code_status"],
+  filters: ["staff_role"],
   // 自我保护：禁止删除/禁用/修改自己的账号，避免误操作锁死后台
   protectSelf: true,
   pkGenerator: () => nextSeq("staff_id"),
-  onAfterCreate: async (req, values, id) => {
-    // 新增学生账号自动生成学生邀请码（t_lp_invites，独立表维护；幂等：失败不阻断创建）
-    try {
-      if (values.staff_role === "student") {
-        await createInvite({ kind: "student", ownerStaffId: Number(id), childId: 0, createdBy: Number(req.staff.staff_id) || 0 });
-        logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "自动生成学生邀请码", module: "staff", apiPath: "/api/staff/create", bizId: id });
-      }
-    } catch (e) {
-      console.error("[admin] staff auto invite code error", e);
-    }
+  onAfterUpdate: async (req, values, id) => {
     invalidateStaffRows([id]);
+    // 停用员工（staff_status→0）时同步作废其邀请码，避免「待绑定」孤儿码
+    if (values && Number(values.staff_status) === 0) await cleanupStaffLpData(id);
   },
-  onAfterUpdate: async (req, values, id) => invalidateStaffRows([id]),
-  onAfterDelete: async (req, record, id) => invalidateStaffRows([id]),
+  onAfterDelete: async (req, record, id) => {
+    invalidateStaffRows([id]);
+    await cleanupStaffLpData(id);
+  },
 }));
 
 // ==================== 管理员-小程序授权（staff_apps） ====================
@@ -758,54 +873,97 @@ router.post("/api/staff/apps", adminAuth, async (req, res) => {
   }
 });
 
-// ==================== 课小满邀请码管理（生成/作废，锁住小程序访问） ====================
-// 权限：管理员可为任意学生账号生成/作废；任何账号可对自己的账号生成/作废（自助获取邀请码）
-// 邀请码独立维护在 t_lp_invites（kind=student），不再挂 t_staff。
-// 生成：为该学生账号生成新的 6 位大写邀请码（作废其旧的有效学生码，重置为有效状态）
-router.post("/api/staff/generateInvite", adminAuth, async (req, res) => {
+// ==================== 课小满邀请码管理（独立模块，与 staff 解耦） ====================
+// 邀请码独立维护在 t_lp_invites：kind=student 学生码 / kind=family 家属共享码。
+// 学生码由主家长在孩子档案中生成，家属共享码由主家长生成；后台仅作查看与审计（只读），
+// 作废 / 重新生成走下方独立接口（仅管理员）。
+router.use("/api/lp_invites", adminAuth, crudRouter({
+  table: "lp_invites", pk: "invite_id",
+  writable: [],
+  readonly: true,
+  search: ["invite_code"],
+  filters: ["kind", "status"],
+  // 非管理员仅可查看自己名下的邀请码（管理员全部）
+  readScopeFn: (req) => (req.staff && req.staff.role) === "admin"
+    ? null
+    : { field: "owner_staff_id", value: req.staff.staff_id },
+  scopeFn: (req) => (req.staff && req.staff.role) === "admin"
+    ? null
+    : { field: "owner_staff_id", value: req.staff.staff_id },
+  enrich: async (rows) => {
+    const list = rows || [];
+    if (list.length === 0) return list;
+    const staffIds = [...new Set(list.flatMap(r => [Number(r.owner_staff_id), Number(r.bound_staff_id)]).filter(v => v > 0))];
+    const staffMap = {};
+    if (staffIds.length > 0) {
+      const { data } = await db.from("staff")
+        .select("staff_id, staff_nickname, staff_username").in("staff_id", staffIds).limit(staffIds.length);
+      (data || []).forEach(s => { staffMap[String(s.staff_id)] = s; });
+    }
+    const childIds = [...new Set(list.map(r => Number(r.child_id)).filter(v => v > 0))];
+    const childMap = {};
+    if (childIds.length > 0) {
+      const { data } = await db.from("lp_children")
+        .select("child_id, child_name").in("child_id", childIds).limit(childIds.length);
+      (data || []).forEach(c => { childMap[String(c.child_id)] = c; });
+    }
+    const openids = [...new Set(list.map(r => r.bound_openid).filter(Boolean))];
+    const userMap = {};
+    if (openids.length > 0) {
+      const { data } = await db.from("users")
+        .select("openid, nickname").in("openid", openids).limit(openids.length);
+      (data || []).forEach(u => { userMap[u.openid] = u; });
+    }
+    return list.map(r => ({
+      ...r,
+      _ownerNickname: (staffMap[String(r.owner_staff_id)] || {}).staff_nickname || "",
+      _boundNickname: (staffMap[String(r.bound_staff_id)] || {}).staff_nickname || "",
+      _childName: (childMap[String(r.child_id)] || {}).child_name || "",
+      _boundUserNickname: (userMap[r.bound_openid] || {}).nickname || "",
+    }));
+  },
+}));
+
+// 作废邀请码（仅管理员）：kind=student 且已绑定时同步锁定该学生名下小程序访问
+router.post("/api/lp_invites/revoke", adminAuth, async (req, res) => {
   try {
+    if (req.staff.role !== "admin") return res.json(fail("无权操作", 403));
     const { id } = req.body || {};
-    if (!id) return res.json(fail("缺少 staff_id"));
-    const isSelf = String(id) === String((req.staff && req.staff.staff_id) || "");
-    if (req.staff.role !== "admin" && !isSelf) return res.json(fail("无权操作，仅可生成自己的邀请码", 403));
-    const { data: rows, error } = await db.from("staff")
-      .select("staff_id, staff_role, staff_status").eq("staff_id", id).limit(1);
-    if (error) throw error;
-    const staff = rows && rows[0];
-    if (!staff) return res.json(fail("员工不存在"));
-    // 作废旧的有效学生码，再发新码
-    await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
-      .eq("kind", "student").eq("owner_staff_id", id).eq("status", "available");
-    const inv = await createInvite({ kind: "student", ownerStaffId: Number(id), childId: 0, createdBy: Number(req.staff.staff_id) || 0 });
-    // 重新生成邀请码后，恢复该员工名下小程序用户的访问（重新绑定新码前的旧绑定视为有效）
-    try {
-      await db.from("lp_students").update({ bound_status: 1, updated_at: nowSql() }).eq("staff_id", id);
-    } catch (_) {}
-    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "生成学生邀请码", module: "staff", apiPath: "/api/staff/generateInvite", bizId: id });
-    res.json(ok({ invite_code: inv.invite_code }, "邀请码已生成"));
+    if (!id) return res.json(fail("缺少 invite_id"));
+    const inv = await inviteById(id);
+    if (!inv) return res.json(fail("邀请码不存在"));
+    await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() }).eq("invite_id", inv.invite_id);
+    if (inv.kind === "student" && Number(inv.bound_staff_id) > 0) {
+      try {
+        await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() }).eq("staff_id", Number(inv.bound_staff_id));
+      } catch (_) {}
+    }
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "作废邀请码（锁定小程序访问）", module: "lp_invites", apiPath: "/api/lp_invites/revoke", bizId: inv.invite_id, extra: { invite_code: inv.invite_code, kind: inv.kind } });
+    res.json(ok(null, "邀请码已作废" + (inv.kind === "student" && Number(inv.bound_staff_id) > 0 ? "，该学生的小程序访问已锁定" : "")));
   } catch (e) {
-    console.error("[admin] staff generateInvite error", e);
+    console.error("[admin] lp_invites revoke error", e);
     res.json(fail("服务异常", 500));
   }
 });
 
-// 作废：邀请码失效 + 锁定该员工名下全部小程序用户（lpAuth 实时校验即刻生效）
-router.post("/api/staff/revokeInvite", adminAuth, async (req, res) => {
+// 重新生成学生邀请码（仅管理员）：作废该学生当前可用的学生码并发新码，恢复其名下小程序访问
+router.post("/api/lp_invites/regenerate", adminAuth, async (req, res) => {
   try {
+    if (req.staff.role !== "admin") return res.json(fail("无权操作", 403));
     const { id } = req.body || {};
-    if (!id) return res.json(fail("缺少 staff_id"));
-    const isSelf = String(id) === String((req.staff && req.staff.staff_id) || "");
-    if (req.staff.role !== "admin" && !isSelf) return res.json(fail("无权操作，仅可作废自己的邀请码", 403));
+    if (!id) return res.json(fail("缺少 invite_id"));
+    const inv = await inviteById(id);
+    if (!inv || inv.kind !== "student") return res.json(fail("仅学生码可重新生成"));
     await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
-      .eq("kind", "student").eq("owner_staff_id", id);
-    // 锁定该员工下全部小程序用户访问
+      .eq("kind", "student").eq("owner_staff_id", inv.owner_staff_id).eq("status", "available");
+    const next = await createInvite({ kind: "student", ownerStaffId: Number(inv.owner_staff_id), childId: Number(inv.child_id) || 0, createdBy: Number(req.staff.staff_id) || 0 });
     try {
-      await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() }).eq("staff_id", id);
+      await db.from("lp_students").update({ bound_status: 1, updated_at: nowSql() }).eq("staff_id", Number(inv.owner_staff_id));
     } catch (_) {}
-    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "作废学生邀请码（锁定小程序访问）", module: "staff", apiPath: "/api/staff/revokeInvite", bizId: id });
-    res.json(ok(null, "邀请码已作废，该学生的小程序访问已锁定"));
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "重新生成学生邀请码", module: "lp_invites", apiPath: "/api/lp_invites/regenerate", bizId: inv.owner_staff_id, extra: { old_code: inv.invite_code, new_code: next.invite_code } });
+    res.json(ok({ invite_code: next.invite_code }, "新邀请码已生成"));
   } catch (e) {
-    console.error("[admin] staff revokeInvite error", e);
+    console.error("[admin] lp_invites regenerate error", e);
     res.json(fail("服务异常", 500));
   }
 });
@@ -828,7 +986,7 @@ function bindingScopeQuery(req, q) {
   return selfId ? q.eq("staff_id", Number(selfId)) : q;
 }
 
-/** 绑定列表附加关联信息：学生/管理员账号（staff_nickname/staff_username/staff_role/invite_code）+ 小程序用户画像（_userId/_userNickname/_userAvatar） */
+/** 绑定列表附加关联信息：学生/管理员账号（staff_nickname/staff_username/staff_role）+ 邀请码（t_lp_invites 独立表）+ 小程序用户画像（_userId/_userNickname/_userAvatar） */
 async function attachBindingInfo(rows) {
   const list = rows || [];
   if (list.length === 0) return list;
@@ -836,9 +994,21 @@ async function attachBindingInfo(rows) {
   const staffMap = {};
   if (staffIds.length > 0) {
     const { data: staffs, error } = await db.from("staff")
-      .select("staff_id, staff_username, staff_nickname, staff_role, invite_code, invite_code_status")
+      .select("staff_id, staff_username, staff_nickname, staff_role")
       .in("staff_id", staffIds).limit(staffIds.length);
     if (!error && Array.isArray(staffs)) staffs.forEach(s => { staffMap[String(s.staff_id)] = s; });
+  }
+  // 该账号最新的学生邀请码（t_lp_invites 独立维护；kind=student 按 invite_id 倒序取最新一条）
+  const inviteMap = {};
+  if (staffIds.length > 0) {
+    const { data: invites, error: invErr } = await db.from("lp_invites")
+      .select("invite_code, kind, status, owner_staff_id")
+      .in("owner_staff_id", staffIds).eq("kind", "student")
+      .order("invite_id", { ascending: false }).limit(Math.min(staffIds.length * 5, 2000));
+    if (!invErr && Array.isArray(invites)) invites.forEach(inv => {
+      const owner = String(inv.owner_staff_id);
+      if (!inviteMap[owner]) inviteMap[owner] = inv;
+    });
   }
   const openids = [...new Set(list.map(r => r.openid).filter(Boolean))];
   const userMap = {};
@@ -851,6 +1021,7 @@ async function attachBindingInfo(rows) {
   return list.map(r => {
     const s = staffMap[String(r.staff_id)] || {};
     const u = userMap[r.openid] || {};
+    const inv = inviteMap[String(r.staff_id)] || {};
     const nick = u.nickname || "微信用户";
     const ch = String(nick).charAt(0);
     return {
@@ -858,8 +1029,8 @@ async function attachBindingInfo(rows) {
       staff_username: s.staff_username || "",
       staff_nickname: s.staff_nickname || "",
       staff_role: s.staff_role || "",
-      staff_invite_code: s.invite_code || "",
-      staff_invite_code_status: s.invite_code_status != null ? s.invite_code_status : "",
+      staff_invite_code: inv.invite_code || "",
+      staff_invite_code_status: inv.status || "",
       _userId: u.user_uid || "",
       _userNickname: u.nickname || "",
       _userAvatar: u.avatar || "",
@@ -970,18 +1141,8 @@ router.post("/api/lp_students/unbind", adminAuth, async (req, res) => {
     if (!rec) return res.json(fail("绑定记录不存在"));
     const { error: delErr } = await db.from("lp_students").delete().eq("id", id);
     if (delErr) throw delErr;
-    // 同步作废该员工邀请码：解除绑定即关闭该员工的准入通道，需重新生成邀请码
-    try {
-      await db.from("staff").update({
-        invite_code_status: 0,
-        invite_code_revoked_at: nowSql(),
-        updated_at: nowSql(),
-      }).eq("staff_id", rec.staff_id);
-    } catch (e) {
-      console.warn("[admin] unbind revoke staff invite error:", e.message);
-    }
-    logStaffEvent({ req, staff: req.staff, eventType: "delete", eventName: "解除绑定（同步作废员工邀请码）", module: "lp_students", apiPath: "/api/lp_students/unbind", bizId: id, extra: { staff_id: rec.staff_id, openid: rec.openid } });
-    res.json(ok(null, "已解除绑定并作废该员工的邀请码，需重新生成"));
+    logStaffEvent({ req, staff: req.staff, eventType: "delete", eventName: "解除绑定", module: "lp_students", apiPath: "/api/lp_students/unbind", bizId: id, extra: { staff_id: rec.staff_id, openid: rec.openid } });
+    res.json(ok(null, "已解除绑定，该小程序用户需重新绑定邀请码才能访问"));
   } catch (e) {
     console.error("[admin] lp_students unbind error", e);
     res.json(fail("服务异常", 500));

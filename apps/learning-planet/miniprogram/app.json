@@ -4,7 +4,6 @@
     "pages/todo/todo",
     "pages/tasks/tasks",
     "pages/mine/mine",
-    "pages/bind/bind",
     "pages/identity/identity",
     "pages/children/children",
     "pages/child-edit/child-edit",

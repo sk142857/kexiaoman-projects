@@ -26,6 +26,7 @@ const TABLE_CN = {
   task_collections: "合集",
   task_checkins: "任务打卡",
   lp_students: "绑定关系",
+  lp_invites: "邀请码",
   staff_events: "审计日志",
 };
 const tableCn = (table) => TABLE_CN[table] || table;

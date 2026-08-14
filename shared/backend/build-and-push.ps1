@@ -14,9 +14,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Registry = "ccr.ccs.tencentyun.com"
-$Username = "100001244710"
-$Namespace = "njhongyan-k8s"
-$RepoName = "kxm"
+$Username = "100051593824"
+$Namespace = "simon-k8s"
+$RepoName = "kxm-service"
 $Image = "${Registry}/${Namespace}/${RepoName}:${Tag}"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

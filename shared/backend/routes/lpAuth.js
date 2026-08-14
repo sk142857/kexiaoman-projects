@@ -136,6 +136,32 @@ async function staffById(id) {
   return (data && data[0]) || null;
 }
 
+/** 账号级锁定（t_users.locked_until，管理员后台按 user_id 锁定）：返回锁定截止时间或 null */
+async function userLockedUntil(openid) {
+  if (!openid) return null;
+  try {
+    const { data, error } = await db.from("users")
+      .select("locked_until").eq("openid", openid).eq("app_id", LP_APP.app_id).limit(1);
+    if (error) return null;
+    const u = data && data[0];
+    if (u && u.locked_until && new Date(u.locked_until).getTime() > Date.now()) {
+      return u.locked_until;
+    }
+  } catch (_) { /* 查询失败按未锁定处理 */ }
+  return null;
+}
+
+/** 账号被锁定时的统一提示（含截止时间） */
+function lockMsg(until) {
+  const base = "账号已被锁定";
+  if (!until) return `${base}，请稍后再试`;
+  const t = new Date(until);
+  if (isNaN(t.getTime())) return `${base}，请稍后再试`;
+  const pad = (n) => String(n).padStart(2, "0");
+  const s = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  return `${base}，${s} 后自动解锁`;
+}
+
 /** 按邀请码查找可绑定的邀请记录（学生码或家属码，未绑定且未作废） */
 async function findBindableInvite(code) {
   const c = String(code || "").trim().toUpperCase();
@@ -282,6 +308,13 @@ router.post("/login", async (req, res) => {
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
 
+    // 账号级锁定（后台按 user_id 锁定）：锁定期内登录直接返回锁定态
+    const lockUntil = await userLockedUntil(openid);
+    if (lockUntil) {
+      const token = await signToken(openid);
+      return res.json(ok({ token, bound: false, locked: true, lockUntil, msg: lockMsg(lockUntil) }));
+    }
+
     // 只要 wx.login 成功就签发会话 token；能否进业务页由邀请码绑定决定
     const token = await signToken(openid);
 
@@ -340,6 +373,11 @@ router.post("/registerParent", async (req, res) => {
       }
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 账号级锁定：锁定期内禁止注册/绑定
+    if (await userLockedUntil(openid)) {
+      return res.json(fail(lockMsg(null), 423));
+    }
 
     // 已绑定 → 返回当前状态
     const { data: rows, error } = await db.from("lp_students")
@@ -420,6 +458,11 @@ router.post("/bind", async (req, res) => {
       }
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 账号级锁定：锁定期内禁止绑定/换绑
+    if (await userLockedUntil(openid)) {
+      return res.json(fail(lockMsg(null), 423));
+    }
 
     // 限流：同一 openid 15 分钟内最多尝试 10 次
     if (!bindAllow(openid)) return res.json(fail("尝试过于频繁，请 15 分钟后再试", 429));
@@ -619,6 +662,23 @@ async function lpAuth(req, res, next) {
     const openid = decoded.openid;
     if (!openid) {
       return res.status(401).json({ code: 401, msg: "登录已过期，请重新登录", data: null });
+    }
+
+    // 账号级锁定（后台按 user_id 锁定 t_users）：锁定期内实时拦截，作废即刻生效
+    const lockUntil = await userLockedUntil(openid);
+    if (lockUntil) {
+      return res.status(403).json({ code: 403, msg: lockMsg(lockUntil), data: null });
+    }
+
+    // 数据上报（collectSession / collectEvent）：仅需有效会话身份即可记录，
+    // 未绑定/被锁定的用户（如在身份选择页）也允许上报，不拦截（前端即发即忘）
+    const ap = req.path || "";
+    if (ap.endsWith("/collectSession") || ap.endsWith("/collectEvent")) {
+      req.lp = { staffId: "", openid, role: "", scope: null };
+      req.lpRole = "";
+      req.app = LP_APP;
+      req.appId = LP_APP.app_id;
+      return next();
     }
 
     // 业务身份由「会话 openid ↔ 邀请码绑定」实时解析，绑定换绑即时生效

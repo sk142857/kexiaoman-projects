@@ -4,3 +4,5 @@
 
 tdesign-miniprogram@^1.16.0:
   version "1.16.0"
+  resolved "https://registry.npmmirror.com/tdesign-miniprogram/-/tdesign-miniprogram-1.16.0.tgz#13e572078616cd111648bc3aaac95476b6f02614"
+  integrity sha512-HbK0PWVqXoiynkXOGrda+B8ChPwCcx1IazExlBJzxDhNjkQ8qE4/v0k5wn07gLxW042mSsVdwoX/aUTB0yH4jw==

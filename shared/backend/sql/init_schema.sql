@@ -31,6 +31,10 @@ CREATE TABLE t_users (
   avatar       VARCHAR(500) NOT NULL DEFAULT '' COMMENT '头像128px路径 kxm/avatar/...',
   avatar_hd    VARCHAR(500) NOT NULL DEFAULT '' COMMENT '头像512px路径',
   user_status  TINYINT      NOT NULL DEFAULT 1 COMMENT '1正常 0禁用',
+  locked_until DATETIME     NULL COMMENT '账号锁定截止时间（NULL=未锁定；早于当前时间自动解锁）',
+  locked_reason VARCHAR(255) NOT NULL DEFAULT '' COMMENT '账号锁定原因',
+  locked_by    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '账号锁定操作人',
+  locked_at    DATETIME     NULL COMMENT '账号锁定时间',
   nickname_pending VARCHAR(64) NOT NULL DEFAULT '' COMMENT '待审核昵称',
   avatar_pending VARCHAR(500) NOT NULL DEFAULT '' COMMENT '待审核头像128px',
   avatar_hd_pending VARCHAR(500) NOT NULL DEFAULT '' COMMENT '待审核头像512px',
@@ -192,15 +196,11 @@ CREATE TABLE t_staff (
   staff_password VARCHAR(128) NOT NULL COMMENT '密码（bcrypt 哈希）',
   staff_nickname VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '昵称',
   staff_role    VARCHAR(16)  NOT NULL DEFAULT 'admin' COMMENT '角色 admin/student',
-  invite_code   VARCHAR(8)   NOT NULL DEFAULT '' COMMENT '6位大写邀请码（绑定课小满小程序用，生成时排除0/O/1/I）',
-  invite_code_status TINYINT  NOT NULL DEFAULT 1 COMMENT '邀请码状态 1有效 0已作废',
-  invite_code_revoked_at DATETIME NULL COMMENT '邀请码作废时间',
   staff_status  TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0禁用',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (staff_id),
-  UNIQUE KEY uk_staff_username (staff_username),
-  UNIQUE KEY uk_invite_code (invite_code)
+  UNIQUE KEY uk_staff_username (staff_username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台管理员';
 
 -- 后台 staff 操作审计日志表（登录/登出/点击菜单/增删改查等）

@@ -1,8 +1,8 @@
 // 业务模块配置：供通用 CRUD 页面使用
 // columns: 表格列（渲染函数使用 components/fields.js 的丰富组件）
 // detailFields: 详情抽屉字段描述（type 对应 CommonCrud 渲染逻辑）
-import { Tag, Progress, Space, message } from 'antd';
-import { SafetyOutlined, StopOutlined, UnlockOutlined, SwapOutlined, GiftOutlined } from '@ant-design/icons';
+import { Tag, Progress, message } from 'antd';
+import { SafetyOutlined, StopOutlined, UnlockOutlined, SwapOutlined, GiftOutlined, LockOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { crudApi } from '../services/api';
 import {
@@ -49,14 +49,18 @@ const MENU_TYPE_MAP = {
   1: { label: '分组', color: 'blue' },
   2: { label: '叶子', color: 'green' },
 };
+// 课小满邀请码（独立维护于 t_lp_invites，与 staff 解耦）
+const INVITE_KIND_MAP = {
+  student: { label: '学生码', color: 'blue' },
+  family: { label: '家属共享码', color: 'purple' },
+};
+const INVITE_STATUS_MAP = {
+  available: { label: '未绑定', color: 'processing' },
+  bound: { label: '已绑定', color: 'success' },
+  revoked: { label: '已作废', color: 'error' },
+};
 // 任务评分（满分10分）下拉选项
 const SCORE_OPTIONS = [0, 3, 5, 7, 9, 10].map(v => ({ value: v, label: `${v}分` }));
-// 当前登录后台员工信息（含 role / staff_id）
-const currentUser = () => {
-  try { return JSON.parse(localStorage.getItem('admin_user') || '{}'); } catch (_) { return {}; }
-};
-const isStudentUser = () => currentUser().role === 'student';
-const isAdminUser = () => currentUser().role === 'admin';
 const FILE_STATUS_MAP = {
   active: { label: '正常', color: 'success' },
   removed: { label: '已删除', color: 'default' },
@@ -124,6 +128,29 @@ const STAFF_ROLE_MAP = {
   parent: { label: '主家长', color: 'green' },
   family: { label: '家属', color: 'orange' },
 };
+// 用户管理：小程序用户绑定身份（课小满角色）
+const USER_LP_ROLE_MAP = {
+  student: { label: '学生', color: 'blue' },
+  parent: { label: '主家长', color: 'green' },
+  family: { label: '家属', color: 'orange' },
+  admin: { label: '管理员', color: 'purple' },
+};
+// 用户管理：账号锁定状态（锁定中 / 已禁用 / 正常）
+const USER_LOCK_STATUS_MAP = {
+  locked: { label: '锁定中', color: 'error' },
+  disabled: { label: '已禁用', color: 'warning' },
+  normal: { label: '正常', color: 'success' },
+};
+// 锁定时长选项（小时）
+const LOCK_DURATION_OPTIONS = [
+  { value: 1, label: '1 小时' },
+  { value: 6, label: '6 小时' },
+  { value: 12, label: '12 小时' },
+  { value: 24, label: '1 天' },
+  { value: 72, label: '3 天' },
+  { value: 168, label: '7 天' },
+  { value: 720, label: '30 天' },
+];
 const GENDER_MAP = {
   0: { label: '未知', color: 'default' },
   1: { label: '男', color: 'blue' },
@@ -174,6 +201,8 @@ export const MODULES = {
     review: true,
     reviewField: 'profile_review_status',
     reviewEndpoint: 'reviewProfile',
+    // 丰富列较多，允许横向滚动
+    tableScroll: { x: 1260 },
     filters: [
       { name: 'user_status', label: '状态', options: [{ value: 1, label: '正常' }, { value: 0, label: '禁用' }] },
       { name: 'profile_review_status', label: '资料审核', options: [
@@ -183,25 +212,38 @@ export const MODULES = {
       ] },
     ],
     columns: [
-      { title: '用户ID', dataIndex: 'user_uid', key: 'user_uid', width: 110, render: (v) => <PlainText value={v} maxWidth={100} /> },
-      { title: '头像', dataIndex: 'avatar', key: 'avatar', width: 70, render: (v, r) => <ImageAvatar avatar={v} nickname={r.nickname} size={45} /> },
+      { title: '用户ID', dataIndex: 'user_uid', key: 'user_uid', width: 100, render: (v) => <PlainText value={v} maxWidth={90} /> },
+      { title: '头像', dataIndex: 'avatar', key: 'avatar', width: 64, render: (v, r) => <ImageAvatar avatar={v} nickname={r.nickname} size={42} /> },
       { title: '昵称', dataIndex: 'nickname', key: 'nickname', width: 110 },
-      { title: '性别', dataIndex: 'gender', key: 'gender', width: 70, render: (v) => <DictTag code="gender" value={v} /> },
-      { title: '资料审核', dataIndex: 'profile_review_status', key: 'profile_review_status', width: 90, render: (v) => <StatusTag value={v} map={REVIEW_STATUS_MAP} /> },
-      { title: '状态', dataIndex: 'user_status', key: 'user_status', width: 80, render: (v) => <StatusTag value={v} map={{ 1: { label: '正常', color: 'success' }, 0: { label: '禁用', color: 'error' } }} /> },
-      { title: '注册时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
+      { title: '身份角色', dataIndex: '_role', key: '_role', width: 90, render: (v) => (v ? <StatusTag value={v} map={USER_LP_ROLE_MAP} /> : <Tag>未绑定</Tag>) },
+      { title: '绑定账号', dataIndex: '_boundStaffNickname', key: '_boundStaffNickname', width: 110, render: (v) => (v ? <PlainText value={v} maxWidth={100} /> : <EmptyText />) },
+      { title: '邀请码', dataIndex: '_inviteCode', key: '_inviteCode', width: 100, render: (v) => (v ? <PlainText value={v} strong /> : <EmptyText />) },
+      { title: '性别', dataIndex: 'gender', key: 'gender', width: 60, render: (v) => <DictTag code="gender" value={v} /> },
+      { title: '资料审核', dataIndex: 'profile_review_status', key: 'profile_review_status', width: 84, render: (v) => <StatusTag value={v} map={REVIEW_STATUS_MAP} /> },
+      { title: '账号状态', dataIndex: '_lockStatus', key: '_lockStatus', width: 84, render: (v) => <StatusTag value={v} map={USER_LOCK_STATUS_MAP} /> },
+      { title: '注册时间', dataIndex: 'created_at', key: 'created_at', width: 140 },
     ],
     detailFields: [
       { name: 'user_uid', label: '用户ID' },
       { name: 'user_id', label: '内部ID' },
-      { name: 'openid', label: 'openid' },
+      { name: 'openid', label: 'openid', span: 2 },
       { name: 'nickname', label: '昵称' },
       { name: 'avatar', label: '头像', type: 'imageAvatar' },
       { name: 'gender', label: '性别', type: 'dictTag', dict: 'gender' },
+      { name: '_role', label: '身份角色', type: 'tag', map: USER_LP_ROLE_MAP },
+      { name: '_boundStaffId', label: '绑定账号ID' },
+      { name: '_boundStaffNickname', label: '绑定账号' },
+      { name: '_inviteCode', label: '绑定邀请码' },
+      { name: '_inviteStatus', label: '邀请码状态', type: 'tag', map: INVITE_STATUS_MAP },
       { name: 'profile_review_status', label: '资料审核', type: 'tag', map: REVIEW_STATUS_MAP },
       { name: 'nickname_pending', label: '待审核昵称' },
       { name: 'gender_pending', label: '待审核性别', type: 'dictTag', dict: 'gender' },
-      { name: 'user_status', label: '状态', type: 'tag', map: { 1: { label: '正常', color: 'success' }, 0: { label: '禁用', color: 'error' } } },
+      { name: '_lockStatus', label: '账号状态', type: 'tag', map: USER_LOCK_STATUS_MAP },
+      { name: 'locked_until', label: '锁定截止时间', type: 'date' },
+      { name: 'locked_reason', label: '锁定原因', type: 'longText', span: 2 },
+      { name: 'locked_by', label: '锁定操作人' },
+      { name: 'locked_at', label: '锁定时间', type: 'date' },
+      { name: 'user_status', label: '禁用状态', type: 'tag', map: { 1: { label: '正常', color: 'success' }, 0: { label: '禁用', color: 'error' } } },
       { name: 'created_at', label: '注册时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
@@ -209,6 +251,40 @@ export const MODULES = {
       { name: 'nickname', label: '昵称', type: 'text' },
       { name: 'gender', label: '性别', type: 'select', options: [{ value: 0, label: '保密' }, { value: 1, label: '男' }, { value: 2, label: '女' }] },
       { name: 'user_status', label: '状态', type: 'select', options: [{ value: 1, label: '正常' }, { value: 0, label: '禁用' }] },
+    ],
+    // 账号锁定/解锁（按 user_id，含时效；操作写入操作审计）
+    customActions: [
+      {
+        label: '锁定账号',
+        icon: <LockOutlined />,
+        color: '#ff4d4f',
+        show: (r, ctx) => ctx.isAdmin && r._lockStatus !== 'locked',
+        modal: {
+          title: '锁定用户',
+          width: 520,
+          fields: [
+            { name: 'duration', label: '锁定时长', type: 'select', options: LOCK_DURATION_OPTIONS, rules: [{ required: true, message: '请选择锁定时长' }] },
+            { name: 'reason', label: '锁定原因', type: 'textarea', placeholder: '选填，便于审计追踪' },
+          ],
+        },
+        onClick: async (r, ctx, values) => {
+          const res = await crudApi.userLock(r.user_id, { hours: values.duration, reason: values.reason || '' });
+          message.success(res?.msg || '已锁定');
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
+      {
+        label: '解锁账号',
+        icon: <UnlockOutlined />,
+        color: '#52c41a',
+        show: (r, ctx) => ctx.isAdmin && r._lockStatus === 'locked',
+        confirm: '解锁后该用户可立即恢复正常使用（绑定未解除则直接进首页），确定解锁？',
+        onClick: async (r, ctx) => {
+          await crudApi.userUnlock(r.user_id);
+          message.success('已解锁');
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
     ],
   },
 
@@ -350,20 +426,13 @@ export const MODULES = {
   staff: {
     biz: 'staff',
     title: '管理员管理',
-    searchable: ['staff_username', 'staff_nickname', 'invite_code'],
+    searchable: ['staff_username', 'staff_nickname'],
     searchKey: 'staff_username',
     columns: [
       { title: 'ID', dataIndex: 'staff_id', key: 'staff_id', width: 80 },
       { title: '账号', dataIndex: 'staff_username', key: 'staff_username' },
       { title: '昵称', dataIndex: 'staff_nickname', key: 'staff_nickname' },
       { title: '角色', dataIndex: 'staff_role', key: 'staff_role', width: 100, render: (v) => <StatusTag value={v} map={STAFF_ROLE_MAP} /> },
-      // 课小满邀请码：6位大写；作废即锁定该学生的小程序访问
-      { title: '邀请码', dataIndex: 'invite_code', key: 'invite_code', width: 150, render: (v, r) => (
-        <Space size={6}>
-          <PlainText value={v || '--'} maxWidth={90} strong />
-          {r.invite_code_status === 1 ? <Tag color="success">有效</Tag> : <Tag color="error">已作废</Tag>}
-        </Space>
-      ) },
       { title: '状态', dataIndex: 'staff_status', key: 'staff_status', width: 80, render: (v) => <StatusTag value={v} map={{ 1: { label: '启用', color: 'success' }, 0: { label: '禁用', color: 'error' } }} /> },
       { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
     ],
@@ -372,40 +441,11 @@ export const MODULES = {
       { name: 'staff_username', label: '账号' },
       { name: 'staff_nickname', label: '昵称' },
       { name: 'staff_role', label: '角色', type: 'tag', map: STAFF_ROLE_MAP },
-      { name: 'invite_code', label: '邀请码' },
-      { name: 'invite_code_status', label: '邀请码状态', type: 'tag', map: { 1: { label: '有效', color: 'success' }, 0: { label: '已作废', color: 'error' } } },
-      { name: 'invite_code_revoked_at', label: '作废时间', type: 'date' },
       { name: 'staff_status', label: '状态', type: 'tag', map: { 1: { label: '启用', color: 'success' }, 0: { label: '禁用', color: 'error' } } },
       { name: 'created_at', label: '创建时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
-    // 邀请码操作：所有用户均可对自己的账号生成/作废邀请码（自助，无需管理员）；
-    // 管理员可对任意账号（学生/管理员均可）统一维护；作废即刻锁定该账号名下小程序访问
     customActions: [
-      {
-        label: '生成邀请码',
-        icon: <SafetyOutlined />,
-        color: '#1677ff',
-        show: (r) => isAdminUser() || String(r.staff_id) === String(currentUser().staff_id || ''),
-        confirm: '将为该账号生成新的邀请码并恢复其名下小程序访问权限（旧码作废），确定？',
-        onClick: async (r, ctx) => {
-          const res = await crudApi.generateInvite(r.staff_id);
-          message.success(`新邀请码：${res.data.invite_code}`);
-          if (ctx && ctx.refresh) ctx.refresh();
-        },
-      },
-      {
-        label: '作废邀请码',
-        icon: <StopOutlined />,
-        color: '#ff4d4f',
-        show: (r) => (isAdminUser() || String(r.staff_id) === String(currentUser().staff_id || '')) && r.invite_code_status === 1,
-        confirm: '作废后该账号名下的小程序访问将被立即锁定，确定作废？',
-        onClick: async (r, ctx) => {
-          await crudApi.revokeInvite(r.staff_id);
-          message.success('已作废，该账号的小程序访问已锁定');
-          if (ctx && ctx.refresh) ctx.refresh();
-        },
-      },
       {
         label: '赠送订阅次数',
         icon: <GiftOutlined />,
@@ -474,7 +514,7 @@ export const MODULES = {
       { name: 'staff_nickname', label: '账号昵称' },
       { name: 'staff_role', label: '账号角色', type: 'tag', map: { admin: { label: '管理员', color: 'purple' }, student: { label: '学生', color: 'blue' } } },
       { name: 'staff_invite_code', label: '绑定邀请码' },
-      { name: 'staff_invite_code_status', label: '邀请码状态', type: 'tag', map: { 1: { label: '有效', color: 'success' }, 0: { label: '已作废', color: 'error' } } },
+      { name: 'staff_invite_code_status', label: '邀请码状态', type: 'tag', map: INVITE_STATUS_MAP },
       { name: '_userId', label: '小程序用户', type: 'userCell', span: 2 },
       { name: 'openid', label: 'openid', type: 'text', span: 2 },
       { name: 'bound_status', label: '绑定状态', type: 'tag', map: { 1: { label: '正常', color: 'success' }, 0: { label: '已锁定', color: 'error' } } },
@@ -606,6 +646,85 @@ export const MODULES = {
       { name: 'created_at', label: '创建时间', type: 'date' },
     ],
     formFields: [],
+  },
+
+  // 课小满邀请码管理（独立模块，邀请码维护于 t_lp_invites，与 staff 解耦）
+  // 学生码 / 家属共享码统一查看：归属人、孩子、绑定人、状态；仅管理员可作废 / 重新生成
+  lp_invites: {
+    biz: 'lp_invites',
+    title: '邀请码管理',
+    entityName: '邀请码',
+    searchable: ['invite_code'],
+    searchKey: 'invite_code',
+    readonly: true,
+    rowDblClick: true,
+    filters: [
+      { name: 'kind', label: '类型', options: [
+        { value: 'student', label: '学生码' },
+        { value: 'family', label: '家属共享码' },
+      ] },
+      { name: 'status', label: '状态', options: [
+        { value: 'available', label: '未绑定' },
+        { value: 'bound', label: '已绑定' },
+        { value: 'revoked', label: '已作废' },
+      ] },
+    ],
+    columns: [
+      { title: 'ID', dataIndex: 'invite_id', key: 'invite_id', width: 80 },
+      { title: '邀请码', dataIndex: 'invite_code', key: 'invite_code', width: 110, render: (v) => <PlainText value={v} strong /> },
+      { title: '类型', dataIndex: 'kind', key: 'kind', width: 100, render: (v) => <StatusTag value={v} map={INVITE_KIND_MAP} /> },
+      { title: '状态', dataIndex: 'status', key: 'status', width: 90, render: (v) => <StatusTag value={v} map={INVITE_STATUS_MAP} /> },
+      { title: '归属人', dataIndex: '_ownerNickname', key: '_ownerNickname', width: 120, render: (v, r) => <StaffCell staffId={r.owner_staff_id} nickname={v} /> },
+      { title: '孩子', dataIndex: '_childName', key: '_childName', width: 100, render: (v) => <PlainText value={v || '--'} /> },
+      { title: '绑定人', dataIndex: '_boundNickname', key: '_boundNickname', width: 120, render: (v) => <PlainText value={v || '--'} /> },
+      { title: '绑定时间', dataIndex: 'bound_at', key: 'bound_at', width: 150 },
+      { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'invite_id', label: '邀请码ID' },
+      { name: 'invite_code', label: '邀请码', type: 'longText', span: 2 },
+      { name: 'kind', label: '类型', type: 'tag', map: INVITE_KIND_MAP },
+      { name: 'status', label: '状态', type: 'tag', map: INVITE_STATUS_MAP },
+      { name: '_ownerNickname', label: '归属人' },
+      { name: 'owner_staff_id', label: '归属账号ID' },
+      { name: '_childName', label: '关联孩子' },
+      { name: 'child_id', label: '孩子档案ID' },
+      { name: '_boundNickname', label: '绑定人' },
+      { name: 'bound_staff_id', label: '绑定账号ID' },
+      { name: '_boundUserNickname', label: '绑定小程序用户', type: 'text', span: 2 },
+      { name: 'bound_openid', label: '绑定openid', type: 'text', span: 2 },
+      { name: 'bound_at', label: '绑定时间', type: 'date' },
+      { name: 'created_at', label: '创建时间', type: 'date' },
+      { name: 'updated_at', label: '更新时间', type: 'date' },
+    ],
+    formFields: [],
+    // 独立管理操作（仅管理员）：作废锁定访问 / 重新生成恢复访问
+    customActions: [
+      {
+        label: '重新生成',
+        icon: <SafetyOutlined />,
+        color: '#1677ff',
+        show: (r, ctx) => ctx.isAdmin && r.kind === 'student',
+        confirm: '将为该学生生成新的学生码（旧可用学生码作废）并恢复其名下小程序访问，确定？',
+        onClick: async (r, ctx) => {
+          const res = await crudApi.lpInviteRegenerate(r.invite_id);
+          message.success(`新邀请码：${res.data.invite_code}`);
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
+      {
+        label: '作废',
+        icon: <StopOutlined />,
+        color: '#ff4d4f',
+        show: (r, ctx) => ctx.isAdmin && r.status !== 'revoked',
+        confirm: '作废后该邀请码不可再绑定（已绑定的学生码将同步锁定小程序访问），确定作废？',
+        onClick: async (r, ctx) => {
+          await crudApi.lpInviteRevoke(r.invite_id);
+          message.success('已作废');
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
+    ],
   },
 
   apps: {
@@ -901,6 +1020,7 @@ export const MODULES = {
         { value: 'monitors', label: '服务监控' },
         { value: 'traces', label: '接口链路' },
         { value: 'sessions', label: '会话画像' },
+        { value: 'lp_invites', label: '邀请码' },
       ] },
     ],
     columns: [

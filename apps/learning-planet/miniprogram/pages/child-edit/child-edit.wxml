@@ -4,6 +4,7 @@
       t-class-placeholder="t-navbar-placeholder"
       t-class-content="t-navbar-content"
       title="{{mode === 'edit' ? '编辑孩子' : '添加孩子'}}"
+      left-arrow="{{true}}"
       placeholder="{{true}}"
     />
   </view>

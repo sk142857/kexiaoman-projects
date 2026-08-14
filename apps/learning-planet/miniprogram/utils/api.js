@@ -18,6 +18,14 @@ function getToken() {
   try { return wx.getStorageSync('lp_token') || ''; } catch (_) { return ''; }
 }
 
+/** 停止全局会话心跳（登录被解除/失效后避免重复轮询与重复跳页） */
+function stopSessionGuard() {
+  try {
+    const app = getApp();
+    if (app && typeof app.stopSessionGuard === 'function') app.stopSessionGuard();
+  } catch (_) {}
+}
+
 /** 当前角色（student / admin） */
 function getRole() {
   try { return wx.getStorageSync('lp_role') || 'student'; } catch (_) { return 'student'; }
@@ -35,10 +43,11 @@ function clearViewStudent() { setViewStudent(''); }
 /**
  * 统一请求（环境内直调云托管）
  * @param {string} path 如 /api/lp/dashboard
- * @param {object} opts { method, data, auth }
+ * @param {object} opts { method, data, auth, redirect }
+ *  redirect=false：登录过期/被锁定时不跳页（用于上报等「即发即忘」接口，避免把用户从身份选择页弹走）
  */
 function request(path, opts = {}) {
-  const { method = 'GET', data = {}, auth = true } = opts;
+  const { method = 'GET', data = {}, auth = true, redirect = true } = opts;
   return new Promise((resolve, reject) => {
     wx.cloud.callContainer({
       config: { env: CLOUD_ENV },
@@ -58,15 +67,20 @@ function request(path, opts = {}) {
           wx.removeStorageSync('lp_staff');
           wx.removeStorageSync('lp_role');
           wx.removeStorageSync('lp_view_staff_id');
-          wx.reLaunch({ url: '/pages/bind/bind' });
+          stopSessionGuard();
+          if (redirect) wx.reLaunch({ url: '/pages/identity/identity' });
           reject({ code: 401, msg: body.msg || '登录已过期' });
         } else if (body.code === 403) {
-          // 邀请码已作废 / 访问被锁定
+          // 邀请码已作废 / 访问被锁定 / 账号被后台锁定
           wx.removeStorageSync('lp_token');
           wx.removeStorageSync('lp_staff');
           wx.removeStorageSync('lp_role');
           wx.removeStorageSync('lp_view_staff_id');
-          wx.reLaunch({ url: '/pages/bind/bind?locked=1' });
+          stopSessionGuard();
+          if (redirect) {
+            if (body.msg) wx.setStorageSync('lp_lock_msg', body.msg);
+            wx.reLaunch({ url: '/pages/identity/identity?locked=1' });
+          }
           reject({ code: 403, msg: body.msg || '访问已锁定' });
         } else {
           reject({ code: body.code, msg: body.msg || '操作失败' });
@@ -116,6 +130,8 @@ export const lpAuth = {
     }
     return request('/api/lp/registerParent', { method: 'POST', data: { nickname } });
   },
+  /** 会话心跳：实时复核绑定状态（后台解除邀请码后立即收到 403 → 前端清登录态回绑定页） */
+  sessionCheck: () => request('/api/lp/session'),
 };
 
 // ==================== 家庭 / 家长 API ====================
@@ -185,11 +201,12 @@ export const lp = {
 };
 
 // ==================== 数据上报 API ====================
+// 上报为「即发即忘」：登录过期/未绑定被锁定时不跳页（redirect:false）
 export const analytics = {
   /** 会话画像采集（user_sessions） */
-  collectSession: (session) => request('/api/lp/collectSession', { method: 'POST', data: { session } }),
+  collectSession: (session) => request('/api/lp/collectSession', { method: 'POST', data: { session }, redirect: false }),
   /** 用户操作事件（user_events） */
-  collectEvent: (payload) => request('/api/lp/collectEvent', { method: 'POST', data: payload }),
+  collectEvent: (payload) => request('/api/lp/collectEvent', { method: 'POST', data: payload, redirect: false }),
 };
 
-export { getToken, getRole, getViewStudent, setViewStudent, clearViewStudent, CLOUD_ENV, CLOUD_SERVICE };
+export { getToken, getRole, getViewStudent, setViewStudent, clearViewStudent };

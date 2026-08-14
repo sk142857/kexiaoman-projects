@@ -4,6 +4,7 @@
       t-class-placeholder="t-navbar-placeholder"
       t-class-content="t-navbar-content"
       title="家属共享"
+      left-arrow="{{true}}"
       placeholder="{{true}}"
     />
   </view>

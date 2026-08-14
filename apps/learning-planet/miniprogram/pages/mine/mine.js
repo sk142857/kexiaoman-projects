@@ -131,7 +131,7 @@ Page({
       success: (r) => {
         if (!r.confirm) return;
         trackEvent('menu_click', '点击解除绑定');
-        wx.navigateTo({ url: '/pages/bind/bind?rebind=1' });
+        wx.navigateTo({ url: '/pages/identity/identity?rebind=1' });
       },
     });
   },

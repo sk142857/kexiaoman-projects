@@ -11,7 +11,7 @@ import {
   PictureOutlined, ThunderboltOutlined, BookOutlined, ReadOutlined,
   UnorderedListOutlined, CalendarOutlined, TeamOutlined, MenuOutlined,
   DatabaseOutlined, ProfileOutlined, OrderedListOutlined, FolderOutlined,
-  AuditOutlined, CheckSquareOutlined,
+  AuditOutlined, CheckSquareOutlined, KeyOutlined,
 } from '@ant-design/icons';
 
 // 菜单图标映射（与后端 menus.menu_icon 对应）
@@ -45,6 +45,7 @@ const ICON_MAP = {
   FolderOutlined: <FolderOutlined />,
   AuditOutlined: <AuditOutlined />,
   CheckSquareOutlined: <CheckSquareOutlined />,
+  KeyOutlined: <KeyOutlined />,
 };
 const iconOf = (name) => ICON_MAP[name] || <AppstoreOutlined />;
 

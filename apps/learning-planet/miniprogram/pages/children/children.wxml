@@ -4,6 +4,7 @@
       t-class-placeholder="t-navbar-placeholder"
       t-class-content="t-navbar-content"
       title="孩子档案"
+      left-arrow="{{true}}"
       placeholder="{{true}}"
     />
   </view>

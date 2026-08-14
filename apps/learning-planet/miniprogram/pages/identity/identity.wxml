@@ -1,32 +1,52 @@
 <view class="page">
   <view class="logo">🎓</view>
   <view class="title">课小满</view>
-  <view class="sub">请选择您的身份</view>
+  <view class="sub">{{rebind ? '输入新邀请码，更换当前绑定的账号' : '请选择身份并输入邀请码完成绑定'}}</view>
 
   <view wx:if="{{locked}}" class="locked">
     <view class="locked-title">访问已锁定</view>
     <view class="locked-desc">{{lockedMsg}}</view>
   </view>
 
-  <view class="cards">
+  <view wx:if="{{rebind}}" class="rebind-tip">重新绑定将更换当前绑定的账号</view>
+
+  <!-- 身份选择（换绑时无需再选身份） -->
+  <view wx:if="{{!rebind}}" class="cards">
     <view class="card card--parent" bindtap="onParent">
       <view class="card-emoji">👨‍👩‍👧</view>
       <view class="card-name">我是家长</view>
       <view class="card-desc">创建家庭档案，管理孩子的任务与打卡</view>
     </view>
 
-    <view class="card card--student" bindtap="onStudent">
+    <view class="card card--student {{identity === 'student' && showCodeBox ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="student">
       <view class="card-emoji">📖</view>
       <view class="card-name">我是学生</view>
       <view class="card-desc">输入家长提供的学生邀请码完成绑定</view>
     </view>
 
-    <view class="card card--family" bindtap="onFamily">
+    <view class="card card--family {{identity === 'family' && showCodeBox ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="family">
       <view class="card-emoji">🤝</view>
       <view class="card-name">我是家属</view>
       <view class="card-desc">输入主家长提供的共享码，查看孩子学习情况</view>
     </view>
   </view>
 
-  <view class="tip">身份确认后将锁定，如需变更请联系管理员</view>
+  <!-- 邀请码绑定（学生/家属选中后同页展开；换绑时直接展开） -->
+  <view wx:if="{{showCodeBox}}" class="code-box">
+    <input
+      class="input"
+      type="text"
+      maxlength="6"
+      placeholder="{{placeholder}}"
+      placeholder-class="ph"
+      value="{{code}}"
+      focus="{{focusInput}}"
+      bindinput="onInput"
+    />
+    <view wx:if="{{errorMsg}}" class="error">{{errorMsg}}</view>
+    <t-button class="btn" theme="primary" block bindtap="onBind" loading="{{loading}}" disabled="{{code.length !== 6 || loading}}">{{rebind ? '确认重新绑定' : '绑定'}}</t-button>
+  </view>
+
+  <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
+  <view wx:if="{{!rebind}}" class="tip">身份确认后将锁定，如需变更请联系管理员</view>
 </view>
