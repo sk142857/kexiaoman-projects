@@ -1,0 +1,118 @@
+.page {
+  padding: 24rpx 32rpx 48rpx;
+}
+.empty {
+  color: #b0b6c0;
+  text-align: center;
+  padding: 120rpx 0;
+  font-size: 28rpx;
+}
+.empty.small {
+  padding: 40rpx 0;
+  font-size: 26rpx;
+}
+.card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.title {
+  font-size: 36rpx;
+  font-weight: 700;
+  flex: 1;
+  margin-right: 16rpx;
+}
+.status { font-size: 26rpx; font-weight: 600; white-space: nowrap; }
+.meta {
+  margin-top: 16rpx;
+  display: flex;
+  flex-wrap: wrap;
+}
+.task-progress {
+  margin-top: 20rpx;
+}
+.desc {
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  color: #3d434c;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.tags { margin-top: 16rpx; display: flex; flex-wrap: wrap; }
+.foot {
+  margin-top: 20rpx;
+  font-size: 24rpx;
+  color: #8a919f;
+  border-top: 1rpx solid #f2f3f5;
+  padding-top: 16rpx;
+}
+.imgs {
+  margin-top: 20rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+.img {
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 12rpx;
+  background: #f2f3f5;
+}
+.img.sm {
+  width: 140rpx;
+  height: 140rpx;
+}
+.section-title {
+  margin: 40rpx 0 20rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+.checkin {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+.checkin-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.checkin-date { color: #2b6de0; font-size: 26rpx; }
+.checkin-head-right {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.checkin-status {
+  font-size: 22rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+}
+.del { color: #ff4d4f; font-size: 24rpx; }
+.checkin-note { margin-top: 8rpx; font-size: 26rpx; color: #3d434c; }
+.checkin-review {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #e37318;
+  word-break: break-all;
+}
+
+/* 底部操作栏多按钮：不用 flex gap（Skyline 对自定义组件 host 不生效）、不用相邻兄弟选择器（需 8.0.49+）、不用 t-button 标签选择器（样式隔离），全部用页面内显式类 */
+.act-start,
+.act-finish,
+.act-checkin,
+.act-copy,
+.act-edit {
+  flex: 1;
+  margin-right: 16rpx;
+}
+.act-delete {
+  flex: 1;
+}

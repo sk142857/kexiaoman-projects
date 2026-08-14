@@ -1,0 +1,88 @@
+<view class="mine-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="我的"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="mine-scroll">
+    <view class="mine-main">
+
+      <!-- 用户卡 -->
+      <view class="profile-card">
+        <view class="profile-avatar">{{avatarChar}}</view>
+        <view class="profile-info">
+          <view wx:if="{{!editing}}" class="profile-name-row">
+            <text class="profile-name">{{nickname}}</text>
+            <text class="profile-edit" bindtap="startEdit">✏️</text>
+          </view>
+          <view wx:else class="profile-name-row">
+            <input class="profile-input" value="{{nickname}}" bindinput="onNick" placeholder="请输入昵称" maxlength="20" />
+            <text class="profile-save" bindtap="saveNick" wx:if="{{!saving}}">保存</text>
+            <text class="profile-cancel" bindtap="cancelEdit">取消</text>
+          </view>
+          <text class="profile-meta">{{appId}} · ID {{staffId || '--'}} · {{roleText}}</text>
+        </view>
+      </view>
+
+      <!-- 数据统计四宫格 -->
+      <view class="stats-card">
+        <view class="stat-item">
+          <text class="stat-num">{{stats.totalTasks}}</text>
+          <text class="stat-label">任务</text>
+        </view>
+        <view class="stat-item">
+          <text class="stat-num">{{stats.totalCheckins}}</text>
+          <text class="stat-label">打卡</text>
+        </view>
+        <view class="stat-item">
+          <text class="stat-num">{{streak.current}}</text>
+          <text class="stat-label">连击</text>
+        </view>
+        <view class="stat-item">
+          <text class="stat-num">{{level.level || 0}}</text>
+          <text class="stat-label">等级</text>
+        </view>
+      </view>
+
+      <!-- 功能菜单列表 -->
+      <view class="menu-card">
+        <!-- 主家长专属：孩子档案 / 家属共享 / 后台账号 -->
+        <view wx:if="{{isParent}}" class="menu-item" bindtap="goChildren">
+          <view class="menu-icon menu-icon--green">👶</view>
+          <text class="menu-label">孩子档案</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view wx:if="{{isParent}}" class="menu-item" bindtap="goShares">
+          <view class="menu-icon menu-icon--purple">🤝</view>
+          <text class="menu-label">家属共享</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view wx:if="{{isParent}}" class="menu-item" bindtap="goBackendAccount">
+          <view class="menu-icon menu-icon--blue">🔐</view>
+          <text class="menu-label">后台账号</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="goBadges">
+          <view class="menu-icon menu-icon--amber">🏅</view>
+          <text class="menu-label">我的奖章</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="goSubscribe">
+          <view class="menu-icon menu-icon--green">🔔</view>
+          <text class="menu-label">订阅消息</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="onRebind">
+          <view class="menu-icon menu-icon--rose">🔑</view>
+          <text class="menu-label">解除绑定</text>
+          <text class="menu-arrow">›</text>
+        </view>
+      </view>
+
+      <view class="foot">课小满 · 邀请码准入制</view>
+    </view>
+  </scroll-view>
+</view>

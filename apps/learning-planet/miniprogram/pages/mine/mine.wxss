@@ -1,0 +1,172 @@
+.mine-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #F5F7FA;
+}
+
+.mine-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mine-main {
+  padding: 16rpx 32rpx calc(var(--safe-bottom) + 32rpx);
+}
+
+/* ==================== 用户卡 ==================== */
+.profile-card {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.profile-avatar {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2b6de0, #5a8cff);
+  color: #ffffff;
+  font-size: 56rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 24rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.profile-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  min-width: 0;
+}
+.profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+.profile-name {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #1f2329;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-edit {
+  flex-shrink: 0;
+  font-size: 26rpx;
+}
+.profile-input {
+  flex: 1;
+  min-width: 0;
+  height: 64rpx;
+  border: 2rpx solid #d8dce3;
+  border-radius: 10rpx;
+  padding: 0 16rpx;
+  font-size: 30rpx;
+  color: #1f2329;
+}
+.profile-save {
+  flex-shrink: 0;
+  color: #2b6de0;
+  font-size: 28rpx;
+}
+.profile-cancel {
+  flex-shrink: 0;
+  color: #8a919f;
+  font-size: 28rpx;
+}
+.profile-meta {
+  font-size: 24rpx;
+  color: #8a919f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==================== 统计四宫格 ==================== */
+.stats-card {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 36rpx 8rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.stat-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+.stat-num {
+  font-size: 44rpx;
+  font-weight: 700;
+  color: #2b6de0;
+}
+.stat-label {
+  font-size: 22rpx;
+  color: #5c6470;
+}
+
+/* ==================== 功能菜单列表 ==================== */
+.menu-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  overflow: hidden;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  padding: 32rpx;
+}
+.menu-item:active {
+  background: rgba(31, 35, 41, 0.03);
+}
+.menu-item + .menu-item {
+  border-top: 1rpx solid #f0f1f3;
+}
+.menu-icon {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34rpx;
+  margin-right: 24rpx;
+  flex-shrink: 0;
+}
+.menu-icon--amber { background: #fff7e6; }
+.menu-icon--blue { background: #e6f4ff; }
+.menu-icon--purple { background: #f9f0ff; }
+.menu-icon--rose { background: #fff1f0; }
+.menu-icon--green { background: #e6faf4; }
+.menu-label {
+  flex: 1;
+  font-size: 28rpx;
+  color: #1f2329;
+}
+.menu-arrow {
+  font-size: 32rpx;
+  color: #b0b6c0;
+}
+
+.foot {
+  margin-top: 48rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #b0b6c0;
+}

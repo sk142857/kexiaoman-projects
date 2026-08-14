@@ -1,0 +1,71 @@
+/* app.wxss - 课小满全局样式 */
+page {
+  /* 底部安全区预留（tabbar 页面内容区底部间距基准，见前端 UI 规范 §3.2） */
+  --safe-bottom: 180rpx;
+
+  --td-brand-color: #2b6de0;
+  --td-brand-color-light: #eef4ff;
+  --td-brand-color-focus: #d6e4ff;
+  --td-brand-color-disabled: #a9c4f5;
+  --td-success-color: #52c41a;
+  --td-warning-color: #fa8c16;
+  --td-error-color: #ff4d4f;
+  --td-bg-color-page: #F5F7FA;
+  --td-bg-color-container: #ffffff;
+  --td-text-color-primary: #1f2329;
+  --td-text-color-secondary: #5c6470;
+  --td-text-color-placeholder: #b0b6c0;
+  --td-border-level-1-color: #e5e7eb;
+  --td-radius-default: 16rpx;
+  --td-radius-medium: 16rpx;
+  --td-radius-large: 24rpx;
+  --td-component-stroke-width: 2rpx;
+
+  background: #F5F7FA;
+  color: #1f2329;
+  font-size: 28rpx;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* 全局盒模型统一（skyline 兼容） */
+view {
+  box-sizing: border-box;
+}
+
+/* 导航栏占位容器：作为 flex 子项时不收缩 */
+.block {
+  flex-shrink: 0;
+}
+
+/* ==================== Skyline 滚动布局（见前端 UI 规范 §3.1/§8.5） ==================== */
+/* 页面根容器：flex column + 100vh，让 scroll-view 拿到确定高度 */
+.lp-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #F5F7FA;
+}
+/* 滚动区：flex:1 撑满剩余高度，overflow 必须整体 hidden（Skyline 不支持 overflow-y） */
+.lp-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ==================== 底部操作栏（flex 子项自然贴底，不用 fixed，见规范 §3.1） ==================== */
+.lp-actions {
+  flex-shrink: 0;
+  display: flex;
+  padding: 20rpx 32rpx 48rpx;
+  padding-bottom: calc(48rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 1rpx solid #f0f1f3;
+}
+.lp-actions t-button {
+  flex: 1;
+}
+
+/* 标签行间距：Skyline 下 flex gap 对自定义组件（t-tag）不生效，改用显式类 margin */
+.tag-gap {
+  margin-right: 12rpx;
+}

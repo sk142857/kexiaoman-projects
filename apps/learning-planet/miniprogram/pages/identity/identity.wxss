@@ -1,0 +1,77 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 140rpx) 64rpx;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #eaf2ff 0%, #f5f7fa 40%);
+}
+.logo {
+  font-size: 120rpx;
+}
+.title {
+  margin-top: 24rpx;
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.sub {
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  color: #8a919f;
+}
+.cards {
+  width: 100%;
+  margin-top: 80rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 28rpx;
+}
+.card {
+  width: 100%;
+  padding: 40rpx 36rpx;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 6rpx 20rpx rgba(31, 35, 41, 0.06);
+  box-sizing: border-box;
+}
+.card-emoji {
+  font-size: 56rpx;
+}
+.card-name {
+  margin-top: 12rpx;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #1f2329;
+}
+.card-desc {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+  line-height: 1.5;
+}
+.card--parent .card-name { color: #2b6de0; }
+.card--student .card-name { color: #52c41a; }
+.card--family .card-name { color: #fa8c16; }
+.locked {
+  margin-top: 80rpx;
+  width: 100%;
+  text-align: center;
+}
+.locked-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #ff4d4f;
+}
+.locked-desc {
+  margin-top: 16rpx;
+  color: #8a919f;
+  font-size: 28rpx;
+}
+.tip {
+  margin-top: 48rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #b0b6c0;
+}

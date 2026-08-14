@@ -1,0 +1,316 @@
+.page {
+  padding: 24rpx 32rpx calc(var(--safe-bottom) + 32rpx);
+}
+
+.empty {
+  color: #b0b6c0;
+  text-align: center;
+  padding: 160rpx 0;
+  font-size: 28rpx;
+}
+
+/* ==================== 等级 Hero ==================== */
+.hero {
+  position: relative;
+  margin-top: 24rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #2b6de0, #5a8cff 55%, #7aa2ff);
+  padding: 40rpx 36rpx 32rpx;
+  color: #ffffff;
+  box-shadow: 0 16rpx 40rpx rgba(43, 109, 224, 0.35);
+  overflow: hidden;
+}
+.hero-glow {
+  position: absolute;
+  top: -120rpx;
+  right: -80rpx;
+  width: 360rpx;
+  height: 360rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.25), transparent 65%);
+  animation: pulse 2.6s ease-in-out infinite;
+}
+.hero-body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 32rpx;
+}
+.hero-emblem-ring {
+  width: 168rpx;
+  height: 168rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(#ffd86b, #ff9f43, #ffd86b);
+  box-shadow: 0 0 0 6rpx rgba(255, 255, 255, 0.25), 0 8rpx 24rpx rgba(0, 0, 0, 0.2);
+}
+.hero-emblem-num {
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #2b6de0;
+  font-size: 72rpx;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hero-emblem-label {
+  margin-top: 12rpx;
+  text-align: center;
+  font-size: 22rpx;
+  opacity: 0.9;
+}
+.hero-info {
+  flex: 1;
+  min-width: 0;
+}
+.hero-title {
+  font-size: 40rpx;
+  font-weight: 800;
+}
+.hero-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  opacity: 0.9;
+}
+.hero-progress {
+  margin-top: 20rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.hero-progress-bar {
+  flex: 1;
+  height: 16rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+}
+.hero-progress-inner {
+  position: relative;
+  height: 100%;
+  border-radius: 999rpx;
+  background: #ffffff;
+  overflow: hidden;
+}
+.hero-progress-inner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: shine 2.2s ease-in-out infinite;
+}
+.hero-progress-text {
+  font-size: 24rpx;
+  font-weight: 700;
+}
+.hero-next {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  opacity: 0.9;
+}
+.hero-chip {
+  position: relative;
+  display: inline-block;
+  margin-top: 24rpx;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999rpx;
+  padding: 10rpx 24rpx;
+  font-size: 24rpx;
+  backdrop-filter: blur(8rpx);
+}
+
+/* ==================== 解锁进度环 ==================== */
+.ring-wrap {
+  margin-top: 32rpx;
+  background: #ffffff;
+  border-radius: 28rpx;
+  padding: 40rpx 32rpx;
+  display: flex;
+  align-items: center;
+  gap: 40rpx;
+  box-shadow: 0 8rpx 24rpx rgba(31, 35, 41, 0.06);
+}
+.ring {
+  flex-shrink: 0;
+  width: 240rpx;
+  height: 240rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8rpx 24rpx rgba(43, 109, 224, 0.18);
+  animation: pop 0.5s ease both;
+}
+.ring-inner {
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 50%;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ring-num {
+  font-size: 72rpx;
+  font-weight: 800;
+  color: #2b6de0;
+  line-height: 1;
+}
+.ring-label {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #8a919f;
+}
+.ring-info {
+  flex: 1;
+  min-width: 0;
+}
+.ring-info-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.ring-info-desc {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #5c6470;
+}
+.ring-info-sub {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #8a919f;
+}
+.ring-info-done {
+  color: #52c41a;
+  font-weight: 600;
+}
+
+/* ==================== 奖章墙 ==================== */
+.section-title {
+  margin-top: 40rpx;
+  margin-bottom: 20rpx;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.medal {
+  width: calc((100% - 32rpx) / 3);
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx 12rpx 24rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  animation: pop 0.45s ease both;
+}
+.medal-circle {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52rpx;
+}
+.medal--unlocked .medal-circle {
+  background: linear-gradient(135deg, #fff3d6, #ffe1a8);
+  box-shadow: inset 0 0 0 3rpx #ffd86b, 0 8rpx 20rpx rgba(255, 176, 58, 0.35);
+  animation: floaty 3.2s ease-in-out infinite;
+}
+.medal--locked .medal-circle {
+  background: #f0f1f4;
+  opacity: 0.7;
+}
+.medal-name {
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #1f2329;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.medal--locked .medal-name {
+  color: #8a919f;
+}
+.medal-desc {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #8a919f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.medal-status {
+  margin-top: 14rpx;
+  font-size: 20rpx;
+  color: #d97706;
+  font-weight: 600;
+}
+.medal-bar {
+  margin-top: 14rpx;
+  height: 8rpx;
+  background: #eef1f6;
+  border-radius: 999rpx;
+  overflow: hidden;
+}
+.medal-bar-inner {
+  height: 100%;
+  border-radius: 999rpx;
+  background: #a9c4f5;
+}
+.medal--locked {
+  opacity: 0.75;
+}
+
+/* ==================== 动画 ==================== */
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes floaty {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8rpx);
+  }
+}
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.12);
+  }
+}
+@keyframes shine {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%, 100% {
+    transform: translateX(320%);
+  }
+}

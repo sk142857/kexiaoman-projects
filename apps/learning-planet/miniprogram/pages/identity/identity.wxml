@@ -1,0 +1,32 @@
+<view class="page">
+  <view class="logo">🎓</view>
+  <view class="title">课小满</view>
+  <view class="sub">请选择您的身份</view>
+
+  <view wx:if="{{locked}}" class="locked">
+    <view class="locked-title">访问已锁定</view>
+    <view class="locked-desc">{{lockedMsg}}</view>
+  </view>
+
+  <view class="cards">
+    <view class="card card--parent" bindtap="onParent">
+      <view class="card-emoji">👨‍👩‍👧</view>
+      <view class="card-name">我是家长</view>
+      <view class="card-desc">创建家庭档案，管理孩子的任务与打卡</view>
+    </view>
+
+    <view class="card card--student" bindtap="onStudent">
+      <view class="card-emoji">📖</view>
+      <view class="card-name">我是学生</view>
+      <view class="card-desc">输入家长提供的学生邀请码完成绑定</view>
+    </view>
+
+    <view class="card card--family" bindtap="onFamily">
+      <view class="card-emoji">🤝</view>
+      <view class="card-name">我是家属</view>
+      <view class="card-desc">输入主家长提供的共享码，查看孩子学习情况</view>
+    </view>
+  </view>
+
+  <view class="tip">身份确认后将锁定，如需变更请联系管理员</view>
+</view>

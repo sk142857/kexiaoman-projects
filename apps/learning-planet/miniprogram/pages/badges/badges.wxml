@@ -1,0 +1,77 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="我的奖章"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+
+        <!-- 等级 Hero -->
+        <view class="hero">
+          <view class="hero-glow"></view>
+          <view class="hero-body">
+            <view class="hero-emblem">
+              <view class="hero-emblem-ring">
+                <view class="hero-emblem-num">{{level.level}}</view>
+              </view>
+              <view class="hero-emblem-label">当前等级</view>
+            </view>
+            <view class="hero-info">
+              <view class="hero-title">{{level.title}}</view>
+              <view class="hero-sub">经验值 {{level.xp}}</view>
+              <view class="hero-progress">
+                <view class="hero-progress-bar">
+                  <view class="hero-progress-inner" style="width: {{level.progress}}%"></view>
+                </view>
+                <view class="hero-progress-text">{{level.progress}}%</view>
+              </view>
+              <view wx:if="{{!level.maxLevel}}" class="hero-next">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}} XP</view>
+              <view wx:else class="hero-next">已满级，尊享荣耀</view>
+            </view>
+          </view>
+          <view class="hero-chip">🔥 连击 {{streak.current}} 天</view>
+        </view>
+
+        <!-- 解锁进度环 -->
+        <view class="ring-wrap">
+          <view class="ring" style="background: conic-gradient(#5a8cff {{totalCount ? unlockedCount * 100 / totalCount : 0}}%, #e6ebf5 0)">
+            <view class="ring-inner">
+              <view class="ring-num">{{unlockedCount}}</view>
+              <view class="ring-label">/ {{totalCount}} 已解锁</view>
+            </view>
+          </view>
+          <view class="ring-info">
+            <view class="ring-info-title">收集进度</view>
+            <view wx:if="{{nextBadge}}" class="ring-info-desc">{{nextBadge.icon}} 下一个：{{nextBadge.name}}</view>
+            <view wx:if="{{nextBadge}}" class="ring-info-sub">{{nextBadge.desc}}</view>
+            <view wx:else class="ring-info-desc ring-info-done">🎉 全部奖章集齐！</view>
+          </view>
+        </view>
+
+        <!-- 奖章墙 -->
+        <view class="section-title">奖章墙</view>
+        <view class="grid">
+          <view
+            wx:for="{{badges}}"
+            wx:key="key"
+            class="medal {{item.unlocked ? 'medal--unlocked' : 'medal--locked'}}"
+            style="animation-delay: {{index * 40}}ms"
+          >
+            <view class="medal-circle">{{item.icon}}</view>
+            <view class="medal-name">{{item.name}}</view>
+            <view class="medal-desc">{{item.desc}}</view>
+            <view wx:if="{{item.unlocked}}" class="medal-status">✓ 已解锁</view>
+            <view wx:else class="medal-bar">
+              <view class="medal-bar-inner" style="width: {{item.progress * 100}}%"></view>
+            </view>
+          </view>
+        </view>
+
+    </view>
+  </scroll-view>
+</view>

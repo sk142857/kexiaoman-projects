@@ -1,0 +1,122 @@
+.page {
+  padding: 32rpx 32rpx calc(env(safe-area-inset-bottom) + 48rpx);
+}
+.child-card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 28rpx;
+  box-shadow: 0 6rpx 20rpx rgba(31, 35, 41, 0.05);
+}
+.child-top {
+  display: flex;
+  align-items: center;
+}
+.child-avatar {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4facfe 0%, #2b6de0 100%);
+  color: #fff;
+  font-size: 40rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.child-info {
+  flex: 1;
+  margin-left: 24rpx;
+  overflow: hidden;
+}
+.child-name-row {
+  display: flex;
+  align-items: center;
+}
+.child-name {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1f2329;
+}
+.child-gender {
+  margin-left: 16rpx;
+  font-size: 24rpx;
+  color: #8a919f;
+  background: #f0f2f5;
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
+}
+.child-meta {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+}
+.child-arrow {
+  color: #c0c6cf;
+  font-size: 32rpx;
+  margin-left: 12rpx;
+}
+.child-code {
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #f0f2f5;
+}
+.child-code-label {
+  font-size: 26rpx;
+  color: #8a919f;
+}
+.child-code-row {
+  margin-top: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.child-code-value {
+  font-size: 40rpx;
+  font-weight: 700;
+  letter-spacing: 6rpx;
+  color: #2b6de0;
+}
+.child-code-value.off {
+  color: #c0c6cf;
+  text-decoration: line-through;
+}
+.child-code-actions {
+  display: flex;
+  gap: 12rpx;
+}
+.child-code-btn {
+  font-size: 24rpx;
+  color: #2b6de0;
+  background: #e6f4ff;
+  border-radius: 10rpx;
+  padding: 10rpx 20rpx;
+}
+.child-code-btn.danger {
+  color: #ff4d4f;
+  background: #fff1f0;
+}
+.child-code-tip {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #b0b6c0;
+}
+.add-btn {
+  margin-top: 8rpx;
+  height: 96rpx;
+  border: 2rpx dashed #2b6de0;
+  border-radius: 20rpx;
+  color: #2b6de0;
+  font-size: 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f7faff;
+}
+.foot {
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #b0b6c0;
+}

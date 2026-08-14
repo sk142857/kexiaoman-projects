@@ -1,0 +1,251 @@
+.todo-main {
+  padding: 24rpx 32rpx calc(var(--safe-bottom) + 32rpx);
+}
+
+/* ==================== 顶部提示 ==================== */
+.todo-tip {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx 32rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.todo-tip-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.todo-tip-desc {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #8a919f;
+}
+
+/* ==================== 学生待办卡片 ==================== */
+.todo-item {
+  display: flex;
+  background: #ffffff;
+  border-radius: 16rpx;
+  margin-bottom: 16rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.todo-bar {
+  width: 8rpx;
+  flex-shrink: 0;
+  background: #2b6de0;
+}
+.todo-body {
+  flex: 1;
+  min-width: 0;
+  padding: 24rpx;
+}
+.todo-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1f2329;
+  word-break: break-all;
+}
+.todo-meta {
+  margin-top: 14rpx;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+.todo-tag {
+  font-size: 22rpx;
+  color: #2b6de0;
+  background: #eef4ff;
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
+}
+.todo-deadline {
+  font-size: 24rpx;
+  color: #8a919f;
+}
+.todo-foot {
+  margin-top: 18rpx;
+  text-align: right;
+}
+.todo-go {
+  font-size: 26rpx;
+  color: #2b6de0;
+  font-weight: 600;
+}
+
+/* ==================== 管理员审核卡片 ==================== */
+.review-item {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.review-head {
+  display: flex;
+  align-items: center;
+}
+.review-avatar {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2b6de0, #5a8cff);
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+.review-student {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.review-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #1f2329;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-time {
+  font-size: 22rpx;
+  color: #8a919f;
+  margin-top: 4rpx;
+}
+.review-badge {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: #e37318;
+  background: #fdf1e4;
+  border-radius: 999rpx;
+  padding: 6rpx 16rpx;
+}
+.review-task {
+  margin-top: 18rpx;
+  display: flex;
+  align-items: center;
+  background: #f5f7fa;
+  border-radius: 12rpx;
+  padding: 20rpx 24rpx;
+}
+.review-task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  color: #1f2329;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-task-arrow {
+  margin-left: 12rpx;
+  color: #b0b6c0;
+  font-size: 32rpx;
+}
+.review-note {
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  color: #5c6470;
+  line-height: 1.6;
+  word-break: break-all;
+}
+.review-imgs {
+  margin-top: 16rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+.review-img {
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 12rpx;
+  background: #f0f1f3;
+}
+.review-actions {
+  margin-top: 20rpx;
+  display: flex;
+  gap: 16rpx;
+}
+.review-btn {
+  flex: 1;
+}
+
+.todo-foot-note {
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #b0b6c0;
+}
+
+/* ==================== 审核不通过弹层 ==================== */
+.mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  z-index: 99;
+}
+.sheet {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 24rpx 24rpx 0 0;
+  padding: 32rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+}
+.sheet-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.sheet-task {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+}
+.field {
+  margin-top: 24rpx;
+}
+.label {
+  font-size: 26rpx;
+  color: #5c6470;
+  margin-bottom: 12rpx;
+}
+.input {
+  height: 80rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 12rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+  color: #1f2329;
+}
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 160rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  font-size: 28rpx;
+  color: #1f2329;
+  line-height: 1.6;
+}
+.sheet-actions {
+  margin-top: 32rpx;
+  display: flex;
+  gap: 16rpx;
+}
+.sheet-actions t-button {
+  flex: 1;
+}

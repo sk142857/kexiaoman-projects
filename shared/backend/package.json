@@ -1,0 +1,22 @@
+{
+  "name": "shared-app-cloudrun",
+  "version": "1.0.0",
+  "description": "多小程序共享云托管服务（课小满业务后端）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@cloudbase/js-sdk": "^3.7.1",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "lru-cache": "^7.18.3",
+    "sharp": "^0.33.5",
+    "ws": "^8.21.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

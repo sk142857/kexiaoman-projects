@@ -1,0 +1,87 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 120rpx) 64rpx;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #eaf2ff 0%, #f5f7fa 40%);
+}
+.logo {
+  font-size: 120rpx;
+}
+.title {
+  margin-top: 24rpx;
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.sub {
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  color: #8a919f;
+}
+.form {
+  width: 100%;
+  margin-top: 80rpx;
+}
+.input {
+  width: 100%;
+  height: 96rpx;
+  background: #ffffff;
+  border-radius: 16rpx;
+  text-align: center;
+  font-size: 40rpx;
+  letter-spacing: 8rpx;
+  font-weight: 600;
+  color: #2b6de0;
+  box-shadow: 0 4rpx 16rpx rgba(31, 35, 41, 0.06);
+}
+.ph {
+  color: #c0c6cf;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 30rpx;
+}
+.error {
+  margin-top: 16rpx;
+  color: #ff4d4f;
+  font-size: 26rpx;
+  text-align: center;
+}
+.btn {
+  margin-top: 48rpx;
+}
+.tip {
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #b0b6c0;
+}
+.rebind-tip {
+  margin-top: 20rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #ff8c1a;
+}
+.back {
+  margin-top: 28rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #2b6de0;
+}
+.locked {
+  margin-top: 80rpx;
+  width: 100%;
+  text-align: center;
+}
+.locked-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #ff4d4f;
+}
+.locked-desc {
+  margin-top: 16rpx;
+  color: #8a919f;
+  font-size: 28rpx;
+}

@@ -1,0 +1,126 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="课小满"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
+    <view class="page">
+  <!-- 管理员/家长/家属：切换查看学生 -->
+  <view wx:if="{{isManager}}" class="admin-bar">
+    <picker range="{{students}}" range-key="nickname" value="{{viewStudentIndex}}" bindchange="onPickStudent">
+      <view class="admin-picker">
+        <text class="admin-label">查看学生</text>
+        <text wx:if="{{viewStudentId}}" class="admin-name">{{viewStudentName}}</text>
+        <text wx:else class="admin-placeholder">选择要查看的学生</text>
+        <text class="admin-arrow">▾</text>
+      </view>
+    </picker>
+    <view wx:if="{{viewStudentId}}" class="admin-exit" bindtap="exitView">退出查看</view>
+  </view>
+
+  <block wx:if="{{isManager && !viewStudentId}}">
+    <view class="empty admin-tip">请先在上方选择要查看的学生</view>
+  </block>
+
+  <block wx:else>
+    <!-- 等级卡片 -->
+    <view class="level-card">
+      <view class="level-top">
+        <view>
+          <view class="greet">Hi，{{staff.nickname || '同学'}}</view>
+          <view class="level-title">Lv.{{level.level}} · {{level.title}}</view>
+        </view>
+        <view class="level-num">{{level.level}}</view>
+      </view>
+      <view class="progress-wrap">
+        <t-progress
+          theme="plump"
+          percentage="{{level.progress}}"
+          stroke-width="10"
+          color="#ffffff"
+          track-color="rgba(255,255,255,0.3)"
+          label="{{false}}"
+        />
+      </view>
+      <view class="xp-row">
+        <text>经验值 {{level.xp}}</text>
+        <text wx:if="{{!level.maxLevel}}">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}}</text>
+        <text wx:else>已满级</text>
+      </view>
+      <view class="streak-row">
+        <view class="streak-item">🔥 连击 {{streak.current}} 天</view>
+        <view class="streak-item">🏆 最长 {{streak.max}} 天</view>
+        <view class="streak-item">{{stats.todayCheckedIn ? '✅ 今日已打卡' : '⏳ 今日未打卡'}}</view>
+      </view>
+    </view>
+
+    <!-- 提醒 -->
+    <view class="section">
+      <view class="section-title">今日提醒</view>
+      <view wx:for="{{reminders}}" wx:key="index" class="reminder r-{{item.severity}}">
+        <view class="reminder-title">{{item.title}}</view>
+        <view class="reminder-desc">{{item.desc}}</view>
+      </view>
+    </view>
+
+    <!-- 统计 -->
+    <view class="stat-grid">
+      <view class="stat-card stat-total"><view class="num">{{stats.totalTasks}}</view><view class="label">任务</view></view>
+      <view class="stat-card stat-todo"><view class="num">{{stats.todoCount}}</view><view class="label">未开始</view></view>
+      <view class="stat-card stat-doing"><view class="num">{{stats.doingCount}}</view><view class="label">进行中</view></view>
+      <view class="stat-card stat-done"><view class="num">{{stats.doneCount}}</view><view class="label">已完成</view></view>
+    </view>
+
+    <!-- 完成率 -->
+    <view class="section">
+      <view class="section-title">任务完成率</view>
+      <view class="completion-card">
+        <t-progress
+          theme="plump"
+          percentage="{{stats.completionRate}}"
+          stroke-width="12"
+          label="{{true}}"
+          color="#2b6de0"
+        />
+        <view class="completion-sub">已完成 {{stats.doneCount}} / {{stats.totalTasks}} 个任务</view>
+      </view>
+    </view>
+
+    <!-- 近7天 -->
+    <view class="section">
+      <view class="section-title">近 7 天打卡</view>
+      <view class="days-card">
+        <view class="days-head">
+          <text class="days-title">连续打卡</text>
+          <text class="days-streak">🔥 {{streak.current}} 天</text>
+        </view>
+        <view class="days-body">
+          <view wx:for="{{days}}" wx:key="index" class="day">
+            <view class="day-bar {{item.active ? 'on' : ''}}" style="height: {{item.h}}rpx"></view>
+            <view class="day-date {{item.active ? 'on' : ''}}">{{item.date}}</view>
+          </view>
+        </view>
+        <view class="days-foot">本周共打卡 {{weekCheckinCount}} 次</view>
+      </view>
+    </view>
+
+    <!-- 最近打卡 -->
+    <view class="section">
+      <view class="section-title">最近打卡</view>
+      <view wx:if="{{recentCheckins.length === 0}}">
+        <t-empty description="还没有打卡记录" />
+      </view>
+      <view wx:for="{{recentCheckins}}" wx:key="checkin_id" class="recent" bindtap="goTaskDetail" data-id="{{item.task_id}}">
+        <view class="recent-date">{{item.checkin_date}}</view>
+        <view class="recent-title">{{item.task_title}}</view>
+        <view class="recent-note">{{item.note || '（无备注）'}}</view>
+      </view>
+    </view>
+  </block>
+  </view>
+</scroll-view>
+</view>

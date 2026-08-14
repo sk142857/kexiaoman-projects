@@ -1,0 +1,80 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="订阅消息"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="sub-main">
+
+      <!-- 剩余次数卡 -->
+      <view class="sub-card sub-count">
+        <view class="sub-count-num">{{available}}</view>
+        <view class="sub-count-label">当前可用订阅次数</view>
+        <view wx:if="{{!hasTmpl}}" class="sub-count-tip">订阅模板未配置，暂无法接收通知</view>
+      </view>
+
+      <!-- 说明 -->
+      <view class="sub-card sub-desc">
+        <view class="sub-desc-row">
+          <text class="sub-desc-key">累计授权</text>
+          <text class="sub-desc-val">{{total}} 次</text>
+        </view>
+        <view class="sub-desc-row">
+          <text class="sub-desc-key">已使用</text>
+          <text class="sub-desc-val">{{used}} 次</text>
+        </view>
+        <view class="sub-desc-row">
+          <text class="sub-desc-key">订阅模板</text>
+          <text class="sub-desc-val {{hasTmpl ? '' : 'warn'}}">{{hasTmpl ? '已配置 ' + tmplCount + ' 个' : '未配置'}}</text>
+        </view>
+        <view class="sub-tip">订阅次数用于接收「审核结果通知」「打卡提醒」等消息，每次通知消耗 1 次。</view>
+      </view>
+
+      <!-- 增加次数 -->
+      <view class="sub-cta">
+        <t-button
+          theme="primary"
+          variant="base"
+          block
+          bindtap="requestSubscribe"
+          loading="{{granting}}"
+          disabled="{{!hasTmpl || granting}}"
+        >增加订阅消息次数</t-button>
+        <view wx:if="{{!hasTmpl}}" class="sub-cta-tip">订阅模板尚未配置，请联系管理员配置后即可订阅</view>
+      </view>
+
+      <!-- 授权记录 -->
+      <view class="sub-section-title">授权记录</view>
+      <view class="sub-card sub-grants">
+        <!-- 首次加载中 -->
+        <view wx:if="{{loading && !loaded}}" class="sub-empty">
+          <text class="sub-empty-text">正在加载订阅记录…</text>
+        </view>
+        <!-- 无数据 -->
+        <view wx:elif="{{grants.length === 0}}" class="sub-empty">
+          <text class="sub-empty-icon">🔔</text>
+          <text class="sub-empty-title">还没有订阅记录</text>
+          <text class="sub-empty-text">点击上方按钮订阅，即可接收审核结果与任务提醒</text>
+        </view>
+        <!-- 有数据 -->
+        <block wx:else>
+          <view wx:for="{{grants}}" wx:key="grant_id" class="sub-grant">
+            <view class="sub-grant-left">
+              <text class="sub-grant-title">{{item.tmpl_name || item.tmpl_id || '订阅次数'}}</text>
+              <text class="sub-grant-time">{{item.created_at}} · {{item.source === 'backoffice' ? '后台赠送' : '小程序授权'}}</text>
+            </view>
+            <view class="sub-grant-right">
+              <text class="sub-grant-used">已用 {{item.used_count}}/{{item.grant_count}}</text>
+              <text class="sub-grant-status {{item.grant_status === 'active' ? 'ok' : 'off'}}">{{item.grant_status === 'active' ? '可用' : '已用尽'}}</text>
+            </view>
+          </view>
+        </block>
+      </view>
+    </view>
+  </scroll-view>
+</view>

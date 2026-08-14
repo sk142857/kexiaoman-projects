@@ -1,0 +1,27 @@
+<view class="page">
+  <view class="logo">🎓</view>
+  <view class="title">课小满</view>
+  <view class="sub">输入邀请码，开启你的学习之旅</view>
+
+  <view wx:if="{{locked}}" class="locked">
+    <view class="locked-title">访问已锁定</view>
+    <view class="locked-desc">{{lockedMsg}}</view>
+  </view>
+
+  <view class="form">
+    <input
+      class="input"
+      type="text"
+      maxlength="6"
+      placeholder="{{placeholder}}"
+      placeholder-class="ph"
+      value="{{code}}"
+      bindinput="onInput"
+    />
+    <view wx:if="{{errorMsg}}" class="error">{{errorMsg}}</view>
+    <view wx:if="{{rebind}}" class="rebind-tip">重新绑定将更换当前绑定的账号</view>
+    <t-button class="btn" theme="primary" block bindtap="onBind" loading="{{loading}}" disabled="{{code.length !== 6 || loading}}">{{rebind ? '确认重新绑定' : (locked ? '重新绑定' : '绑定')}}</t-button>
+    <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
+    <view class="tip">邀请码由家长或老师提供（学生码 / 家属共享码均可）</view>
+  </view>
+</view>

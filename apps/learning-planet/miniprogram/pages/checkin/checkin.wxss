@@ -1,0 +1,55 @@
+.page {
+  padding: 24rpx 32rpx 48rpx;
+}
+.card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 32rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.task-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  margin-bottom: 16rpx;
+}
+.field {
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f2f3f5;
+}
+.label {
+  font-size: 26rpx;
+  color: #5c6470;
+  margin-bottom: 12rpx;
+}
+.picker {
+  height: 72rpx;
+  line-height: 72rpx;
+  font-size: 30rpx;
+  color: #1f2329;
+}
+.textarea {
+  width: 100%;
+  height: 160rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+}
+.img-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.img {
+  width: 180rpx;
+  height: 180rpx;
+  border-radius: 12rpx;
+  background: #f2f3f5;
+}
+.img.add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64rpx;
+  color: #b0b6c0;
+  border: 2rpx dashed #d8dce3;
+  background: #fafbfc;
+}

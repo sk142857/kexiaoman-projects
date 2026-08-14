@@ -1,0 +1,8 @@
+<!-- custom-tab-bar/index.wxml -->
+<view class="page">
+  <t-tab-bar class="hy-tab-bar" value="{{selected}}" bindchange="onChange" fixed="{{true}}" split="{{false}}">
+    <t-tab-bar-item wx:for="{{list}}" wx:key="index" value="{{item.index}}" icon="{{item.icon}}">
+      {{item.label}}
+    </t-tab-bar-item>
+  </t-tab-bar>
+</view>

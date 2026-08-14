@@ -1,0 +1,96 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="待办"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
+    <view class="todo-main">
+
+      <!-- 顶部提示 -->
+      <view class="todo-tip">
+        <text class="todo-tip-title">{{isManager ? '待审核打卡' : '我的待办'}}</text>
+        <text class="todo-tip-desc">{{isManager ? '学生提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
+      </view>
+
+      <t-empty wx:if="{{!loading && list.length === 0}}" description="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" />
+
+      <!-- 学生待办：未打卡任务 -->
+      <block wx:if="{{!isManager}}">
+        <view wx:for="{{list}}" wx:key="task_id" class="todo-item" bindtap="goTask" data-id="{{item.task_id}}">
+          <view class="todo-bar"></view>
+          <view class="todo-body">
+            <view class="todo-title">{{item.title}}</view>
+            <view class="todo-meta">
+              <text wx:if="{{item.subject}}" class="todo-tag">{{item.subject}}</text>
+              <text wx:if="{{item.deadline}}" class="todo-deadline">截止 {{item.deadline}}</text>
+            </view>
+            <view class="todo-foot">
+              <text class="todo-go">去完成 ›</text>
+            </view>
+          </view>
+        </view>
+      </block>
+
+      <!-- 家长/家属/管理员待办：待审核打卡 -->
+      <block wx:else>
+        <view wx:for="{{list}}" wx:key="checkin_id" class="review-item">
+          <view class="review-head">
+            <view class="review-avatar">{{item.studentAvatar}}</view>
+            <view class="review-student">
+              <text class="review-name">{{item.student.nickname}}</text>
+              <text class="review-time">{{item.submitTime || item.checkin_date}} 提交</text>
+            </view>
+            <text class="review-badge">待审核</text>
+          </view>
+          <view class="review-task" bindtap="goTask" data-id="{{item.task_id}}">
+            <text class="review-task-title">{{item.task_title}}</text>
+            <text class="review-task-arrow">›</text>
+          </view>
+          <view wx:if="{{item.checkin_note}}" class="review-note">{{item.checkin_note}}</view>
+          <view wx:if="{{item.images.length}}" class="review-imgs">
+            <image
+              wx:for="{{item.images}}"
+              wx:key="index"
+              class="review-img"
+              src="{{item}}"
+              mode="aspectFill"
+              data-url="{{item}}"
+              data-cid="{{item.checkin_id}}"
+              bindtap="preview"
+            />
+          </view>
+          <view class="review-actions">
+            <t-button class="review-btn" theme="danger" variant="outline" size="small" bindtap="onReject" data-id="{{item.checkin_id}}">审核不通过</t-button>
+            <t-button class="review-btn" theme="primary" variant="base" size="small" bindtap="onApprove" data-id="{{item.checkin_id}}">审核通过</t-button>
+          </view>
+        </view>
+      </block>
+
+      <view wx:if="{{!loading && list.length > 0}}" class="todo-foot-note">处理完成后将自动从待办移除</view>
+    </view>
+  </scroll-view>
+
+  <!-- 审核不通过弹层 -->
+  <view wx:if="{{rejectVisible}}" class="mask" catchtouchmove="true">
+    <view class="sheet">
+      <view class="sheet-title">审核不通过</view>
+      <view class="sheet-task" wx:if="{{rejectItem}}">{{rejectItem.student.nickname}} · {{rejectItem.task_title}}</view>
+      <view class="field">
+        <view class="label">评分（0-10）</view>
+        <input class="input" type="number" value="{{rejectScore}}" bindinput="onRejectScore" placeholder="0" />
+      </view>
+      <view class="field">
+        <view class="label">审核说明 / 原因</view>
+        <textarea class="textarea" value="{{rejectNote}}" bindinput="onRejectNote" placeholder="请填写不通过原因（选填）" maxlength="500" />
+      </view>
+      <view class="sheet-actions">
+        <t-button theme="default" variant="outline" block bindtap="cancelReject">取消</t-button>
+        <t-button theme="danger" variant="base" block bindtap="submitReject" loading="{{submitting}}">确认驳回</t-button>
+      </view>
+    </view>
+  </view>
+</view>

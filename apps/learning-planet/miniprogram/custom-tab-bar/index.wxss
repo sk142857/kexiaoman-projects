@@ -1,0 +1,6 @@
+.page .hy-tab-bar {
+  /* 修改选中项的文字和图标颜色为品牌蓝 */
+  --td-tab-bar-active-color: #2b6de0;
+  /* 可选：修改选中项的背景色 */
+  --td-tab-bar-active-bg: #eef4ff;
+}

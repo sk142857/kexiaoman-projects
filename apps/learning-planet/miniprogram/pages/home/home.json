@@ -1,0 +1,9 @@
+{
+  "navigationBarTextStyle": "black",
+  "disableScroll": true,
+  "usingComponents": {
+    "t-navbar": "tdesign-miniprogram/navbar/navbar",
+    "t-progress": "tdesign-miniprogram/progress/progress",
+    "t-empty": "tdesign-miniprogram/empty/empty"
+  }
+}

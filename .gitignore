@@ -1,0 +1,42 @@
+# ==================== 依赖与构建产物 ====================
+# Node 依赖（miniprogram 与所有云函数目录）
+node_modules/
+**/node_modules/
+
+# npm 构建产物（微信开发者工具「构建 npm」生成，可重新构建）
+miniprogram/miniprogram_npm/
+miniprogram_npm/
+
+# ==================== 微信开发者工具 ====================
+# 个人/私有配置（含 AppID 等敏感信息，不入库）
+project.private.config.json
+
+# 编译/缓存
+.DS_Store
+*.log
+.npmrc
+package-lock.json
+
+# ==================== 数据与敏感信息 ====================
+# 本地数据库导出/备份（可能含用户隐私数据，不应入库）
+database/
+*.json.tmp
+*.bak
+
+# 环境变量与密钥（如有）
+.env
+.env.*
+*.pem
+*.key
+
+# ==================== 系统/编辑器 ====================
+# Windows / macOS
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
