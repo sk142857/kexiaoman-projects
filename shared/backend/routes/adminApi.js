@@ -46,6 +46,8 @@ function crudRouter(opts) {
     onAfterCreate = null, onAfterUpdate = null, onAfterDelete = null,
     // 写前校验钩子：async (req, oldRecord, values) => string|null，返回错误信息则拦截（如已完成任务禁改/禁删）
     onBeforeUpdate = null, onBeforeDelete = null,
+    // 新增前钩子：async (req, values) => string|null，可改写 values（如自动生成编码/补齐字段），返回错误信息则拦截
+    onBeforeCreate = null,
   } = opts;
   const router = express.Router();
 
@@ -77,7 +79,7 @@ function crudRouter(opts) {
     } catch (_) { /* 忽略，无用户信息也可展示 */ }
     return list.map(r => {
       const u = userMap[r[userField]] || {};
-      const nick = u.nickname || "微信用户";
+      const nick = u.nickname || "用户";
       const ch = String(nick).charAt(0);
       return {
         ...r,
@@ -227,6 +229,10 @@ function crudRouter(opts) {
       const values = buildValues(req.body);
       if (Object.keys(values).length === 0) return res.json(fail("无有效字段"));
       if (defaults) Object.assign(values, typeof defaults === "function" ? defaults(req) : defaults);
+      if (onBeforeCreate) {
+        const err = await onBeforeCreate(req, values);
+        if (err) return res.json(fail(err, 400));
+      }
       const scope = scopeFn ? scopeFn(req) : null;
       if (scope) values[scope.field] = scope.value;
       if (appField && req.appId && !values[appField]) values[appField] = req.appId;

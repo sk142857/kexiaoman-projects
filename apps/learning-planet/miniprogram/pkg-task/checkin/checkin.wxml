@@ -1,0 +1,69 @@
+<view class="lp-page">
+  <view class="header">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="任务打卡"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+    <view class="steps-band">
+      <view class="task-title">{{taskTitle || '任务打卡'}}</view>
+      <t-steps class="steps" current="{{step}}" readonly>
+        <t-step-item title="打卡内容" />
+        <t-step-item title="打卡图片" />
+      </t-steps>
+    </view>
+  </view>
+
+  <!-- 步骤一：打卡内容 -->
+  <scroll-view wx:if="{{step === 0}}" scroll-y class="lp-scroll content">
+    <view class="form">
+      <view class="field">
+        <view class="label">打卡日期</view>
+        <picker mode="date" value="{{date}}" bindchange="onDate">
+          <view class="picker-box">
+            <text>{{date}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="field">
+        <view class="label">打卡备注</view>
+        <textarea class="textarea" placeholder="今天完成了什么？" placeholder-class="ph" value="{{note}}" bindinput="onNote" />
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 步骤二：打卡图片 -->
+  <scroll-view wx:if="{{step === 1}}" scroll-y class="lp-scroll content">
+    <view class="form">
+      <view class="field">
+        <view class="label">打卡图片（最多9张）</view>
+        <view class="img-grid">
+          <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" data-index="{{index}}" bindtap="removeImage" />
+          <view wx:if="{{images.length < 9}}" class="img add" bindtap="addImages">＋</view>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 固定底部操作栏 -->
+  <view class="footer">
+    <block wx:if="{{step === 0}}">
+      <t-button class="btn" theme="primary" block bindtap="onNext">下一步</t-button>
+    </block>
+
+    <block wx:elif="{{step === 1}}">
+      <view class="footer-row">
+        <view class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onSubmit" loading="{{submitting}}">提交打卡</t-button>
+        </view>
+      </view>
+    </block>
+  </view>
+</view>

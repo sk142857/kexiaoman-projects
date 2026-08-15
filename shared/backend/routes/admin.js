@@ -16,7 +16,7 @@ const { nextSeq } = require("../seq");
 const { logStaffEvent } = require("../staffAudit");
 const { logTaskEvent } = require("../taskTimeline");
 const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = require("../apps");
-const { createInvite, inviteById } = require("./lpAuth");
+const { createInvite, inviteById, genUniqueInviteCode } = require("./lpAuth");
 const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
 const { sendReviewNotification } = require("../subscribeLib");
@@ -261,7 +261,8 @@ async function requireModulePermission(req, res, next) {
 }
 
 // ==================== 内置默认菜单（兜底：数据库菜单缺失/迁移未执行时也能用） ====================
-// 与 sql/init_data.sql 种子保持一致
+// 与 sql/init_data.sql、sql/init_menus.sql 种子保持一致（课小满后台专用，menu_id 稳定 1~38）
+// 一级分组：仪表盘 / 学习管理 / 成员管理 / 消息通知 / 系统监控 / 系统设置
 const DEFAULT_MENU_GROUPS = [
   { id: "1", parent_id: "0", name: "仪表盘", path: "/dashboard", icon: "DashboardOutlined", sort: 1, type: "group", status: 1, children: [
     { id: "3", name: "监控仪表盘", path: "/dashboard/monitor", icon: "LineChartOutlined", type: "leaf" },
@@ -273,24 +274,24 @@ const DEFAULT_MENU_GROUPS = [
     { id: "6", name: "任务管理", path: "/module/tasks", icon: "UnorderedListOutlined", type: "leaf" },
     { id: "7", name: "打卡管理", path: "/module/task_checkins", icon: "CalendarOutlined", type: "leaf" },
     { id: "28", name: "合集管理", path: "/module/task_collections", icon: "FolderOutlined", type: "leaf" },
+  ]},
+  { id: "8", parent_id: "0", name: "成员管理", path: "/members", icon: "UserOutlined", sort: 3, type: "group", status: 1, children: [
+    { id: "9", name: "用户管理", path: "/module/users", icon: "UserOutlined", type: "leaf" },
     { id: "31", name: "绑定管理", path: "/module/lp_students", icon: "LinkOutlined", type: "leaf" },
     { id: "36", name: "孩子档案", path: "/module/lp_children", icon: "SolutionOutlined", type: "leaf" },
-    { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "TeamOutlined", type: "leaf" },
+    { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "HeartOutlined", type: "leaf" },
     { id: "38", name: "邀请码管理", path: "/module/lp_invites", icon: "KeyOutlined", type: "leaf" },
+  ]},
+  { id: "19", parent_id: "0", name: "消息通知", path: "/message", icon: "BellOutlined", sort: 4, type: "group", status: 1, children: [
     { id: "32", name: "订阅授权", path: "/module/subscribe_grants", icon: "BellOutlined", type: "leaf" },
-    { id: "33", name: "消息发送记录", path: "/module/subscribe_sends", icon: "SendOutlined", type: "leaf" },
+    { id: "33", name: "发送记录", path: "/module/subscribe_sends", icon: "SendOutlined", type: "leaf" },
   ]},
-  { id: "8", parent_id: "0", name: "业务管理", path: "/module", icon: "AppstoreOutlined", sort: 3, type: "group", status: 1, children: [
-    { id: "9", name: "用户管理", path: "/module/users", icon: "UserOutlined", type: "leaf" },
-  ]},
-  { id: "15", parent_id: "0", name: "系统监控", path: "/ops", icon: "FundOutlined", sort: 4, type: "group", status: 1, children: [
+  { id: "15", parent_id: "0", name: "系统监控", path: "/ops", icon: "FundOutlined", sort: 5, type: "group", status: 1, children: [
     { id: "16", name: "服务监控", path: "/module/monitors", icon: "MonitorOutlined", type: "leaf" },
     { id: "17", name: "接口链路", path: "/module/traces", icon: "ApiOutlined", type: "leaf" },
     { id: "18", name: "会话画像", path: "/module/sessions", icon: "MobileOutlined", type: "leaf" },
-  ]},
-  { id: "19", parent_id: "0", name: "内容合规", path: "/content", icon: "ThunderboltOutlined", sort: 5, type: "group", status: 1, children: [
+    { id: "21", name: "用户事件", path: "/module/user_events", icon: "ThunderboltOutlined", type: "leaf" },
     { id: "20", name: "图片上传记录", path: "/module/file_uploads", icon: "PictureOutlined", type: "leaf" },
-    { id: "21", name: "用户事件", path: "/module/user_events", icon: "AppstoreOutlined", type: "leaf" },
   ]},
   { id: "22", parent_id: "0", name: "系统设置", path: "/system", icon: "SettingOutlined", sort: 6, type: "group", status: 1, children: [
     { id: "23", name: "管理员管理", path: "/module/staff", icon: "SafetyOutlined", type: "leaf" },
@@ -875,21 +876,83 @@ router.post("/api/staff/apps", adminAuth, async (req, res) => {
 
 // ==================== 课小满邀请码管理（独立模块，与 staff 解耦） ====================
 // 邀请码独立维护在 t_lp_invites：kind=student 学生码 / kind=family 家属共享码。
-// 学生码由主家长在孩子档案中生成，家属共享码由主家长生成；后台仅作查看与审计（只读），
-// 作废 / 重新生成走下方独立接口（仅管理员）。
+// 支持后台新增/编辑/删除（管理员），新增时自动生成 6 位邀请码并校验归属角色；
+// 删除已绑定的学生码时同步锁定该学生小程序访问（与作废语义一致）。
 router.use("/api/lp_invites", adminAuth, crudRouter({
   table: "lp_invites", pk: "invite_id",
-  writable: [],
-  readonly: true,
+  writable: ["kind", "owner_staff_id", "child_id", "status"],
   search: ["invite_code"],
   filters: ["kind", "status"],
-  // 非管理员仅可查看自己名下的邀请码（管理员全部）
+  pkGenerator: () => nextSeq("invite_id"),
+  defaults: (req) => ({
+    app_id: "learning-planet",
+    created_by: Number(req.staff && req.staff.staff_id) || 0,
+  }),
+  // 非管理员仅可查看/操作自己名下的邀请码（管理员全部）
   readScopeFn: (req) => (req.staff && req.staff.role) === "admin"
     ? null
     : { field: "owner_staff_id", value: req.staff.staff_id },
   scopeFn: (req) => (req.staff && req.staff.role) === "admin"
     ? null
     : { field: "owner_staff_id", value: req.staff.staff_id },
+  onBeforeCreate: async (req, values) => {
+    const kind = String(values.kind || "");
+    if (!["student", "family"].includes(kind)) return "邀请码类型无效（student 学生码 / family 家属共享码）";
+    const ownerId = Number(values.owner_staff_id);
+    if (!ownerId) return "请选择归属账号";
+    const needRole = kind === "student" ? "student" : "parent";
+    const { data } = await db.from("staff")
+      .select("staff_id, staff_role, staff_status").eq("staff_id", ownerId).limit(1);
+    const owner = data && data[0];
+    if (!owner || owner.staff_role !== needRole || owner.staff_status !== 1) {
+      return kind === "student" ? "学生码归属账号必须是有效学生账号" : "家属共享码归属账号必须是有效主家长账号";
+    }
+    values.kind = kind;
+    values.owner_staff_id = ownerId;
+    values.child_id = Number(values.child_id) || 0;
+    values.status = "available";
+    values.bound_openid = "";
+    values.bound_staff_id = 0;
+    values.bound_at = null;
+    values.invite_code = await genUniqueInviteCode();
+    return null;
+  },
+  onBeforeUpdate: async (req, oldRecord, values) => {
+    const kind = values.kind !== undefined ? String(values.kind) : (oldRecord && oldRecord.kind);
+    if (kind && !["student", "family"].includes(kind)) return "邀请码类型无效（student 学生码 / family 家属共享码）";
+    // 状态白名单：bound 只能由小程序绑定产生，禁止手动改为 bound（原值已是 bound 时允许保留）
+    if (values.status !== undefined) {
+      const oldStatus = oldRecord && oldRecord.status;
+      const newStatus = String(values.status);
+      if (!["available", "bound", "revoked"].includes(newStatus)) return "邀请码状态无效";
+      if (newStatus === "bound" && oldStatus !== "bound") return "不能手动置为已绑定状态，请走小程序绑定";
+    }
+    // 改了类型或归属账号时，校验归属角色匹配
+    if (values.kind !== undefined || values.owner_staff_id !== undefined) {
+      const ownerId = values.owner_staff_id !== undefined ? Number(values.owner_staff_id) : Number(oldRecord && oldRecord.owner_staff_id);
+      if (!ownerId) return "请选择归属账号";
+      const needRole = kind === "student" ? "student" : "parent";
+      const { data } = await db.from("staff")
+        .select("staff_id, staff_role, staff_status").eq("staff_id", ownerId).limit(1);
+      const owner = data && data[0];
+      if (!owner || owner.staff_role !== needRole || owner.staff_status !== 1) {
+        return kind === "student" ? "学生码归属账号必须是有效学生账号" : "家属共享码归属账号必须是有效主家长账号";
+      }
+      values.owner_staff_id = ownerId;
+    }
+    if (values.child_id !== undefined) values.child_id = Number(values.child_id) || 0;
+    return null;
+  },
+  onBeforeDelete: async (req, record) => {
+    // 删除已绑定的学生码：同步锁定该学生的小程序访问，避免「绑定在、邀请码无」的悬空态
+    if (record && record.kind === "student" && Number(record.bound_staff_id) > 0) {
+      try {
+        await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() })
+          .eq("staff_id", Number(record.bound_staff_id));
+      } catch (_) {}
+    }
+    return null;
+  },
   enrich: async (rows) => {
     const list = rows || [];
     if (list.length === 0) return list;
@@ -1022,7 +1085,7 @@ async function attachBindingInfo(rows) {
     const s = staffMap[String(r.staff_id)] || {};
     const u = userMap[r.openid] || {};
     const inv = inviteMap[String(r.staff_id)] || {};
-    const nick = u.nickname || "微信用户";
+    const nick = u.nickname || "用户";
     const ch = String(nick).charAt(0);
     return {
       ...r,
@@ -1182,6 +1245,99 @@ router.post("/api/lp_students/rebind", adminAuth, async (req, res) => {
     res.json(ok(null, "已变更绑定"));
   } catch (e) {
     console.error("[admin] lp_students rebind error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// 新增绑定（仅管理员）：手动建立 openid ↔ 学生账号绑定（支持后台直接开通，无需邀请码）
+router.post("/api/lp_students/create", adminAuth, async (req, res) => {
+  try {
+    if (!canManageBinding(req)) return res.json(fail("无权操作", 403));
+    const { openid, staffId, boundStatus } = req.body || {};
+    const oid = String(openid || "").trim();
+    if (!oid) return res.json(fail("缺少 openid"));
+    const targetId = Number(staffId);
+    if (!targetId) return res.json(fail("请选择学生账号"));
+    const { data: stRows, error: sErr } = await db.from("staff")
+      .select("staff_id, staff_role, staff_status").eq("staff_id", targetId).limit(1);
+    if (sErr) throw sErr;
+    const target = stRows && stRows[0];
+    if (!target || !LP_BIND_STAFF_ROLES.includes(target.staff_role) || target.staff_status !== 1) {
+      return res.json(fail("目标账号不存在或不可绑定"));
+    }
+    // 唯一约束：同一 openid 仅一条绑定（uk_app_openid）
+    const { data: ex } = await db.from("lp_students")
+      .select("id").eq("app_id", "learning-planet").eq("openid", oid).limit(1);
+    if (ex && ex[0]) return res.json(fail("该 openid 已存在绑定关系，请改用「变更绑定」"));
+
+    await db.from("lp_students").insert({
+      staff_id: targetId,
+      app_id: "learning-planet",
+      openid: oid,
+      bound_status: Number(boundStatus) === 0 ? 0 : 1,
+      bound_at: nowSql(),
+      created_at: nowSql(),
+      updated_at: nowSql(),
+    });
+    logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: "新增绑定", module: "lp_students", apiPath: "/api/lp_students/create", bizId: targetId, extra: { openid: oid, staff_id: targetId, bound_status: Number(boundStatus) === 0 ? 0 : 1 } });
+    res.json(ok(null, "绑定创建成功"));
+  } catch (e) {
+    console.error("[admin] lp_students create error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// 编辑绑定（仅管理员）：修改 openid ↔ 学生账号绑定（换绑到其他账号 / 切换绑定状态）
+router.post("/api/lp_students/update", adminAuth, async (req, res) => {
+  try {
+    if (!canManageBinding(req)) return res.json(fail("无权操作", 403));
+    const { id, staffId, boundStatus } = req.body || {};
+    if (!id) return res.json(fail("缺少 ID"));
+    const { data: rows, error } = await db.from("lp_students").select().eq("id", id).limit(1);
+    if (error) throw error;
+    const rec = rows && rows[0];
+    if (!rec) return res.json(fail("绑定记录不存在"));
+
+    const values = { updated_at: nowSql() };
+    if (staffId !== undefined && staffId !== null && String(staffId) !== "") {
+      const targetId = Number(staffId);
+      const { data: stRows, error: sErr } = await db.from("staff")
+        .select("staff_id, staff_role, staff_status").eq("staff_id", targetId).limit(1);
+      if (sErr) throw sErr;
+      const target = stRows && stRows[0];
+      if (!target || !LP_BIND_STAFF_ROLES.includes(target.staff_role) || target.staff_status !== 1) {
+        return res.json(fail("目标账号不存在或不可绑定"));
+      }
+      values.staff_id = targetId;
+    }
+    if (boundStatus !== undefined && boundStatus !== null && boundStatus !== "") {
+      values.bound_status = Number(boundStatus) === 0 ? 0 : 1;
+    }
+    await db.from("lp_students").update(values).eq("id", id);
+    logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "编辑绑定", module: "lp_students", apiPath: "/api/lp_students/update", bizId: id, extra: { openid: rec.openid, from: rec.staff_id, ...values } });
+    res.json(ok(null, "已更新绑定"));
+  } catch (e) {
+    console.error("[admin] lp_students update error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// 删除绑定（仅管理员）：物理删除绑定映射，该小程序用户立即失去访问（同「解除绑定」）
+router.post("/api/lp_students/delete", adminAuth, async (req, res) => {
+  try {
+    if (!canManageBinding(req)) return res.json(fail("无权操作", 403));
+    const { id } = req.body || {};
+    if (!id) return res.json(fail("缺少 ID"));
+    const { data: rows, error } = await db.from("lp_students").select().eq("id", id).limit(1);
+    if (error) throw error;
+    const rec = rows && rows[0];
+    if (!rec) return res.json(fail("绑定记录不存在"));
+    const { error: delErr } = await db.from("lp_students").delete().eq("id", id);
+    if (delErr) throw delErr;
+    logStaffEvent({ req, staff: req.staff, eventType: "delete", eventName: "删除绑定", module: "lp_students", apiPath: "/api/lp_students/delete", bizId: id, extra: { staff_id: rec.staff_id, openid: rec.openid } });
+    res.json(ok(null, "已删除绑定，该小程序用户需重新绑定邀请码才能访问"));
+  } catch (e) {
+    console.error("[admin] lp_students delete error", e);
     res.json(fail("服务异常", 500));
   }
 });

@@ -1,0 +1,9 @@
+<view class="lp-page login-page">
+  <view class="login-body">
+    <hero sub="让学习更简单" />
+    <view class="login-loading">
+      <t-loading theme="spinner" size="56rpx" />
+      <view class="login-text">{{text}}</view>
+    </view>
+  </view>
+</view>

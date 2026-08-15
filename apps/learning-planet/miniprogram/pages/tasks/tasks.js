@@ -79,10 +79,10 @@ Page({
 
   goDetail(e) {
     const id = e.currentTarget.dataset.id;
-    wx.navigateTo({ url: `/pages/task-detail/task-detail?id=${id}` });
+    wx.navigateTo({ url: `/pkg-task/task-detail/task-detail?id=${id}` });
   },
 
   goCreate() {
-    wx.navigateTo({ url: '/pages/task-edit/task-edit' });
+    wx.navigateTo({ url: '/pkg-task/task-edit/task-edit' });
   },
 });

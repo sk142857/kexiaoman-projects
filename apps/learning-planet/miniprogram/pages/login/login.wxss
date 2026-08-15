@@ -1,0 +1,23 @@
+.login-page {
+  background: linear-gradient(180deg, #eaf2ff 0%, #f5f7fa 100%);
+}
+.login-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 10vh;
+}
+.login-loading {
+  margin-top: 120rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #2b6de0;
+}
+.login-text {
+  margin-top: 24rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+}

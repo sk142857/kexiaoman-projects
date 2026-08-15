@@ -25,7 +25,7 @@ const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
-const { ensureUser } = require("../appAuth");
+const { ensureUser, genUniqueNickname } = require("../appAuth");
 const { getAppConfig } = require("../apps");
 
 const router = express.Router();
@@ -136,16 +136,17 @@ async function staffById(id) {
   return (data && data[0]) || null;
 }
 
-/** 账号级锁定（t_users.locked_until，管理员后台按 user_id 锁定）：返回锁定截止时间或 null */
+/** 账号级锁定（t_users.locked_until，管理员后台按 user_id 锁定）：锁定期内返回锁定记录，否则 null */
 async function userLockedUntil(openid) {
   if (!openid) return null;
   try {
     const { data, error } = await db.from("users")
-      .select("locked_until").eq("openid", openid).eq("app_id", LP_APP.app_id).limit(1);
+      .select("locked_until, locked_at, locked_reason, locked_by")
+      .eq("openid", openid).eq("app_id", LP_APP.app_id).limit(1);
     if (error) return null;
     const u = data && data[0];
     if (u && u.locked_until && new Date(u.locked_until).getTime() > Date.now()) {
-      return u.locked_until;
+      return u;
     }
   } catch (_) { /* 查询失败按未锁定处理 */ }
   return null;
@@ -160,6 +161,22 @@ function lockMsg(until) {
   const pad = (n) => String(n).padStart(2, "0");
   const s = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
   return `${base}，${s} 后自动解锁`;
+}
+
+/** 格式化锁定详情（原因/时间/解封时间），供小程序锁定页展示 */
+function lockInfo(rec) {
+  if (!rec || !rec.locked_until) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  const fmt = (v) => {
+    const t = new Date(v);
+    if (isNaN(t.getTime())) return "";
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  };
+  return {
+    reason: String(rec.locked_reason || "").slice(0, 255),
+    lockedAt: fmt(rec.locked_at),
+    unlockAt: fmt(rec.locked_until),
+  };
 }
 
 /** 按邀请码查找可绑定的邀请记录（学生码或家属码，未绑定且未作废） */
@@ -238,28 +255,22 @@ function genRandomPassword(len = 8) {
   return pwd;
 }
 
-/** 生成唯一登录账号（如 fm_xxx / st_xxx，保证唯一） */
-async function genUniqueUsername(prefix) {
-  for (let i = 0; i < 8; i++) {
-    const uname = `${prefix}${Date.now().toString(36)}${crypto.randomInt(100, 999)}`;
-    const { data, error } = await db.from("staff").select("staff_id").eq("staff_username", uname).limit(1);
-    if (error) throw error;
-    if (!data || data.length === 0) return uname;
-  }
-  return `${prefix}${Date.now()}`;
-}
-
-/** 为家长/家属/学生创建 t_staff 账号（家长有后台登录能力，家属/学生无，随机占位密码） */
+/**
+ * 为家长/家属/学生创建 t_staff 账号（家长有后台登录能力，家属/学生无，随机占位密码）
+ * 通用账号生成规则：
+ * - 登录账号：user_{staff_id}（staff_id 唯一，账号天然唯一）
+ * - 昵称：优先使用传入昵称（如微信昵称，保持一致）；未提供（从后台首建）则复用微信昵称生成策略「用户 + 6 位随机字符串」
+ */
 async function createLpAccount({ role, nickname, openid }) {
-  const prefix = role === "family" ? "fm_" : role === "parent" ? "pt_" : "st_";
-  const username = await genUniqueUsername(prefix);
-  const password = genRandomPassword();
   const staffId = await nextSeq("staff_id");
+  const username = `user_${staffId}`;
+  const password = genRandomPassword();
+  const rawNick = String(nickname || "").trim();
   const values = {
     staff_id: staffId,
     staff_username: username,
     staff_password: require("bcryptjs").hashSync(password, 10),
-    staff_nickname: String(nickname || "").slice(0, 32),
+    staff_nickname: rawNick ? rawNick.slice(0, 32) : await genUniqueNickname(),
     staff_role: role,
     staff_status: 1,
     created_at: nowSql(),
@@ -309,10 +320,17 @@ router.post("/login", async (req, res) => {
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
 
     // 账号级锁定（后台按 user_id 锁定）：锁定期内登录直接返回锁定态
-    const lockUntil = await userLockedUntil(openid);
-    if (lockUntil) {
+    const lockRec = await userLockedUntil(openid);
+    if (lockRec) {
       const token = await signToken(openid);
-      return res.json(ok({ token, bound: false, locked: true, lockUntil, msg: lockMsg(lockUntil) }));
+      return res.json(ok({
+        token,
+        bound: false,
+        locked: true,
+        lockUntil: lockRec.locked_until,
+        lockInfo: lockInfo(lockRec),
+        msg: lockMsg(lockRec.locked_until),
+      }));
     }
 
     // 只要 wx.login 成功就签发会话 token；能否进业务页由邀请码绑定决定
@@ -329,10 +347,9 @@ router.post("/login", async (req, res) => {
     }
 
     // 已绑定 → 实时校验绑定状态
-    // 区分新老用户：只有存在「绑定取消/锁定记录」(bound_status=0) 才向用户展示锁定；
-    // 新用户（无绑定记录）在上方直接返回，永远不会有锁定
+    // 绑定被解除（bound_status=0）≠ 账号锁定：仅提示重新输入邀请码，不进入锁定态
     if (bind.bound_status !== 1) {
-      return res.json(ok({ token, bound: false, locked: true, msg: "您的绑定已解除，请输入新的邀请码重新绑定" }));
+      return res.json(ok({ token, bound: false, locked: false, msg: "您的绑定已解除，请输入新的邀请码重新绑定" }));
     }
     // 绑定记录仍有效但账号不可用（员工被删除/停用）→ 不锁定，走正常换绑流程
     const staff = await staffById(bind.staff_id);
@@ -375,8 +392,9 @@ router.post("/registerParent", async (req, res) => {
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
 
     // 账号级锁定：锁定期内禁止注册/绑定
-    if (await userLockedUntil(openid)) {
-      return res.json(fail(lockMsg(null), 423));
+    const lockRec0 = await userLockedUntil(openid);
+    if (lockRec0) {
+      return res.json(fail(lockMsg(lockRec0.locked_until), 423));
     }
 
     // 已绑定 → 返回当前状态
@@ -394,11 +412,11 @@ router.post("/registerParent", async (req, res) => {
       }
     }
 
-    // 家长昵称（可选，来自前端微信昵称）
+    // 家长昵称（可选，来自前端微信昵称；未提供则走通用昵称生成策略）
     const nickname = String((req.body || {}).nickname || "").trim().slice(0, 32);
 
     // 创建家长账号 + 随机后台登录密码（明文仅此一次返回）
-    const parent = await createLpAccount({ role: "parent", nickname: nickname || "家长", openid });
+    const parent = await createLpAccount({ role: "parent", nickname, openid });
     const password = parent.password;
 
     // 自动绑定当前 openid ↔ 家长账号
@@ -460,8 +478,9 @@ router.post("/bind", async (req, res) => {
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
 
     // 账号级锁定：锁定期内禁止绑定/换绑
-    if (await userLockedUntil(openid)) {
-      return res.json(fail(lockMsg(null), 423));
+    const lockRec1 = await userLockedUntil(openid);
+    if (lockRec1) {
+      return res.json(fail(lockMsg(lockRec1.locked_until), 423));
     }
 
     // 限流：同一 openid 15 分钟内最多尝试 10 次
@@ -665,15 +684,21 @@ async function lpAuth(req, res, next) {
     }
 
     // 账号级锁定（后台按 user_id 锁定 t_users）：锁定期内实时拦截，作废即刻生效
-    const lockUntil = await userLockedUntil(openid);
-    if (lockUntil) {
-      return res.status(403).json({ code: 403, msg: lockMsg(lockUntil), data: null });
+    const lockRec = await userLockedUntil(openid);
+    if (lockRec) {
+      return res.status(403).json({
+        code: 403,
+        msg: lockMsg(lockRec.locked_until),
+        lockUntil: lockRec.locked_until,
+        lockInfo: lockInfo(lockRec),
+        data: null,
+      });
     }
 
-    // 数据上报（collectSession / collectEvent）：仅需有效会话身份即可记录，
+    // 数据上报 / 链路补全（collectSession / collectEvent / reportTrace）：仅需有效会话身份即可记录，
     // 未绑定/被锁定的用户（如在身份选择页）也允许上报，不拦截（前端即发即忘）
     const ap = req.path || "";
-    if (ap.endsWith("/collectSession") || ap.endsWith("/collectEvent")) {
+    if (ap.endsWith("/collectSession") || ap.endsWith("/collectEvent") || ap.endsWith("/reportTrace")) {
       req.lp = { staffId: "", openid, role: "", scope: null };
       req.lpRole = "";
       req.app = LP_APP;
@@ -695,9 +720,10 @@ async function lpAuth(req, res, next) {
     }
 
     const role = staff && LP_ROLES.includes(staff.staff_role) ? staff.staff_role : "";
-    const locked = !staff || staff.staff_status !== 1 || !role || !bind || bind.bound_status !== 1;
-    if (locked) {
-      return res.status(403).json({ code: 403, msg: "访问已锁定，请联系管理员", data: null });
+    const invalid = !staff || staff.staff_status !== 1 || !role || !bind || bind.bound_status !== 1;
+    if (invalid) {
+      // 绑定解除/账号不可用 ≠ 账号被锁定：按会话失效处理（前端回身份页重新绑定，不展示锁定态）
+      return res.status(401).json({ code: 401, msg: "绑定状态已失效，请重新绑定", data: null });
     }
 
     // 家庭可见范围（parent/family → 其名下孩子的 student staff_id 集合；admin=null 全部；student=本人）

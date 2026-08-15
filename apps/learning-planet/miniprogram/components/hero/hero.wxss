@@ -1,0 +1,30 @@
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.hero-logo {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #2b6de0, #5b8ef2);
+  color: #ffffff;
+  font-size: 48rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8rpx 20rpx rgba(43, 109, 224, 0.28);
+}
+.hero-title {
+  margin-top: 20rpx;
+  font-size: 44rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.hero-sub {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+  text-align: center;
+}

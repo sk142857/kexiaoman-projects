@@ -1,0 +1,14 @@
+{
+  "renderer": "webview",
+  "navigationStyle": "custom",
+  "navigationBarTextStyle": "black",
+  "disableScroll": true,
+  "usingComponents": {
+    "t-navbar": "tdesign-miniprogram/navbar/navbar",
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-steps": "tdesign-miniprogram/steps/steps",
+    "t-step-item": "tdesign-miniprogram/step-item/step-item",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-upload": "tdesign-miniprogram/upload/upload"
+  }
+}

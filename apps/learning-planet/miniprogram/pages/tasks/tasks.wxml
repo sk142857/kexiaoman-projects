@@ -19,7 +19,9 @@
     >{{item.label}}</view>
   </view>
 
-  <t-empty wx:if="{{list.length === 0}}" description="暂无任务，点击右下角 + 新建" />
+  <view wx:if="{{list.length === 0}}" class="empty-card">
+    <t-empty description="暂无任务，点击右下角 + 新建" />
+  </view>
 
   <view wx:else class="task-list">
     <view wx:for="{{list}}" wx:key="task_id" class="task" bindtap="goDetail" data-id="{{item.task_id}}">

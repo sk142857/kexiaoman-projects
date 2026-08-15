@@ -1,0 +1,225 @@
+/* ==================== 头部（导航栏 + 步骤条同色渐变，避免突兀） ==================== */
+.header {
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #eaf2ff 0%, #eef4ff 100%);
+  /* 导航栏背景透明（tdesign CSS 变量），透出渐变，与步骤条同色 */
+  --td-navbar-background: transparent;
+}
+/* 步骤条与导航栏之间留足间距，整体更大气 */
+.steps-band {
+  padding: 56rpx 48rpx 40rpx;
+}
+.steps {
+  width: 100%;
+}
+
+/* ==================== 内容滚动区 ==================== */
+.content {
+  padding: 24rpx 32rpx 240rpx;
+  box-sizing: border-box;
+}
+.form-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  overflow: hidden;
+  padding: 8rpx 0;
+}
+.field {
+  padding: 28rpx 32rpx;
+  border-bottom: 1rpx solid #f0f2f5;
+}
+.field:last-child {
+  border-bottom: none;
+}
+.label {
+  display: block;
+  font-size: 26rpx;
+  color: #8a919f;
+  margin-bottom: 16rpx;
+  font-weight: 500;
+}
+.req {
+  color: #ff4d4f;
+}
+
+/* 统一有边框输入框 */
+.input {
+  width: 100%;
+  height: 88rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #d8dce3;
+  border-radius: 16rpx;
+  background: #ffffff;
+  font-size: 30rpx;
+  color: #1f2329;
+  padding: 0 24rpx;
+}
+.ph {
+  color: #b0b6c0;
+}
+.picker-box {
+  height: 88rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #d8dce3;
+  border-radius: 16rpx;
+  background: #ffffff;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 30rpx;
+  color: #1f2329;
+}
+.picker-box text:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arrow {
+  margin-left: 16rpx;
+  color: #c9cdd4;
+  font-size: 36rpx;
+  line-height: 1;
+}
+
+/* ==================== 卡片风格字典选项（对齐身份选择卡片） ==================== */
+.sel-grid {
+  display: flex;
+  gap: 20rpx;
+}
+.sel-card {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.04);
+  color: #5c6470;
+}
+.sel-card--on {
+  border-color: #2b6de0;
+  background: #eef4ff;
+  color: #2b6de0;
+  box-shadow: 0 6rpx 20rpx rgba(43, 109, 224, 0.14);
+}
+.sel-grid--grade {
+  flex-wrap: wrap;
+}
+.sel-grid--grade .sel-card {
+  flex-basis: calc((100% - 40rpx) / 3);
+  flex-grow: 0;
+}
+.sel-name {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.sel-check {
+  position: absolute;
+  top: 6rpx;
+  right: 10rpx;
+  color: #2b6de0;
+}
+
+/* ==================== 预览 ==================== */
+.preview {
+  margin-top: 24rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+  background: #f0f6ff;
+  border: 2rpx solid #d6e4ff;
+  border-radius: 14rpx;
+  padding: 20rpx 24rpx;
+}
+.preview-strong {
+  color: #2b6de0;
+  font-weight: 600;
+  font-size: 30rpx;
+}
+
+/* ==================== 步骤三：确认 ==================== */
+.done {
+  padding-top: 24rpx;
+}
+.done-title {
+  text-align: center;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #1f2329;
+  margin-bottom: 24rpx;
+}
+.summary-card {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 8rpx 32rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}
+.sum-row {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #f0f2f5;
+}
+.sum-row:last-child {
+  border-bottom: none;
+}
+.sum-key {
+  width: 160rpx;
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: #8a919f;
+}
+.sum-val {
+  flex: 1;
+  font-size: 30rpx;
+  color: #1f2329;
+  font-weight: 600;
+  text-align: right;
+}
+.done-tip {
+  margin-top: 24rpx;
+  font-size: 24rpx;
+  color: #b0b6c0;
+  text-align: center;
+}
+
+/* ==================== 固定底部操作栏 ==================== */
+.footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  padding: 20rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 1rpx solid #f0f1f3;
+  box-shadow: 0 -6rpx 20rpx rgba(31, 35, 41, 0.04);
+}
+.footer t-button {
+  flex: 1;
+}
+.footer-row {
+  display: flex;
+  width: 100%;
+  gap: 24rpx;
+}
+.footer-prev {
+  flex-shrink: 0;
+}
+.footer-prev t-button {
+  width: 200rpx;
+}
+.footer-main {
+  flex: 1;
+  min-width: 0;
+}
+.footer-main t-button {
+  width: 100%;
+}

@@ -99,40 +99,24 @@ Page({
 
   goBadges() {
     trackEvent('menu_click', '点击我的奖章');
-    wx.navigateTo({ url: '/pages/badges/badges' });
-  },
-  goSubscribe() {
-    trackEvent('menu_click', '点击订阅消息');
-    wx.navigateTo({ url: '/pages/subscribe/subscribe' });
+    wx.navigateTo({ url: '/pkg-mine/badges/badges' });
   },
 
   // 孩子档案（仅主家长）
   goChildren() {
     trackEvent('menu_click', '点击孩子档案');
-    wx.navigateTo({ url: '/pages/children/children' });
+    wx.navigateTo({ url: '/pkg-family/children/children' });
   },
 
   // 家属共享（仅主家长）
   goShares() {
     trackEvent('menu_click', '点击家属共享');
-    wx.navigateTo({ url: '/pages/shares/shares' });
+    wx.navigateTo({ url: '/pkg-family/shares/shares' });
   },
 
-  // 后台登录账号（仅主家长）
-  goBackendAccount() {
-    trackEvent('menu_click', '点击后台账号');
-    wx.navigateTo({ url: '/pages/backend-account/backend-account' });
-  },
-
-  onRebind() {
-    wx.showModal({
-      title: '解除绑定',
-      content: '将进入绑定界面，使用新邀请码可更换当前绑定的账号',
-      success: (r) => {
-        if (!r.confirm) return;
-        trackEvent('menu_click', '点击解除绑定');
-        wx.navigateTo({ url: '/pages/identity/identity?rebind=1' });
-      },
-    });
+  // 设置（后台账号 / 订阅消息 / 解除绑定）
+  goSettings() {
+    trackEvent('menu_click', '点击设置');
+    wx.navigateTo({ url: '/pkg-mine/settings/settings' });
   },
 });

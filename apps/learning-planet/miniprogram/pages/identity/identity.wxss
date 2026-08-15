@@ -1,51 +1,55 @@
-.page {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: calc(env(safe-area-inset-top) + 100rpx) 64rpx;
+.header {
+  flex-shrink: 0;
+  padding: calc(env(safe-area-inset-top) + 48rpx) 64rpx 0;
+  background: linear-gradient(180deg, #eaf2ff 0%, #eef4ff 100%);
+}
+.steps {
+  margin-top: 40rpx;
+  padding-bottom: 32rpx;
+}
+
+.content {
+  padding: 32rpx 48rpx 240rpx;
   box-sizing: border-box;
-  background: linear-gradient(180deg, #eaf2ff 0%, #f5f7fa 40%);
 }
-.logo {
-  font-size: 100rpx;
-}
-.title {
-  margin-top: 16rpx;
-  font-size: 44rpx;
-  font-weight: 700;
-  color: #1f2329;
-}
-.sub {
-  margin-top: 12rpx;
-  font-size: 26rpx;
-  color: #8a919f;
-  text-align: center;
-}
+
+/* ==================== 步骤一：身份选择 ==================== */
 .cards {
-  width: 100%;
-  margin-top: 48rpx;
   display: flex;
   flex-direction: column;
   gap: 24rpx;
 }
 .card {
-  width: 100%;
+  display: flex;
+  align-items: center;
   padding: 32rpx 36rpx;
   border-radius: 24rpx;
   background: #ffffff;
   box-shadow: 0 6rpx 20rpx rgba(31, 35, 41, 0.06);
-  box-sizing: border-box;
   border: 2rpx solid transparent;
 }
 .card--active {
   border-color: #2b6de0;
+  box-shadow: 0 6rpx 24rpx rgba(43, 109, 224, 0.14);
 }
-.card-emoji {
-  font-size: 52rpx;
+.card-icon {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 24rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon--parent { background: #eef4ff; color: #2b6de0; }
+.icon--student { background: #ecf9e8; color: #52c41a; }
+.icon--family { background: #fff4e6; color: #fa8c16; }
+.card-main {
+  flex: 1;
+  min-width: 0;
+  margin-left: 28rpx;
 }
 .card-name {
-  margin-top: 12rpx;
   font-size: 34rpx;
   font-weight: 600;
   color: #1f2329;
@@ -55,46 +59,77 @@
   font-size: 25rpx;
   color: #8a919f;
   line-height: 1.5;
+  min-height: 75rpx; /* 恒定两行高度，保证各卡片等高，切换不跳动 */
 }
-.card--parent .card-name { color: #2b6de0; }
-.card--student .card-name { color: #52c41a; }
-.card--family .card-name { color: #fa8c16; }
-.locked {
-  margin-top: 48rpx;
-  width: 100%;
-  text-align: center;
+.card-check {
+  color: #c0c6cf;
+  margin-left: 12rpx;
+  flex-shrink: 0;
 }
-.locked-title {
-  font-size: 34rpx;
-  font-weight: 600;
-  color: #ff4d4f;
+.card-check--active {
+  color: #2b6de0;
 }
-.locked-desc {
-  margin-top: 12rpx;
-  color: #8a919f;
-  font-size: 26rpx;
-}
+
+/* ==================== 步骤二：绑定信息 ==================== */
 .rebind-tip {
-  margin-top: 40rpx;
+  margin-bottom: 28rpx;
   text-align: center;
   font-size: 26rpx;
   color: #ff8c1a;
 }
+.parent-box {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 40rpx 36rpx;
+  box-shadow: 0 6rpx 20rpx rgba(31, 35, 41, 0.06);
+}
+.parent-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1f2329;
+  text-align: center;
+}
+.parent-item {
+  margin-top: 24rpx;
+  padding-left: 28rpx;
+  position: relative;
+  font-size: 27rpx;
+  color: #5c6470;
+  line-height: 1.6;
+}
+.parent-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18rpx;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #2b6de0;
+}
 .code-box {
-  width: 100%;
-  margin-top: 40rpx;
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 40rpx 36rpx;
+  box-shadow: 0 6rpx 20rpx rgba(31, 35, 41, 0.06);
+}
+.code-label {
+  text-align: center;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1f2329;
+  margin-bottom: 32rpx;
 }
 .input {
   width: 100%;
-  height: 96rpx;
-  background: #ffffff;
+  height: 100rpx;
+  background: #f5f7fa;
   border-radius: 16rpx;
   text-align: center;
-  font-size: 40rpx;
-  letter-spacing: 8rpx;
+  font-size: 44rpx;
+  letter-spacing: 12rpx;
   font-weight: 600;
   color: #2b6de0;
-  box-shadow: 0 4rpx 16rpx rgba(31, 35, 41, 0.06);
 }
 .ph {
   color: #c0c6cf;
@@ -102,24 +137,159 @@
   font-weight: 400;
   font-size: 30rpx;
 }
+.code-hint {
+  margin-top: 20rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #b0b6c0;
+}
 .error {
   margin-top: 16rpx;
   color: #ff4d4f;
   font-size: 26rpx;
   text-align: center;
 }
-.btn {
-  margin-top: 48rpx;
-}
-.tip {
-  margin-top: 32rpx;
-  text-align: center;
-  font-size: 24rpx;
-  color: #b0b6c0;
-}
 .back {
-  margin-top: 28rpx;
+  margin-top: 40rpx;
   text-align: center;
   font-size: 26rpx;
   color: #2b6de0;
+}
+
+/* ==================== 步骤三：完成 ==================== */
+.done {
+  padding-top: 120rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.done-icon {
+  color: #52c41a;
+}
+.done-title {
+  margin-top: 32rpx;
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.done-desc {
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ==================== 底部固定操作栏 ==================== */
+.footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  padding: 20rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 1rpx solid #f0f1f3;
+  box-shadow: 0 -6rpx 20rpx rgba(31, 35, 41, 0.04);
+}
+.footer t-button {
+  flex: 1;
+}
+.footer-row {
+  display: flex;
+  width: 100%;
+  gap: 24rpx;
+}
+.footer-prev {
+  flex-shrink: 0;
+}
+.footer-prev t-button {
+  width: 200rpx;
+}
+.footer-main {
+  flex: 1;
+  min-width: 0;
+}
+.footer-main t-button {
+  width: 100%;
+}
+
+/* ==================== 锁定 ==================== */
+.locked {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 64rpx;
+  box-sizing: border-box;
+}
+.locked-icon {
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 50%;
+  background: #fff1f0;
+  color: #ff4d4f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.locked-title {
+  margin-top: 32rpx;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #ff4d4f;
+}
+.locked-desc {
+  margin-top: 16rpx;
+  color: #8a919f;
+  font-size: 26rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+.locked-info {
+  margin-top: 40rpx;
+  width: 100%;
+  max-width: 560rpx;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx 32rpx;
+  box-shadow: 0 6rpx 20rpx rgba(31, 35, 41, 0.06);
+}
+.info-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 12rpx 0;
+}
+.info-row + .info-row {
+  border-top: 1rpx solid #f0f1f3;
+}
+.info-label {
+  flex-shrink: 0;
+  width: 150rpx;
+  font-size: 26rpx;
+  color: #8a919f;
+}
+.info-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  color: #1f2329;
+  word-break: break-all;
+}
+.locked-contact {
+  margin-top: 48rpx;
+  width: 320rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+  border-radius: 44rpx;
+  background: #2b6de0;
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 500;
+  text-align: center;
+  padding: 0;
+}
+.locked-contact::after {
+  border: none;
 }

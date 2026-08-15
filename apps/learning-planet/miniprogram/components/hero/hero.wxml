@@ -1,0 +1,5 @@
+<view class="hero">
+  <view class="hero-logo">课</view>
+  <view class="hero-title">课小满</view>
+  <view wx:if="{{sub}}" class="hero-sub">{{sub}}</view>
+</view>

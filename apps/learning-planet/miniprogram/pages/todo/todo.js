@@ -73,7 +73,7 @@ Page({
       if (item && item.student && item.student.staff_id) setViewStudent(item.student.staff_id);
     }
     trackEvent('menu_click', '待办-点击任务', { taskId: id });
-    wx.navigateTo({ url: `/pages/task-detail/task-detail?id=${id}` });
+    wx.navigateTo({ url: `/pkg-task/task-detail/task-detail?id=${id}` });
   },
 
   preview(e) {

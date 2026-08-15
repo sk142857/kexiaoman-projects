@@ -2,7 +2,7 @@
 // columns: 表格列（渲染函数使用 components/fields.js 的丰富组件）
 // detailFields: 详情抽屉字段描述（type 对应 CommonCrud 渲染逻辑）
 import { Tag, Progress, message } from 'antd';
-import { SafetyOutlined, StopOutlined, UnlockOutlined, SwapOutlined, GiftOutlined, LockOutlined } from '@ant-design/icons';
+import { SafetyOutlined, StopOutlined, UnlockOutlined, GiftOutlined, LockOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { crudApi } from '../services/api';
 import {
@@ -54,6 +54,10 @@ const INVITE_KIND_MAP = {
   student: { label: '学生码', color: 'blue' },
   family: { label: '家属共享码', color: 'purple' },
 };
+const INVITE_KIND_OPTIONS = [
+  { value: 'student', label: '学生码' },
+  { value: 'family', label: '家属共享码' },
+];
 const INVITE_STATUS_MAP = {
   available: { label: '未绑定', color: 'processing' },
   bound: { label: '已绑定', color: 'success' },
@@ -523,8 +527,95 @@ export const MODULES = {
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
     formFields: [],
-    // 统一维护：解除绑定（物理删除）/ 变更绑定（转移到其他学生账号）；仅管理员可操作
+    // 统一维护（仅管理员）：新增绑定 / 编辑（换绑或改状态）/ 解除绑定（物理删除）
     customActions: [
+      {
+        label: '新增绑定',
+        icon: <PlusOutlined />,
+        color: '#52c41a',
+        show: (r, ctx) => ctx.isAdmin,
+        modal: {
+          title: '新增绑定',
+          width: 560,
+          fields: [
+            {
+              name: 'openid',
+              label: '小程序用户',
+              type: 'select',
+              optionsSource: 'users',
+              optionsParams: { pageSize: 200 },
+              optionsMap: { value: 'openid', label: 'nickname' },
+              showSearch: true,
+              rules: [{ required: true, message: '请选择小程序用户（openid）' }],
+              placeholder: '选择已登录过的小程序用户',
+            },
+            {
+              name: 'staffId',
+              label: '目标学生账号',
+              type: 'select',
+              optionsSource: 'staff',
+              optionsParams: { pageSize: 200, staff_role: 'student' },
+              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
+              showSearch: true,
+              rules: [{ required: true, message: '请选择目标学生账号' }],
+              placeholder: '选择绑定到的学生账号',
+            },
+            {
+              name: 'boundStatus',
+              label: '绑定状态',
+              type: 'select',
+              options: [{ value: 1, label: '正常' }, { value: 0, label: '已锁定' }],
+            },
+          ],
+        },
+        onClick: async (r, ctx, values) => {
+          await crudApi.lpStudentCreate({
+            openid: values.openid,
+            staffId: values.staffId,
+            boundStatus: values.boundStatus !== undefined && values.boundStatus !== null && values.boundStatus !== '' ? values.boundStatus : 1,
+          });
+          message.success('绑定创建成功');
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
+      {
+        label: '编辑',
+        icon: <EditOutlined />,
+        color: '#1677ff',
+        show: (r, ctx) => ctx.isAdmin,
+        modal: {
+          title: '编辑绑定',
+          width: 520,
+          fields: [
+            {
+              name: 'staffId',
+              label: '目标学生账号',
+              type: 'select',
+              optionsSource: 'staff',
+              optionsParams: { pageSize: 200, staff_role: 'student' },
+              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
+              showSearch: true,
+              placeholder: '留空则不更换学生账号',
+            },
+            {
+              name: 'boundStatus',
+              label: '绑定状态',
+              type: 'select',
+              options: [{ value: 1, label: '正常' }, { value: 0, label: '已锁定' }],
+              placeholder: '留空则不修改状态',
+            },
+          ],
+        },
+        onClick: async (r, ctx, values) => {
+          const payload = {};
+          if (values.staffId !== undefined && values.staffId !== null && values.staffId !== '') payload.staffId = values.staffId;
+          if (values.boundStatus !== undefined && values.boundStatus !== null && values.boundStatus !== '') payload.boundStatus = values.boundStatus;
+          if (Object.keys(payload).length === 0) return;
+          await crudApi.lpStudentUpdate(r.id, payload);
+          message.success('已更新绑定');
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
       {
         label: '解除绑定',
         icon: <UnlockOutlined />,
@@ -534,34 +625,6 @@ export const MODULES = {
         onClick: async (r, ctx) => {
           await crudApi.lpStudentUnbind(r.id);
           message.success('已解除绑定');
-          if (ctx && ctx.refresh) ctx.refresh();
-        },
-      },
-      {
-        label: '变更绑定',
-        icon: <SwapOutlined />,
-        color: '#faad14',
-        show: (r, ctx) => ctx.isAdmin,
-        modal: {
-          title: '变更绑定学生',
-          width: 520,
-          fields: [
-            {
-              name: 'staff_id',
-              label: '目标学生账号',
-              type: 'select',
-              optionsSource: 'staff',
-              optionsParams: { pageSize: 200, staff_role: 'student' },
-              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
-              showSearch: true,
-              rules: [{ required: true, message: '请选择目标学生账号' }],
-              placeholder: '选择该小程序用户变更绑定到的学生',
-            },
-          ],
-        },
-        onClick: async (r, ctx, values) => {
-          await crudApi.lpStudentRebind(r.id, values.staff_id);
-          message.success('已变更绑定');
           if (ctx && ctx.refresh) ctx.refresh();
         },
       },
@@ -649,14 +712,13 @@ export const MODULES = {
   },
 
   // 课小满邀请码管理（独立模块，邀请码维护于 t_lp_invites，与 staff 解耦）
-  // 学生码 / 家属共享码统一查看：归属人、孩子、绑定人、状态；仅管理员可作废 / 重新生成
+  // 学生码 / 家属共享码统一维护：支持新增/编辑/删除（管理员）；作废 / 重新生成走下方自定义操作
   lp_invites: {
     biz: 'lp_invites',
     title: '邀请码管理',
     entityName: '邀请码',
     searchable: ['invite_code'],
     searchKey: 'invite_code',
-    readonly: true,
     rowDblClick: true,
     filters: [
       { name: 'kind', label: '类型', options: [
@@ -697,7 +759,17 @@ export const MODULES = {
       { name: 'created_at', label: '创建时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
-    formFields: [],
+    formFields: [
+      { name: 'kind', label: '类型', type: 'select', options: INVITE_KIND_OPTIONS, rules: [{ required: true, message: '请选择类型' }], tip: '学生码：绑定孩子学生账号；家属共享码：单次使用，绑定即作废' },
+      { name: 'owner_staff_id', label: '归属账号', type: 'select', optionsSource: 'staff', optionsParams: { pageSize: 500 }, optionsMap: { value: 'staff_id', label: 'staff_nickname' }, showSearch: true, rules: [{ required: true, message: '请选择归属账号' }], tip: '学生码选择学生账号；家属共享码选择主家长账号' },
+      { name: 'child_id', label: '关联孩子档案', type: 'select', optionsSource: 'lp_children', optionsParams: { pageSize: 500 }, optionsMap: { value: 'child_id', label: 'child_name' }, showSearch: true, allowClear: true, tip: '学生码可关联孩子档案（选填）；家属共享码无需填写' },
+      { name: 'status', label: '状态', type: 'select', options: [
+        { value: 'available', label: '未绑定' },
+        { value: 'bound', label: '已绑定' },
+        { value: 'revoked', label: '已作废' },
+      ], tip: '已绑定状态由小程序绑定产生，后台不可手动改为已绑定' },
+    ],
+    createDefaults: { kind: 'student', status: 'available' },
     // 独立管理操作（仅管理员）：作废锁定访问 / 重新生成恢复访问
     customActions: [
       {
@@ -733,6 +805,9 @@ export const MODULES = {
     searchable: ['app_id', 'app_name'],
     searchKey: 'app_name',
     // 密钥明文存表（AppSecret/JWT密钥），列表与详情不展示，仅在编辑表单填写；编辑留空保持原值
+    // 编辑表单分左右布局：左侧基础信息（应用身份/服务域名/提醒规则），右侧安全凭证与订阅（密钥/模板/说明）
+    formColumns: 2,
+    modalWidth: 920,
     columns: [
       { title: '应用ID', dataIndex: 'app_id', key: 'app_id', width: 150, render: (v) => <PlainText value={v} maxWidth={140} /> },
       { title: '名称', dataIndex: 'app_name', key: 'app_name', width: 120 },
@@ -758,20 +833,22 @@ export const MODULES = {
       { name: 'created_at', label: '创建时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
+    // 左侧：基础信息
     formFields: [
-      { name: 'app_id', label: '应用ID（如 learning-planet）', type: 'text', rules: [{ required: true }], placeholder: '应用ID不可重复' },
-      { name: 'app_name', label: '名称', type: 'text', rules: [{ required: true }] },
-      { name: 'wechat_appid', label: '微信 AppID', type: 'text', placeholder: 'wx 开头' },
-      { name: 'app_secret', label: 'AppSecret（code2session）', type: 'password', placeholder: '编辑留空则保持原值' },
-      { name: 'jwt_secret', label: 'JWT 签名密钥', type: 'password', placeholder: '编辑留空则保持原值' },
-      { name: 'jwt_expires', label: 'JWT 有效期', type: 'text', placeholder: '如 7d' },
-      { name: 'service_url', label: '服务域名', type: 'text', placeholder: '云托管默认公网域名，前端 BASE_URL 依据' },
-      { name: 'subscribe_tmpl_ids', label: '订阅消息模板ID（逗号分隔）', type: 'textarea', placeholder: '如 审核结果通知模板,打卡提醒模板（小程序端「增加订阅次数」会订阅这些模板）' },
-      { name: 'reminder_window', label: '打卡提醒窗口', type: 'text', placeholder: '默认 18:00-22:00' },
-      { name: 'reminder_days', label: '打卡提醒提前天数', type: 'number', placeholder: '默认 3' },
-      { name: 'reminder_overdue_days', label: '逾期提醒回溯天数', type: 'number', placeholder: '默认 7' },
-      { name: 'app_desc', label: '说明', type: 'textarea' },
-      { name: 'app_status', label: '状态', type: 'select', options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }] },
+      { name: 'app_id', label: '应用ID（如 learning-planet）', type: 'text', rules: [{ required: true }], placeholder: '应用ID不可重复', span: 12 },
+      { name: 'app_name', label: '名称', type: 'text', rules: [{ required: true }], span: 12 },
+      { name: 'wechat_appid', label: '微信 AppID', type: 'text', placeholder: 'wx 开头', span: 12 },
+      { name: 'app_status', label: '状态', type: 'select', options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], span: 12 },
+      { name: 'service_url', label: '服务域名', type: 'text', placeholder: '云托管默认公网域名，前端 BASE_URL 依据', span: 24 },
+      { name: 'reminder_window', label: '打卡提醒窗口', type: 'text', placeholder: '默认 18:00-22:00', span: 8 },
+      { name: 'reminder_days', label: '打卡提醒提前天数', type: 'number', placeholder: '默认 3', span: 8 },
+      { name: 'reminder_overdue_days', label: '逾期提醒回溯天数', type: 'number', placeholder: '默认 7', span: 8 },
+      // 右侧：安全凭证与订阅
+      { name: 'app_secret', label: 'AppSecret（code2session）', type: 'password', placeholder: '编辑留空则保持原值', side: 'right', span: 24 },
+      { name: 'jwt_secret', label: 'JWT 签名密钥', type: 'password', placeholder: '编辑留空则保持原值', side: 'right', span: 24 },
+      { name: 'jwt_expires', label: 'JWT 有效期', type: 'text', placeholder: '如 7d', side: 'right', span: 24 },
+      { name: 'subscribe_tmpl_ids', label: '订阅消息模板ID（逗号分隔）', type: 'textarea', placeholder: '如 审核结果通知模板,打卡提醒模板（小程序端「增加订阅次数」会订阅这些模板）', side: 'right', span: 24 },
+      { name: 'app_desc', label: '说明', type: 'textarea', side: 'right', span: 24 },
     ],
   },
 
@@ -824,7 +901,7 @@ export const MODULES = {
   // 订阅消息：发送结果记录（业务事件自动发送）——只读日志类
   subscribe_sends: {
     biz: 'subscribe_sends',
-    title: '消息发送记录',
+    title: '发送记录',
     entityName: '消息发送',
     searchable: ['openid'],
     searchKey: 'openid',

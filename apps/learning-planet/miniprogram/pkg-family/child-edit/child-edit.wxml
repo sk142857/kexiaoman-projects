@@ -1,0 +1,127 @@
+<view class="lp-page">
+  <view class="header">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="{{mode === 'edit' ? '编辑孩子' : '添加孩子'}}"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+    <view class="steps-band">
+      <t-steps class="steps" current="{{step}}" readonly>
+        <t-step-item title="基本信息" />
+        <t-step-item title="年级班级" />
+        <t-step-item title="确认保存" />
+      </t-steps>
+    </view>
+  </view>
+
+  <!-- 步骤一：基本信息 -->
+  <scroll-view wx:if="{{step === 0}}" scroll-y class="lp-scroll content">
+    <view class="form-card">
+      <view class="field">
+        <text class="label">孩子姓名 <text class="req">*</text></text>
+        <input class="input" value="{{form.child_name}}" bindinput="onName" placeholder="请输入孩子姓名" maxlength="20" placeholder-class="ph" />
+      </view>
+
+      <view class="field">
+        <text class="label">性别</text>
+        <view class="sel-grid">
+          <view
+            wx:for="{{genders}}"
+            wx:key="value"
+            class="sel-card {{form.gender === item.value ? 'sel-card--on' : ''}}"
+            data-v="{{item.value}}"
+            bindtap="onGender"
+          >
+            <text class="sel-name">{{item.label}}</text>
+            <view wx:if="{{form.gender === item.value}}" class="sel-check"><t-icon name="check" size="28rpx" /></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="field">
+        <text class="label">学校名称</text>
+        <input class="input" value="{{form.school_name}}" bindinput="onSchool" placeholder="请输入学校名称" maxlength="32" placeholder-class="ph" />
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 步骤二：年级班级 -->
+  <scroll-view wx:if="{{step === 1}}" scroll-y class="lp-scroll content">
+    <view class="form-card">
+      <view class="field">
+        <text class="label">年级 <text class="req">*</text></text>
+        <view class="sel-grid sel-grid--grade">
+          <view
+            wx:for="{{grades}}"
+            wx:key="value"
+            class="sel-card {{form.grade === item.value ? 'sel-card--on' : ''}}"
+            data-value="{{item.value}}"
+            bindtap="onGrade"
+          >
+            <text class="sel-name">{{item.label}}</text>
+            <view wx:if="{{form.grade === item.value}}" class="sel-check"><t-icon name="check" size="24rpx" /></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="field">
+        <text class="label">班级 <text class="req">*</text></text>
+        <picker range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClass">
+          <view class="picker-box {{classIndex >= 0 ? '' : 'ph'}}">
+            <text>{{classIndex >= 0 ? classes[classIndex].label : '请选择班级（1-35）'}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="preview" wx:if="{{gradeIndex >= 0 && classIndex >= 0}}">
+        班级展示：<text class="preview-strong">{{previewText}}</text>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 步骤三：确认保存 -->
+  <scroll-view wx:if="{{step === 2}}" scroll-y class="lp-scroll content">
+    <view class="done">
+      <view class="done-title">确认信息</view>
+      <view class="summary-card">
+        <view class="sum-row"><text class="sum-key">姓名</text><text class="sum-val">{{form.child_name || '—'}}</text></view>
+        <view class="sum-row"><text class="sum-key">性别</text><text class="sum-val">{{genderText}}</text></view>
+        <view class="sum-row"><text class="sum-key">学校</text><text class="sum-val">{{form.school_name || '—'}}</text></view>
+        <view class="sum-row"><text class="sum-key">班级</text><text class="sum-val">{{previewText || '—'}}</text></view>
+      </view>
+      <view class="done-tip">{{mode === 'edit' ? '确认后保存孩子的档案信息' : '确认后创建孩子档案，并生成学生邀请码'}}</view>
+    </view>
+  </scroll-view>
+
+  <!-- 固定底部操作栏 -->
+  <view class="footer">
+    <block wx:if="{{step === 0}}">
+      <t-button class="btn" theme="primary" block bindtap="onNext">下一步</t-button>
+    </block>
+
+    <block wx:elif="{{step === 1}}">
+      <view class="footer-row">
+        <view class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onNext">下一步</t-button>
+        </view>
+      </view>
+    </block>
+
+    <block wx:elif="{{step === 2}}">
+      <view class="footer-row">
+        <view class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onSubmit" loading="{{submitting}}">{{submitting ? '保存中...' : (mode === 'edit' ? '保存' : '添加孩子')}}</t-button>
+        </view>
+      </view>
+    </block>
+  </view>
+</view>

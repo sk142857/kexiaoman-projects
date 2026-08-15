@@ -70,8 +70,8 @@ export default function Login() {
       <div className="login-panel">
         <div className="login-brand">
           <div className="login-logo"><CloudOutlined /></div>
-          <h1 className="login-title">综合Cloud管理系统</h1>
-          <span className="login-subtitle">CLOUD MANAGEMENT PLATFORM</span>
+          <h1 className="login-title">课小满后台管理系统</h1>
+          <span className="login-subtitle">KEXIAOMAN ADMIN PLATFORM</span>
         </div>
 
         <Form className="login-form" onFinish={onFinish} size="large">
@@ -88,7 +88,7 @@ export default function Login() {
           </Form.Item>
         </Form>
 
-        <div className="login-footer">综合Cloud管理系统 · 安全接入</div>
+        <div className="login-footer">课小满后台管理系统 · 安全接入</div>
       </div>
     </div>
   );

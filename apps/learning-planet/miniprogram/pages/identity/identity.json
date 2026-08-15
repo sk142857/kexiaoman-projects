@@ -1,7 +1,12 @@
 {
   "navigationStyle": "custom",
+  "navigationBarTextStyle": "black",
   "disableScroll": true,
   "usingComponents": {
-    "t-button": "tdesign-miniprogram/button/button"
+    "hero": "/components/hero/hero",
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-steps": "tdesign-miniprogram/steps/steps",
+    "t-step-item": "tdesign-miniprogram/step-item/step-item",
+    "t-icon": "tdesign-miniprogram/icon/icon"
   }
 }

@@ -1,5 +1,5 @@
 // pages/identity/identity.js
-// 登录后单页完成：选择身份 + 邀请码绑定（家长自动建号；学生/家属同页输入邀请码；换绑直接输码）
+// 绑定流程（步骤条 + 底部固定按钮）：选择身份 → 绑定账号 → 完成
 const { lpAuth, clearViewStudent, getToken } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
@@ -7,25 +7,32 @@ Page({
   data: {
     locked: false,
     lockedMsg: '',
+    lockInfo: null,          // { reason, lockedAt, unlockAt } 账号锁定详情
     rebind: false,
-    identity: '',        // student / family（选中后同页展开邀请码输入）
-    showCodeBox: false,
+    step: 0,               // 0 选择身份 / 1 绑定账号 / 2 完成
+    identity: '',          // parent / student / family
     focusInput: false,
     code: '',
     loading: false,
     submitting: false,
     errorMsg: '',
-    placeholder: '6 位大写邀请码',
+    placeholder: '请输入邀请码',
   },
 
   onLoad(options) {
     if (options && options.locked === '1') {
       const msg = wx.getStorageSync('lp_lock_msg') || '';
+      const info = wx.getStorageSync('lp_lock_info') || null;
       wx.removeStorageSync('lp_lock_msg');
-      this.setData({ locked: true, lockedMsg: msg || '您的绑定已解除，请重新选择身份并输入邀请码' });
+      wx.removeStorageSync('lp_lock_info');
+      this.setData({
+        locked: true,
+        lockedMsg: msg || '您的账号已被管理员锁定，请联系管理员处理',
+        lockInfo: info,
+      });
     }
     if (options && options.rebind === '1') {
-      this.setData({ rebind: true, showCodeBox: true, focusInput: true });
+      this.setData({ rebind: true, step: 1, focusInput: true });
     }
     trackEvent('page_view', (options && options.rebind === '1') ? '重新绑定' : '身份选择');
   },
@@ -46,28 +53,54 @@ Page({
     }
   },
 
-  // 家长：确认后自动建号 + 自动绑定 + 发共享码 + 下发后台账号
+  // 选择身份：仅记录选中态，交由「下一步」进入绑定
+  onPickIdentity(e) {
+    const idt = e.currentTarget.dataset.identity;
+    if (idt === this.data.identity) return;
+    this.setData({
+      identity: idt,
+      code: '',
+      errorMsg: '',
+      focusInput: false,
+      placeholder: '请输入邀请码',
+    });
+  },
+
+  // 步骤一 → 步骤二
+  onNext() {
+    if (!this.data.identity) {
+      this.setData({ errorMsg: '请先选择您的身份' });
+      return;
+    }
+    this.setData({ step: 1, errorMsg: '', focusInput: this.data.identity !== 'parent' });
+  },
+
+  // 步骤二 → 步骤一
+  onPrev() {
+    this.setData({ step: 0, focusInput: false, errorMsg: '' });
+  },
+
+  // 步骤二 主操作：家长直接创建；学生/家属绑定邀请码
+  onPrimary() {
+    if (this.data.identity === 'parent') {
+      this.onParent();
+    } else {
+      this.onBind();
+    }
+  },
+
+  // 家长：确认创建 = 自动建号 + 自动绑定 + 发共享码 + 下发后台账号
   onParent() {
     if (this.data.submitting) return;
-    wx.showModal({
-      title: '确认成为主家长？',
-      content: '将自动为您创建家庭与后台登录账号，并生成家属共享码。孩子档案可在【我的】中维护。',
-      confirmText: '确认',
-      cancelText: '再想想',
-      success: async (r) => {
-        if (!r.confirm) return;
-        this.setData({ submitting: true });
-        wx.showLoading({ title: '正在创建账号...', mask: true });
-        try {
-          const res = await lpAuth.registerParent();
-          this._onParentReady(res);
-        } catch (e) {
-          wx.hideLoading();
-          this.setData({ submitting: false });
-          wx.showToast({ title: e.msg || '注册失败，请重试', icon: 'none' });
-        }
-      },
-    });
+    this.setData({ submitting: true });
+    wx.showLoading({ title: '正在创建账号...', mask: true });
+    lpAuth.registerParent()
+      .then((res) => this._onParentReady(res))
+      .catch((e) => {
+        wx.hideLoading();
+        this.setData({ submitting: false });
+        wx.showToast({ title: e.msg || '注册失败，请重试', icon: 'none' });
+      });
   },
 
   // 家长注册成功：保存共享码与后台账号（密码点击查看），跳后台账号页展示
@@ -80,21 +113,7 @@ Page({
     trackEvent('button_click', '选择身份-主家长');
     wx.hideLoading();
     this._startGuard();
-    wx.reLaunch({ url: '/pages/backend-account/backend-account?first=1' });
-  },
-
-  // 学生/家属：同页展开邀请码输入（再次点击同一张卡收起）
-  onPickIdentity(e) {
-    const idt = e.currentTarget.dataset.identity === 'family' ? 'family' : 'student';
-    const show = !(this.data.identity === idt && this.data.showCodeBox);
-    this.setData({
-      identity: idt,
-      showCodeBox: show,
-      focusInput: show,
-      code: show ? this.data.code : '',
-      errorMsg: '',
-      placeholder: idt === 'family' ? '请输入主家长提供的家属共享码' : '请输入家长提供的学生邀请码',
-    });
+    this.setData({ step: 2, submitting: false });
   },
 
   onInput(e) {
@@ -126,16 +145,24 @@ Page({
     }
   },
 
-  // 绑定成功：落库存 → 进首页
+  // 绑定成功：落库存 → 进入完成步
   _onBound(res) {
     wx.setStorageSync('lp_token', res.token);
     if (res.staff) wx.setStorageSync('lp_staff', res.staff);
     wx.setStorageSync('lp_role', res.role || (res.staff && res.staff.role) || 'student');
     clearViewStudent();
     trackEvent('button_click', '绑定邀请码', { role: res.role || 'student' });
-    wx.showToast({ title: '绑定成功', icon: 'success' });
     this._startGuard();
-    setTimeout(() => wx.reLaunch({ url: '/pages/home/home' }), 600);
+    this.setData({ step: 2, loading: false });
+  },
+
+  // 完成步：家长去创建孩子档案（后台账号可在「我的→设置」随时查看），其余进首页
+  onFinish() {
+    if (this.data.identity === 'parent') {
+      wx.reLaunch({ url: '/pkg-family/children/children' });
+    } else {
+      wx.reLaunch({ url: '/pages/home/home' });
+    }
   },
 
   // 绑定成功后启动全局会话心跳（后台解除邀请码时前端即时被踢出）

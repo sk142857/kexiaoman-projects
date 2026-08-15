@@ -154,6 +154,7 @@
 .menu-icon--purple { background: #f9f0ff; }
 .menu-icon--rose { background: #fff1f0; }
 .menu-icon--green { background: #e6faf4; }
+.menu-icon--gray { background: #f2f3f5; }
 .menu-label {
   flex: 1;
   font-size: 28rpx;

@@ -1,0 +1,163 @@
+<view class="lp-page">
+  <view class="header">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="{{editing ? '编辑任务' : '新增任务'}}"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+    <view class="steps-band">
+      <t-steps class="steps" current="{{step}}" readonly>
+        <t-step-item title="标题与科目" />
+        <t-step-item title="时间安排" />
+        <t-step-item title="更多设置" />
+      </t-steps>
+    </view>
+  </view>
+
+  <!-- 步骤一：标题与科目 -->
+  <scroll-view wx:if="{{step === 0}}" scroll-y class="lp-scroll content">
+    <view class="form">
+      <view class="field">
+        <view class="label">任务标题 <text class="req">*</text></view>
+        <textarea
+          class="textarea title-textarea"
+          placeholder="请输入任务标题，标题可较长"
+          placeholder-class="ph"
+          value="{{title}}"
+          bindinput="onTitle"
+          maxlength="100"
+        />
+      </view>
+
+      <view class="field">
+        <view class="label">科目 <text class="req">*</text></view>
+        <view class="sel-grid sel-grid--3">
+          <view
+            wx:for="{{subjectOptions}}"
+            wx:key="*this"
+            class="sel-card {{subject === item ? 'sel-card--on' : ''}}"
+            data-value="{{item}}"
+            bindtap="onSubject"
+          >
+            <text class="sel-name">{{item}}</text>
+            <view wx:if="{{subject === item}}" class="sel-check"><t-icon name="check" size="24rpx" /></view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 步骤二：时间安排 -->
+  <scroll-view wx:if="{{step === 1}}" scroll-y class="lp-scroll content">
+    <view class="form">
+      <view class="field">
+        <view class="label">开始日期</view>
+        <picker mode="date" value="{{startDate}}" bindchange="onStartDate">
+          <view class="picker-box {{startDate ? '' : 'is-ph'}}">
+            <text>{{startDate || '选择开始日期'}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="field">
+        <view class="label">截止日期</view>
+        <picker mode="date" value="{{deadline}}" bindchange="onDeadline">
+          <view class="picker-box {{deadline ? '' : 'is-ph'}}">
+            <text>{{deadline || '选择截止日期'}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="field">
+        <view class="label">合集</view>
+        <picker range="{{collections}}" range-key="name" value="{{collectionIndex}}" bindchange="onCollection">
+          <view class="picker-box {{collectionIndex >= 0 ? '' : 'is-ph'}}">
+            <text>{{collectionIndex >= 0 ? collections[collectionIndex].name : '不选择合集'}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 步骤三：更多设置 -->
+  <scroll-view wx:if="{{step === 2}}" scroll-y class="lp-scroll content">
+    <view class="form">
+      <view class="field">
+        <view class="label">标签</view>
+        <view class="tag-input-row">
+          <input class="input tag-input" placeholder="输入后点添加" placeholder-class="ph" value="{{tagText}}" bindinput="onTagInput" confirm-type="done" bindconfirm="addTag" />
+          <view class="tag-add" bindtap="addTag">添加</view>
+        </view>
+        <view wx:if="{{tags.length}}" class="tag-list">
+          <view wx:for="{{tags}}" wx:key="index" class="tag" data-index="{{index}}" bindtap="removeTag">#{{item}}<text class="tag-x"> ✕</text></view>
+        </view>
+      </view>
+
+      <view class="field">
+        <view class="label">任务图片（最多9张）</view>
+        <t-upload
+          files="{{files}}"
+          max="{{9}}"
+          media-type="{{['image']}}"
+          grid-config="{{uploadGrid}}"
+          remove-btn="{{true}}"
+          bind:add="handleUploadAdd"
+          bind:remove="handleUploadRemove"
+        />
+      </view>
+
+      <view wx:if="{{isManager}}" class="field">
+        <view class="label">派发给学生 <text class="req">*</text></view>
+        <view class="assignee-list">
+          <view
+            wx:for="{{students}}"
+            wx:key="staff_id"
+            class="assignee {{assigneeMap[item.staff_id] ? 'on' : ''}}"
+            data-id="{{item.staff_id}}"
+            bindtap="toggleAssignee"
+          >{{item.nickname}}</view>
+          <view wx:if="{{students.length === 0}}" class="hint">暂无学生账号，请先在后端后台创建学生</view>
+        </view>
+      </view>
+
+      <view class="field">
+        <view class="label">任务描述</view>
+        <textarea class="textarea" placeholder="请输入任务描述" placeholder-class="ph" value="{{description}}" bindinput="onDesc" />
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 固定底部操作栏 -->
+  <view class="footer">
+    <block wx:if="{{step === 0}}">
+      <t-button class="btn" theme="primary" block bindtap="onNext">下一步</t-button>
+    </block>
+
+    <block wx:elif="{{step === 1}}">
+      <view class="footer-row">
+        <view class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onNext">下一步</t-button>
+        </view>
+      </view>
+    </block>
+
+    <block wx:elif="{{step === 2}}">
+      <view class="footer-row">
+        <view class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onSubmit" loading="{{submitting}}">{{editing ? '保存' : '创建任务'}}</t-button>
+        </view>
+      </view>
+    </block>
+  </view>
+</view>

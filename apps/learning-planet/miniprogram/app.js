@@ -16,7 +16,7 @@ App({
     if (wx.cloud) {
       wx.cloud.init({ env: CLOUD_ENV || undefined, traceUser: true });
     }
-    // 暴露登录就绪 Promise，首页 onShow 等它完成后再加载，避免未绑定先请求业务接口被弹回
+    // 暴露登录就绪 Promise，登录加载页等它完成后按绑定状态分流入首页 / 身份选择页
     this.lpReady = this.ensureLogin();
   },
 
@@ -36,14 +36,14 @@ App({
         // 冷启动静默采集会话画像（失败不影响）
         collectSession();
         this.startSessionGuard();
-        this._go('/pages/home/home');
-      } else {
-        // 锁定/未绑定提示带给身份页展示（绑定解除 或 账号被后台锁定）
-        if (res && res.locked && res.msg) wx.setStorageSync('lp_lock_msg', res.msg);
-        this._go('/pages/identity/identity' + (res && res.locked ? '?locked=1' : ''));
+        return { ...res, bound: true };
       }
+      // 锁定/未绑定提示带给身份页展示（账号被后台锁定）
+      if (res && res.locked && res.msg) wx.setStorageSync('lp_lock_msg', res.msg);
+      if (res && res.locked && res.lockInfo) wx.setStorageSync('lp_lock_info', res.lockInfo);
+      return res || { bound: false };
     } catch (e) {
-      this._go('/pages/identity/identity');
+      return { bound: false };
     }
   },
 
@@ -76,13 +76,14 @@ App({
     wx.reLaunch({ url });
   },
 
-  // 供页面调用的重新登录（token 失效/被锁定后回到绑定页）
+  // 供页面调用的重新登录（token 失效/被锁定后回到登录加载页重新鉴权）
   reAuth() {
     this.stopSessionGuard();
     wx.removeStorageSync('lp_token');
     wx.removeStorageSync('lp_staff');
     wx.removeStorageSync('lp_role');
     wx.removeStorageSync('lp_view_staff_id');
-    this.ensureLogin();
+    this.lpReady = this.ensureLogin();
+    this._go('/pages/login/login');
   },
 });

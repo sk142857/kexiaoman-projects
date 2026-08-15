@@ -9,24 +9,16 @@
   </view>
   <scroll-view scroll-y class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
     <view class="page">
-  <!-- 管理员/家长/家属：切换查看学生 -->
-  <view wx:if="{{isManager}}" class="admin-bar">
-    <picker range="{{students}}" range-key="nickname" value="{{viewStudentIndex}}" bindchange="onPickStudent">
-      <view class="admin-picker">
-        <text class="admin-label">查看学生</text>
-        <text wx:if="{{viewStudentId}}" class="admin-name">{{viewStudentName}}</text>
-        <text wx:else class="admin-placeholder">选择要查看的学生</text>
-        <text class="admin-arrow">▾</text>
-      </view>
-    </picker>
-    <view wx:if="{{viewStudentId}}" class="admin-exit" bindtap="exitView">退出查看</view>
+  <!-- 管理员/家长/家属：当前查看的孩子（点击前往孩子档案页切换默认孩子） -->
+  <view wx:if="{{isManager}}" class="current-bar" bindtap="goChildren">
+    <view class="current-picker">
+      <text class="current-label">👶 当前孩子</text>
+      <text class="current-name">{{viewStudentName || '未设置'}}</text>
+      <text class="current-arrow">›</text>
+    </view>
   </view>
 
-  <block wx:if="{{isManager && !viewStudentId}}">
-    <view class="empty admin-tip">请先在上方选择要查看的学生</view>
-  </block>
-
-  <block wx:else>
+  <block>
     <!-- 等级卡片 -->
     <view class="level-card">
       <view class="level-top">
@@ -82,9 +74,10 @@
         <t-progress
           theme="plump"
           percentage="{{stats.completionRate}}"
-          stroke-width="12"
+          stroke-width="24"
           label="{{true}}"
-          color="#2b6de0"
+          color="{{ {  from: '#0052D9', to: '#00A870' } }}"
+          status="active"
         />
         <view class="completion-sub">已完成 {{stats.doneCount}} / {{stats.totalTasks}} 个任务</view>
       </view>
@@ -111,7 +104,7 @@
     <!-- 最近打卡 -->
     <view class="section">
       <view class="section-title">最近打卡</view>
-      <view wx:if="{{recentCheckins.length === 0}}">
+      <view wx:if="{{recentCheckins.length === 0}}" class="empty-card">
         <t-empty description="还没有打卡记录" />
       </view>
       <view wx:for="{{recentCheckins}}" wx:key="checkin_id" class="recent" bindtap="goTaskDetail" data-id="{{item.task_id}}">

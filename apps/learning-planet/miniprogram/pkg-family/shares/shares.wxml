@@ -1,0 +1,41 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="家属共享"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+      <view class="intro-card">
+        <view class="intro-title">🤝 家属共享</view>
+        <view class="intro-desc">生成共享码发给家属，家属输入后可查看孩子的学习情况。每个码仅可绑定一位家属。家属拥有与主家长相同的查看与审核能力，但不能维护孩子档案。</view>
+      </view>
+
+      <view class="gen-btn" bindtap="onGenerate">＋ 生成家属共享码</view>
+
+      <view class="section-title">共享记录</view>
+      <view wx:if="{{!loading && list.length === 0}}" class="empty-card">
+        <t-empty description="暂无共享记录" />
+      </view>
+
+      <view wx:for="{{list}}" wx:key="invite_id" class="share-card">
+        <view class="share-top">
+          <view class="share-code {{item.status === 'available' ? '' : 'off'}}">{{item.invite_code}}</view>
+          <view class="share-status s-{{item.status}}">{{item.statusText}}</view>
+        </view>
+        <view class="share-meta" wx:if="{{item.bound_member}}">已绑定：{{item.bound_member}}</view>
+        <view class="share-meta">{{item.bound_at ? '绑定时间：' + item.bound_at : '生成时间：' + item.created_at}}</view>
+        <view class="share-actions">
+          <view class="share-btn" bindtap="onCopy" data-code="{{item.invite_code}}">复制</view>
+          <view wx:if="{{item.status !== 'revoked'}}" class="share-btn danger" bindtap="onRevoke" data-id="{{item.invite_id}}" data-bound="{{item.bound_staff_id}}">作废</view>
+        </view>
+      </view>
+
+      <view class="foot">仅主家长可共享；家属为整家庭只读（可审核，不可维护档案）</view>
+    </view>
+  </scroll-view>
+</view>

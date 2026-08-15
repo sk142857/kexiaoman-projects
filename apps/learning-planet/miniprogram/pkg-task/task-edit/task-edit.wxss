@@ -1,0 +1,235 @@
+.header {
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #eaf2ff 0%, #eef4ff 100%);
+  --td-navbar-background: transparent;
+}
+.steps-band {
+  padding: 56rpx 48rpx 40rpx;
+}
+.steps {
+  width: 100%;
+}
+
+.content {
+  padding: 24rpx 32rpx 240rpx;
+  box-sizing: border-box;
+}
+.form {
+  background: #ffffff;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  overflow: hidden;
+  padding: 8rpx 0;
+}
+.field {
+  padding: 28rpx 32rpx;
+  border-bottom: 1rpx solid #f2f3f5;
+}
+.field:last-child {
+  border-bottom: none;
+}
+.label {
+  font-size: 26rpx;
+  color: #8a919f;
+  margin-bottom: 16rpx;
+  font-weight: 500;
+}
+.req {
+  color: #ff4d4f;
+}
+
+/* 统一有边框输入框 */
+.input {
+  width: 100%;
+  height: 88rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #d8dce3;
+  border-radius: 16rpx;
+  background: #ffffff;
+  font-size: 30rpx;
+  color: #1f2329;
+  padding: 0 24rpx;
+}
+.ph {
+  color: #b0b6c0;
+}
+.textarea {
+  width: 100%;
+  min-height: 180rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #d8dce3;
+  border-radius: 16rpx;
+  background: #ffffff;
+  font-size: 30rpx;
+  line-height: 1.6;
+  color: #1f2329;
+  padding: 20rpx 24rpx;
+}
+.title-textarea {
+  min-height: 140rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+/* 卡片风格字典选项（对齐身份选择卡片） */
+.sel-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+.sel-card {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.04);
+  color: #5c6470;
+}
+.sel-card--on {
+  border-color: #2b6de0;
+  background: #eef4ff;
+  color: #2b6de0;
+  box-shadow: 0 6rpx 20rpx rgba(43, 109, 224, 0.14);
+}
+.sel-name {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.sel-check {
+  position: absolute;
+  top: 6rpx;
+  right: 10rpx;
+  color: #2b6de0;
+}
+
+/* 选择器（带边框） */
+.picker-box {
+  height: 88rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #d8dce3;
+  border-radius: 16rpx;
+  background: #ffffff;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 30rpx;
+  color: #1f2329;
+  font-weight: 500;
+}
+.picker-box text:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-box.is-ph text:first-child {
+  color: #b0b6c0;
+  font-weight: 400;
+}
+.arrow {
+  margin-left: 16rpx;
+  color: #c9cdd4;
+  font-size: 36rpx;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.tag-input-row {
+  display: flex;
+  gap: 16rpx;
+}
+.tag-input {
+  flex: 1;
+}
+.tag-add {
+  flex-shrink: 0;
+  height: 88rpx;
+  line-height: 88rpx;
+  padding: 0 36rpx;
+  font-size: 26rpx;
+  background: #2b6de0;
+  color: #ffffff;
+  border-radius: 16rpx;
+  text-align: center;
+}
+.tag-list {
+  margin-top: 16rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+.tag {
+  background: #eef4ff;
+  color: #2b6de0;
+  border-radius: 8rpx;
+  padding: 8rpx 16rpx;
+  font-size: 24rpx;
+}
+.tag-x {
+  opacity: 0.7;
+}
+
+.assignee-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.assignee {
+  background: #ffffff;
+  border: 2rpx solid #d8dce3;
+  color: #5c6470;
+  border-radius: 12rpx;
+  padding: 12rpx 24rpx;
+  font-size: 26rpx;
+}
+.assignee.on {
+  background: #eef4ff;
+  border-color: #2b6de0;
+  color: #2b6de0;
+  font-weight: 600;
+}
+.hint {
+  font-size: 24rpx;
+  color: #b0b6c0;
+}
+
+/* ==================== 固定底部操作栏 ==================== */
+.footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  padding: 20rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 1rpx solid #f0f1f3;
+  box-shadow: 0 -6rpx 20rpx rgba(31, 35, 41, 0.04);
+}
+.footer t-button {
+  flex: 1;
+}
+.footer-row {
+  display: flex;
+  width: 100%;
+  gap: 24rpx;
+}
+.footer-prev {
+  flex-shrink: 0;
+}
+.footer-prev t-button {
+  width: 200rpx;
+}
+.footer-main {
+  flex: 1;
+  min-width: 0;
+}
+.footer-main t-button {
+  width: 100%;
+}

@@ -1,7 +1,7 @@
 /**
  * 用户业务路由（@cloudbase/node-sdk RDB MySQL）
  * - 登录逻辑共用：静默注册 / 资料审核 / 埋点统一走 appAuth（多小程序共享）
- * - 静默注册：默认昵称「微信用户」，头像默认取昵称首字符（字母大写）
+ * - 静默注册：默认昵称「用户 + 6 位随机字符串」，头像默认取昵称首字符（字母大写）
  * - 用户ID：随机 10 位数字（users.user_uid）
  * - 昵称/头像/性别修改需审核：写入 *_pending + profile_review_status=pending，审核通过后才生效
  */
@@ -10,7 +10,7 @@ const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql } = require("../utils");
 const { logEvent } = require("../events");
-const { ensureUser, buildProfile, avatarCharFromNickname } = require("../appAuth");
+const { ensureUser, buildProfile, avatarCharFromNickname, InitError } = require("../appAuth");
 
 const router = express.Router();
 
@@ -44,6 +44,7 @@ router.get("/getProfile", async (req, res) => {
     }));
   } catch (e) {
     console.error("[user] getProfile error", e);
+    if (e instanceof InitError) return res.json(fail(e.message, 500));
     res.json(fail("服务异常", 500));
   }
 });
@@ -105,6 +106,7 @@ router.post("/updateProfile", async (req, res) => {
     res.json(ok(buildProfile(fresh), "已提交，审核通过后生效"));
   } catch (e) {
     console.error("[user] updateProfile error", e);
+    if (e instanceof InitError) return res.json(fail(e.message, 500));
     res.json(fail("服务异常", 500));
   }
 });
@@ -128,6 +130,7 @@ router.post("/saveProfile", async (req, res) => {
     res.json(ok(null, "已提交，审核通过后生效"));
   } catch (e) {
     console.error("[user] saveProfile error", e);
+    if (e instanceof InitError) return res.json(fail(e.message, 500));
     res.json(fail("服务异常", 500));
   }
 });

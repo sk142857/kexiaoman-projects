@@ -1,0 +1,58 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="孩子档案"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+      <view wx:if="{{!loading && children.length === 0}}" class="empty-card">
+        <t-empty description="还没有孩子档案，点击右下角按钮添加" />
+      </view>
+
+      <view
+        wx:for="{{children}}"
+        wx:key="child_id"
+        class="child-card"
+        bindtap="onCardTap"
+        data-id="{{item.child_id}}"
+      >
+        <view class="child-avatar">{{item.avatarChar}}</view>
+        <view class="child-main">
+          <view class="child-name-row">
+            <text class="child-name">{{item.child_name}}</text>
+            <text class="child-gender">{{item.genderText}}</text>
+            <text wx:if="{{item.isCurrent}}" class="child-tag-default">默认</text>
+          </view>
+          <view class="child-meta">{{item.gradeText || '未设置年级'}} · {{item.school_name || '未填写学校'}}</view>
+        </view>
+        <text class="child-arrow">›</text>
+      </view>
+
+      <view class="foot">{{canManage ? '孩子档案由主家长维护，家属仅有查看与切换当前孩子权限' : '家属仅有查看与切换当前孩子权限'}}</view>
+    </view>
+  </scroll-view>
+
+  <view wx:if="{{canManage}}" class="fab" bindtap="goAdd">＋</view>
+
+  <!-- 操作菜单（底部弹层，支持右侧展示邀请码） -->
+  <view wx:if="{{sheetVisible}}" class="mask" catchtouchmove="true" bindtap="closeSheet">
+    <view class="sheet" catchtap="noop">
+      <view class="sheet-title">【孩子：{{sheetChild.child_name}}】</view>
+      <view
+        wx:for="{{sheetItems}}"
+        wx:key="index"
+        class="sheet-item"
+        data-index="{{index}}"
+        bindtap="onSheetItem"
+      >
+        <text class="sheet-item-label {{item.danger ? 'sheet-item-label--danger' : ''}}">{{item.label}}</text>
+      </view>
+      <view class="sheet-cancel" bindtap="closeSheet">取消</view>
+    </view>
+  </view>
+</view>

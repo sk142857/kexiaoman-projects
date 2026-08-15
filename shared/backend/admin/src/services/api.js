@@ -104,9 +104,12 @@ export const crudApi = {
   // 课小满邀请码独立管理（t_lp_invites，仅管理员）：作废 / 重新生成
   lpInviteRevoke: (id) => api.post('/admin/api/lp_invites/revoke', { id }),
   lpInviteRegenerate: (id) => api.post('/admin/api/lp_invites/regenerate', { id }),
-  // 课小满绑定关系管理（openid ↔ 学生账号）：列表 / 详情 / 解除绑定 / 变更绑定
+  // 课小满绑定关系管理（openid ↔ 学生账号）：列表 / 详情 / 新增 / 编辑 / 解除绑定 / 变更绑定
   lpStudentList: (params) => api.get('/admin/api/lp_students/list', { params }),
   lpStudentDetail: (id) => api.get('/admin/api/lp_students/detail', { params: { id } }),
+  lpStudentCreate: (data) => api.post('/admin/api/lp_students/create', data),
+  lpStudentUpdate: (id, data) => api.post('/admin/api/lp_students/update', { id, ...data }),
+  lpStudentDelete: (id) => api.post('/admin/api/lp_students/delete', { id }),
   lpStudentUnbind: (id) => api.post('/admin/api/lp_students/unbind', { id }),
   lpStudentRebind: (id, staffId) => api.post('/admin/api/lp_students/rebind', { id, staffId }),
   // 订阅消息：后台给学生赠送订阅次数 { staffId, tmplId, count, remark }

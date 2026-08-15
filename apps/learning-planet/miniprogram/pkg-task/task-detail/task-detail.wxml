@@ -1,0 +1,85 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="任务详情"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+  <view wx:if="{{!task}}" class="empty-card">
+    <t-empty description="暂无任务数据" />
+  </view>
+
+  <block wx:elif="{{task}}">
+    <!-- 任务信息 -->
+    <view class="card">
+      <view class="card-head">
+        <view class="title">{{task.title}}</view>
+        <view class="status">
+          <t-tag size="small" theme="{{task.task_status === 'todo' ? 'danger' : task.task_status === 'doing' ? 'primary' : 'success'}}" variant="light">
+            {{task.task_status === 'todo' ? '未开始' : task.task_status === 'doing' ? '进行中' : '已完成'}}
+          </t-tag>
+        </view>
+      </view>
+      <view class="meta">
+        <t-tag wx:if="{{task.subject}}" class="tag-gap" size="small" variant="light" theme="primary">{{task.subject}}</t-tag>
+        <t-tag wx:if="{{task.collection_name}}" class="tag-gap" size="small" variant="outline" theme="default">{{task.collection_name}}</t-tag>
+        <t-tag wx:if="{{task.deadline}}" class="tag-gap" size="small" variant="light" theme="warning">截止 {{task.deadline}}</t-tag>
+        <t-tag wx:if="{{task.score > 0}}" class="tag-gap" size="small" variant="light" theme="{{task.score >= 5 ? 'success' : 'warning'}}">评分 {{task.score}}分</t-tag>
+      </view>
+      <view class="task-progress">
+        <t-progress
+          theme="plump"
+          percentage="{{task.task_status === 'todo' ? 0 : task.task_status === 'doing' ? 50 : 100}}"
+          stroke-width="10"
+          label="{{false}}"
+          color="{{task.task_status === 'done' ? '#52c41a' : task.task_status === 'doing' ? '#1677ff' : '#bfbfbf'}}"
+        />
+      </view>
+      <view wx:if="{{task.description}}" class="desc">{{task.description}}</view>
+      <view wx:if="{{task.tags && task.tags.length}}" class="tags">
+        <t-tag wx:for="{{task.tags}}" wx:key="index" class="tag-gap" size="small" variant="outline" theme="default">#{{item}}</t-tag>
+      </view>
+      <view wx:if="{{images.length}}" class="imgs">
+        <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" bindtap="preview" data-url="{{item}}" />
+      </view>
+      <view class="foot">打卡 {{task.checkin_count}} 次</view>
+    </view>
+
+    <!-- 打卡记录 -->
+    <view class="section-title">打卡记录</view>
+    <view wx:if="{{checkins.length === 0}}" class="empty-card">
+      <t-empty description="还没有打卡" />
+    </view>
+      <view wx:for="{{checkins}}" wx:key="checkin_id" class="checkin">
+        <view class="checkin-head">
+          <text class="checkin-date">{{item.checkin_date}}</text>
+          <view class="checkin-head-right">
+            <text class="checkin-status" style="color: {{item.reviewColor}}; background: {{item.reviewBg}};">{{item.reviewText}}</text>
+            <text wx:if="{{item.canDelete}}" class="del" bindtap="onDeleteCheckin" data-id="{{item.checkin_id}}">删除</text>
+          </view>
+        </view>
+        <view wx:if="{{item.checkin_note}}" class="checkin-note">{{item.checkin_note}}</view>
+        <view wx:if="{{item.review_note}}" class="checkin-review">审核说明：{{item.review_note}}</view>
+        <view wx:if="{{item.images.length}}" class="imgs">
+          <image wx:for="{{item.images}}" wx:key="index" class="img sm" src="{{item}}" mode="aspectFill" />
+        </view>
+      </view>
+  </block>
+  </view>
+</scroll-view>
+
+  <!-- 底部操作栏：开始/完成/打卡/编辑/删除/复制 一律贴底，页面中间不放按钮 -->
+  <view wx:if="{{task && (canCheckin || canManage || canCopy)}}" class="lp-actions">
+    <t-button wx:if="{{canCheckin && task.task_status === 'todo'}}" class="act-start" theme="primary" variant="base" block bindtap="onStart">开始任务</t-button>
+    <t-button wx:if="{{canCheckin && task.task_status === 'doing'}}" class="act-finish" theme="default" variant="outline" block bindtap="onFinish">完成任务</t-button>
+    <t-button wx:if="{{canCheckin && task.task_status !== 'done'}}" class="act-checkin" theme="primary" variant="base" block bindtap="onCheckin">打卡</t-button>
+    <t-button wx:if="{{canCopy}}" class="act-copy" theme="default" variant="outline" block bindtap="onCopy">复制任务</t-button>
+    <t-button wx:if="{{canManage}}" class="act-edit" theme="default" variant="outline" block bindtap="onEdit">编辑</t-button>
+    <t-button wx:if="{{canManage}}" class="act-delete" theme="danger" variant="outline" block bindtap="onDelete">删除任务</t-button>
+  </view>
+</view>

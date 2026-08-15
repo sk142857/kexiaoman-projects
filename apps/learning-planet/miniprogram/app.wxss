@@ -69,3 +69,14 @@ view {
 .tag-gap {
   margin-right: 12rpx;
 }
+
+/* 空态统一：白色背景卡片 + 固定高度，居中展示 */
+.empty-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  height: 360rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+}

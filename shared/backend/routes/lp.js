@@ -17,6 +17,7 @@ const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages } = requ
 const { logTaskEvent } = require("../taskTimeline");
 const { logEvent } = require("../events");
 const { getAppConfig } = require("../apps");
+const { reportTrace } = require("../trace");
 const { sendReviewNotification } = require("../subscribeLib");
 const {
   parseImgList, attachAssignees, attachStaffInfo, attachCollectionName, attachCollectionCount,
@@ -64,6 +65,8 @@ async function taskInScope(req, task) {
   if (scope === null) return true;
   if (!task) return false;
   if (scope.includes(String(task.created_by))) return true;
+  // 空 scope（家长/家属名下无孩子）直接判定不在范围内，避免空数组 in() 报错
+  if (scope.length === 0) return false;
   try {
     const { data } = await db.from("task_assignees")
       .select("task_id").eq("task_id", task.task_id).in("staff_id", scope).limit(1);
@@ -73,7 +76,8 @@ async function taskInScope(req, task) {
 }
 
 // ==================== 会话心跳 ====================
-// 轻量实时复核：后台解除绑定/作废邀请码后，前端轮询此接口立即收到 403 并清除登录态。
+// 轻量实时复核：后台解除绑定/作废邀请码后，前端轮询此接口立即收到 401 并清除登录态；
+// 账号被后台锁定时收到 403（锁定态，需联系管理员）。
 // 只读、无业务计算，仅依赖 lpAuth 中间件已完成的「绑定 + 员工在职」实时校验。
 router.get("/session", async (req, res) => {
   res.json(ok({ role: req.lpRole, staffId: req.lp.staffId }));
@@ -121,6 +125,8 @@ router.get("/admin/students", async (req, res) => {
   try {
     if (!isManager(req)) return res.json(fail("无权操作", 403));
     const scope = myScope(req);
+    // 空 scope（家长/家属名下无孩子）：直接返回空列表，避免空数组 in() 报错
+    if (scope !== null && scope.length === 0) return res.json(ok({ list: [] }));
     let q = db.from("staff").select("staff_id, staff_username, staff_nickname, staff_status")
       .eq("staff_role", "student");
     if (scope !== null) q = q.in("staff_id", scope);
@@ -750,8 +756,8 @@ router.post("/checkins/delete", async (req, res) => {
 // Parent/Family/Admin：本家庭范围内待审核打卡列表（学生提交打卡后进入）
 router.get("/todos", async (req, res) => {
   try {
-    if (isManager(req)) return managerTodos(req, res);
-    return studentTodos(req, res);
+    if (isManager(req)) return await managerTodos(req, res);
+    return await studentTodos(req, res);
   } catch (e) {
     console.error("[lp] todos error", e);
     res.json(fail("服务异常", 500));
@@ -804,6 +810,8 @@ async function studentTodos(req, res) {
 /** 家长/家属/管理员待办：本家庭范围内待审核打卡（含学生/任务/提交内容） */
 async function managerTodos(req, res) {
   const scope = myScope(req);
+  // 空 scope（家长/家属名下无孩子）：直接返回空列表，避免空数组 in() 报错
+  if (scope !== null && scope.length === 0) return res.json(ok({ type: "admin", count: 0, list: [] }));
   let q = db.from("task_checkins").select().eq("review_status", "pending");
   if (scope !== null) q = q.in("created_by", scope);
   const { data: rows, error } = await q.order("created_at", { ascending: false }).limit(200);
@@ -1354,6 +1362,19 @@ router.get("/dashboard", async (req, res) => {
     }));
   } catch (e) {
     console.error("[lp] dashboard error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// ==================== 接口链路：前端上报补全耗时 ====================
+router.post("/reportTrace", async (req, res) => {
+  try {
+    const { requestId, clientCostMs } = req.body || {};
+    if (!requestId || clientCostMs == null) return res.json(fail("缺少参数"));
+    await reportTrace(requestId, clientCostMs);
+    res.json(ok(null, "已记录"));
+  } catch (e) {
+    console.error("[lp] reportTrace error", e);
     res.json(fail("服务异常", 500));
   }
 });

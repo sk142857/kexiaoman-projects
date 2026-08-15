@@ -1,0 +1,44 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="后台账号"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+      <view wx:if="{{first}}" class="welcome">
+        🎉 家长注册成功！这是您的后台登录账号，请妥善保存
+      </view>
+
+      <view class="tip-card">该账号用于登录课小满管理后台，可管理本家庭孩子的任务与打卡审核。</view>
+
+      <view class="phone-tip">📱 目前暂不支持手机号码绑定，后续版本会支持，敬请期待。</view>
+
+      <view class="account-card">
+        <view class="field">
+          <text class="label">登录账号</text>
+          <view class="value-row">
+            <text class="value">{{username || '--'}}</text>
+            <view class="mini-btn" bindtap="onCopyUsername">复制</view>
+          </view>
+        </view>
+        <view class="field">
+          <text class="label">登录密码</text>
+          <view class="value-row">
+            <text class="value {{showPassword ? '' : 'masked'}}">{{showPassword ? (password || '--') : '••••••••'}}</text>
+            <view class="mini-btn" bindtap="togglePassword">{{showPassword ? '隐藏' : '查看'}}</view>
+            <view class="mini-btn" wx:if="{{hasPassword}}" bindtap="onCopyPassword">复制</view>
+          </view>
+          <view class="field-tip">密码仅注册或重置时展示一次，请及时复制保存</view>
+        </view>
+      </view>
+
+      <view class="reset-btn {{loading ? 'disabled' : ''}}" bindtap="onReset">{{loading ? '重置中...' : '重置密码'}}</view>
+      <view class="foot">重置后原密码立即失效，新密码仅展示一次</view>
+    </view>
+  </scroll-view>
+</view>

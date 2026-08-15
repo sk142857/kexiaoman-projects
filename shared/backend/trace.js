@@ -11,6 +11,7 @@
  */
 const { db } = require("./db");
 const { nowSql } = require("./utils");
+const jwt = require("jsonwebtoken");
 
 // openid → user_id(user_uid) 内存缓存，减少每次请求都查库
 const uidCache = new Map();
@@ -86,6 +87,19 @@ function getClientFingerprint(req) {
   return parts.join(" | ").slice(0, 128);
 }
 
+/** 从请求解析 openid：优先规范化后的 req.openid；LP 接口从 LP JWT 解码兜底；再退到网关注入的 X-WX-OPENID */
+function resolveOpenid(req) {
+  if (req.openid) return req.openid;
+  const token = req.headers["x-lp-token"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (token) {
+    try {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.openid) return decoded.openid;
+    } catch (_) { /* 解码失败走下一级 */ }
+  }
+  return req.headers["x-wx-openid"] || "";
+}
+
 /**
  * 请求链路中间件：
  * 在 openid 鉴权后挂载，跳过健康检查路径。
@@ -97,7 +111,8 @@ function traceMiddleware(req, res, next) {
   if (!requestId || req.path === "/" || req.path === "/healthz" || req.path.includes("/reportTrace")) {
     return next();
   }
-  if (!req.openid) {
+  const openid = resolveOpenid(req);
+  if (!openid) {
     return next();
   }
 
@@ -113,10 +128,10 @@ function traceMiddleware(req, res, next) {
   res.on("finish", () => {
     const cost = Date.now() - start;
     const code = res.locals._code !== undefined ? res.locals._code : res.statusCode;
-    getUserIdByOpenid(req.openid).then(userId => {
+    getUserIdByOpenid(openid).then(userId => {
       const metric = {
         request_id: requestId,
-        openid: req.openid,
+        openid,
         user_id: userId,
         api_path: req.originalUrl || req.url || "",
         api_method: req.method || "",

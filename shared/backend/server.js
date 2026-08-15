@@ -22,6 +22,14 @@ const { normalizeOpenid } = require("./appAuth");
 
 const app = express();
 
+// ==================== 全局兜底：未捕获异常/拒绝只记日志，不让单点错误拖垮整个服务 ====================
+process.on("unhandledRejection", (reason) => {
+  console.error("[global] unhandledRejection", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[global] uncaughtException", err && err.stack ? err.stack : err);
+});
+
 // ==================== 后台管理静态资源（React 构建产物）+ SPA fallback ====================
 const path = require("path");
 const adminStatic = express.static(path.join(__dirname, "public", "admin"));

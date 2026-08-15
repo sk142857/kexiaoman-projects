@@ -18,43 +18,52 @@ INSERT INTO t_roles (role_id, role_code, role_name, role_status, created_at, upd
   (4, 'family', '家属', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE role_name = VALUES(role_name);
 
--- 2. 菜单（与 routes/admin.js DEFAULT_MENU_GROUPS 保持一致，1~38）
+-- 2. 菜单（与 routes/admin.js DEFAULT_MENU_GROUPS 保持一致，1~38；menu_id 稳定，role_menus 关联不变）
+--    一级分组：仪表盘 / 学习管理 / 成员管理 / 消息通知 / 系统监控 / 系统设置
 INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, menu_type, menu_status, created_at, updated_at) VALUES
+  -- 1. 仪表盘
   (1, 0, '仪表盘', '/dashboard', 'DashboardOutlined', 1, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (3, 1, '监控仪表盘', '/dashboard/monitor', 'LineChartOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (4, 1, '学习仪表盘', '/dashboard/learning', 'BookOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (3, 1, '监控仪表盘', '/dashboard/monitor', 'LineChartOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (4, 1, '学习仪表盘', '/dashboard/learning', 'BookOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  -- 2. 学习管理
   (5, 0, '学习管理', '/learning', 'ReadOutlined', 2, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (34, 5, '待办任务', '/module/todo_tasks', 'CheckSquareOutlined', 0, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (35, 5, '打卡审核', '/module/checkin_reviews', 'AuditOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (6, 5, '任务管理', '/module/tasks', 'UnorderedListOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (8, 0, '业务管理', '/module', 'AppstoreOutlined', 3, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (34, 5, '待办任务', '/module/todo_tasks', 'CheckSquareOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (35, 5, '打卡审核', '/module/checkin_reviews', 'AuditOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (6, 5, '任务管理', '/module/tasks', 'UnorderedListOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  -- 3. 成员管理
+  (8, 0, '成员管理', '/members', 'UserOutlined', 3, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (9, 8, '用户管理', '/module/users', 'UserOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (15, 0, '系统监控', '/ops', 'FundOutlined', 4, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (31, 8, '绑定管理', '/module/lp_students', 'LinkOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (36, 8, '孩子档案', '/module/lp_children', 'SolutionOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (38, 8, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  -- 4. 消息通知
+  (19, 0, '消息通知', '/message', 'BellOutlined', 4, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (32, 19, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (33, 19, '发送记录', '/module/subscribe_sends', 'SendOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  -- 5. 系统监控
+  (15, 0, '系统监控', '/ops', 'FundOutlined', 5, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (16, 15, '服务监控', '/module/monitors', 'MonitorOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (17, 15, '接口链路', '/module/traces', 'ApiOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (18, 15, '会话画像', '/module/sessions', 'MobileOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (19, 0, '内容合规', '/content', 'ThunderboltOutlined', 5, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (20, 19, '图片上传记录', '/module/file_uploads', 'PictureOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (21, 19, '用户事件', '/module/user_events', 'AppstoreOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (21, 15, '用户事件', '/module/user_events', 'ThunderboltOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (20, 15, '图片上传记录', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  -- 6. 系统设置
   (22, 0, '系统设置', '/system', 'SettingOutlined', 6, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (23, 22, '管理员管理', '/module/staff', 'SafetyOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (24, 22, '角色管理', '/module/roles', 'TeamOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (25, 22, '菜单管理', '/module/menus', 'MenuOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (26, 22, '数据字典', '/module/dicts', 'DatabaseOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (27, 22, '序列管理', '/module/seqs', 'OrderedListOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (29, 22, '操作审计', '/module/staff_events', 'AuditOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (30, 22, '小程序配置', '/module/apps', 'AppstoreOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (31, 5, '绑定管理', '/module/lp_students', 'LinkOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (32, 5, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (33, 5, '消息发送记录', '/module/subscribe_sends', 'SendOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (36, 5, '孩子档案', '/module/lp_children', 'SolutionOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (37, 5, '家属关系', '/module/lp_family_members', 'TeamOutlined', 9, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (38, 5, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 10, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_path = VALUES(menu_path);
+  (30, 22, '小程序配置', '/module/apps', 'AppstoreOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_path = VALUES(menu_path), parent_id = VALUES(parent_id);
 
--- 3. 角色-菜单（管理员全部；学生：学习仪表盘 + 学习管理：待办任务+任务+打卡+合集+绑定管理）
+-- 3. 角色-菜单（按 menu_id 关联，分组调整后关联保持不变）
+--    管理员：全部菜单；学生：学习仪表盘 + 学习管理（待办/任务/打卡/合集）+ 成员管理·绑定管理；
+--    主家长/家属：学习仪表盘 + 学习管理（待办/任务/打卡/合集/审核）+ 成员管理·孩子档案
 INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (1,  'admin', 1,  CURRENT_TIMESTAMP), (3,  'admin', 3,  CURRENT_TIMESTAMP),
   (4,  'admin', 4,  CURRENT_TIMESTAMP),

@@ -16,7 +16,9 @@
         <text class="todo-tip-desc">{{isManager ? '学生提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
       </view>
 
-      <t-empty wx:if="{{!loading && list.length === 0}}" description="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" />
+      <view wx:if="{{!loading && list.length === 0}}" class="empty-card">
+        <t-empty description="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" />
+      </view>
 
       <!-- 学生待办：未打卡任务 -->
       <block wx:if="{{!isManager}}">

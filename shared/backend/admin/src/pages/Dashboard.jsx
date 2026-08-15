@@ -12,6 +12,7 @@ import {
   UnorderedListOutlined, CalendarOutlined, TeamOutlined, MenuOutlined,
   DatabaseOutlined, ProfileOutlined, OrderedListOutlined, FolderOutlined,
   AuditOutlined, CheckSquareOutlined, KeyOutlined,
+  LinkOutlined, SolutionOutlined, BellOutlined, SendOutlined,
 } from '@ant-design/icons';
 
 // 菜单图标映射（与后端 menus.menu_icon 对应）
@@ -46,6 +47,10 @@ const ICON_MAP = {
   AuditOutlined: <AuditOutlined />,
   CheckSquareOutlined: <CheckSquareOutlined />,
   KeyOutlined: <KeyOutlined />,
+  LinkOutlined: <LinkOutlined />,
+  SolutionOutlined: <SolutionOutlined />,
+  BellOutlined: <BellOutlined />,
+  SendOutlined: <SendOutlined />,
 };
 const iconOf = (name) => ICON_MAP[name] || <AppstoreOutlined />;
 
@@ -156,7 +161,7 @@ export default function Dashboard() {
 
   return (
     <ProLayout
-      title="综合Cloud管理系统（v2026-08-12）"
+      title="课小满后台管理系统"
       logo={false}
       layout="mix"
       navTheme="light"

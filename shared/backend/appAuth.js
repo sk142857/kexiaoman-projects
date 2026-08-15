@@ -12,10 +12,45 @@ const { genUserUid, nowSql } = require("./utils");
 const { publicUrl } = require("./storage");
 const { logEvent } = require("./events");
 
+/** 注册初始化错误：随机昵称重试耗尽或校验异常时抛出，提示「初始化错误」 */
+class InitError extends Error {
+  constructor() {
+    super("初始化错误");
+    this.name = "InitError";
+  }
+}
+
+/** 随机昵称字符集：小写字母 + 数字 */
+const NICKNAME_CHARS = "abcdef0123456789";
+
+/** 生成随机昵称：用户 + 6 位随机字符串（取自 NICKNAME_CHARS） */
+function genRandomNickname() {
+  let suffix = "";
+  for (let i = 0; i < 6; i++) {
+    suffix += NICKNAME_CHARS[Math.floor(Math.random() * NICKNAME_CHARS.length)];
+  }
+  return `用户${suffix}`;
+}
+
+/**
+ * 生成未被占用的随机昵称：
+ * - 最多尝试 3 次，检测到已存在则重新生成
+ * - 3 次均被占用或校验过程发生异常，抛 InitError（提示「初始化错误」）
+ */
+async function genUniqueNickname() {
+  for (let i = 0; i < 3; i++) {
+    const nickname = genRandomNickname();
+    const { data, error } = await db.from("users").select("nickname").eq("nickname", nickname).limit(1);
+    if (error) throw new InitError();
+    if (!data || !data[0]) return nickname;
+  }
+  throw new InitError();
+}
+
 /** 头像默认取昵称第一个字符；若为小写字母则转大写 */
 function avatarCharFromNickname(nickname) {
   const n = String(nickname || "").trim();
-  if (!n) return "微";
+  if (!n) return "用";
   const ch = n.charAt(0);
   return /[a-z]/.test(ch) ? ch.toUpperCase() : ch;
 }
@@ -36,12 +71,12 @@ function buildProfile(u) {
   return {
     appId: u.app_id || "learning-planet",
     userId: u.user_uid || "",
-    nickname: u.nickname || "微信用户",
+    nickname: u.nickname || "用户",
     avatar: u.avatar || "",          // 128px 相对路径
     avatarHd: u.avatar_hd || "",     // 512px 相对路径
     avatarUrl: u.avatar ? publicUrl(u.avatar) : "",
     avatarHdUrl: u.avatar_hd ? publicUrl(u.avatar_hd) : "",
-    avatarChar: avatarCharFromNickname(u.nickname || "微信用户"),
+    avatarChar: avatarCharFromNickname(u.nickname || "用户"),
     gender: u.gender != null ? Number(u.gender) : 0,
     profileReviewStatus: u.profile_review_status || "approved",
     nicknamePending: u.nickname_pending || "",
@@ -66,7 +101,7 @@ function normalizeOpenid(rawOpenid, wechatAppid) {
 /**
  * 静默注册/查询用户（所有小程序共用）
  * - 先按 app_id + openid 精确查；查不到再按 app_id + 无前缀 legacy openid 查（兼容迁移期数据）
- * - 都不存在则静默注册新用户（默认昵称「微信用户」）
+ * - 都不存在则静默注册新用户（默认昵称「用户 + 6 位随机字符串」）
  * @param {object} app 当前小程序（{ app_id, app_name, wechat_appid }）
  * @param {string} openid 已规范化的 openid
  */
@@ -101,8 +136,8 @@ async function ensureUser(app, openid) {
     openid,
     app_id: appId,
     user_uid: await genUniqueUserUid(),
-    nickname: "微信用户",
-    avatar_emoji: "微",
+    nickname: await genUniqueNickname(),
+    avatar_emoji: "用",
     gender: 0,
     user_status: 1,
   };
@@ -123,4 +158,4 @@ function logLoginEvent({ app, openid, userId, pagePath }) {
   });
 }
 
-module.exports = { avatarCharFromNickname, genUniqueUserUid, buildProfile, normalizeOpenid, ensureUser, logLoginEvent };
+module.exports = { InitError, avatarCharFromNickname, genRandomNickname, genUniqueNickname, genUniqueUserUid, buildProfile, normalizeOpenid, ensureUser, logLoginEvent };

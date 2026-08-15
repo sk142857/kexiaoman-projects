@@ -1,52 +1,137 @@
-<view class="page">
-  <view class="logo">🎓</view>
-  <view class="title">课小满</view>
-  <view class="sub">{{rebind ? '输入新邀请码，更换当前绑定的账号' : '请选择身份并输入邀请码完成绑定'}}</view>
-
-  <view wx:if="{{locked}}" class="locked">
-    <view class="locked-title">访问已锁定</view>
-    <view class="locked-desc">{{lockedMsg}}</view>
+<view class="lp-page">
+  <!-- 头部：品牌 + 步骤条 -->
+  <view wx:if="{{!locked}}" class="header">
+    <hero sub="{{rebind ? '输入新邀请码，更换当前绑定的账号' : '选择身份并绑定，即可开始使用'}}" />
+    <t-steps class="steps" current="{{step}}" readonly>
+      <t-step-item title="选择身份" />
+      <t-step-item title="绑定账号" />
+      <t-step-item title="完成" />
+    </t-steps>
   </view>
 
-  <view wx:if="{{rebind}}" class="rebind-tip">重新绑定将更换当前绑定的账号</view>
+  <!-- 锁定提示 -->
+  <scroll-view wx:if="{{locked}}" scroll-y class="lp-scroll">
+    <view class="locked">
+      <view class="locked-icon">
+        <t-icon name="lock-on" size="72rpx" />
+      </view>
+      <view class="locked-title">访问已锁定</view>
+      <view class="locked-desc">{{lockedMsg}}</view>
+      <view wx:if="{{lockInfo}}" class="locked-info">
+        <view class="info-row">
+          <view class="info-label">锁定原因</view>
+          <view class="info-value">{{lockInfo.reason || '—'}}</view>
+        </view>
+        <view wx:if="{{lockInfo.lockedAt}}" class="info-row">
+          <view class="info-label">锁定时间</view>
+          <view class="info-value">{{lockInfo.lockedAt}}</view>
+        </view>
+        <view wx:if="{{lockInfo.unlockAt}}" class="info-row">
+          <view class="info-label">解封时间</view>
+          <view class="info-value">{{lockInfo.unlockAt}}</view>
+        </view>
+      </view>
+      <button class="locked-contact" open-type="contact">联系管理员</button>
+    </view>
+  </scroll-view>
 
-  <!-- 身份选择（换绑时无需再选身份） -->
-  <view wx:if="{{!rebind}}" class="cards">
-    <view class="card card--parent" bindtap="onParent">
-      <view class="card-emoji">👨‍👩‍👧</view>
-      <view class="card-name">我是家长</view>
-      <view class="card-desc">创建家庭档案，管理孩子的任务与打卡</view>
+  <!-- 步骤一：选择身份 -->
+  <scroll-view wx:elif="{{step === 0}}" scroll-y class="lp-scroll content">
+    <view class="cards">
+      <view class="card {{identity === 'parent' ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="parent">
+        <view class="card-icon icon--parent"><t-icon name="home-filled" size="44rpx" /></view>
+        <view class="card-main">
+          <view class="card-name">我是家长</view>
+          <view class="card-desc">创建家庭档案，管理孩子的学习任务与每日打卡</view>
+        </view>
+        <view class="card-check {{identity === 'parent' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
+      </view>
+
+      <view class="card {{identity === 'student' ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="student">
+        <view class="card-icon icon--student"><t-icon name="book-open-filled" size="44rpx" /></view>
+        <view class="card-main">
+          <view class="card-name">我是学生</view>
+          <view class="card-desc">输入家长提供的学生邀请码，完成绑定即可学习</view>
+        </view>
+        <view class="card-check {{identity === 'student' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
+      </view>
+
+      <view class="card {{identity === 'family' ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="family">
+        <view class="card-icon icon--family"><t-icon name="share-filled" size="44rpx" /></view>
+        <view class="card-main">
+          <view class="card-name">我是家属</view>
+          <view class="card-desc">输入主家长提供的共享码，随时查看孩子的学习情况</view>
+        </view>
+        <view class="card-check {{identity === 'family' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 步骤二：绑定信息 -->
+  <scroll-view wx:elif="{{step === 1}}" scroll-y class="lp-scroll content">
+    <view wx:if="{{rebind}}" class="rebind-tip">重新绑定将更换当前绑定的账号</view>
+
+    <view wx:if="{{identity === 'parent'}}" class="parent-box">
+      <view class="parent-title">确认创建主家长账号</view>
+      <view class="parent-item">自动创建家庭档案与后台登录账号</view>
+      <view class="parent-item">生成家属共享码，可邀请家属加入</view>
+      <view class="parent-item">孩子档案可在「我的」中维护</view>
     </view>
 
-    <view class="card card--student {{identity === 'student' && showCodeBox ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="student">
-      <view class="card-emoji">📖</view>
-      <view class="card-name">我是学生</view>
-      <view class="card-desc">输入家长提供的学生邀请码完成绑定</view>
+    <view wx:else class="code-box">
+      <view class="code-label">{{identity === 'family' ? '家属共享码' : '学生邀请码'}}</view>
+      <input
+        class="input"
+        type="text"
+        maxlength="6"
+        placeholder="{{placeholder}}"
+        placeholder-class="ph"
+        value="{{code}}"
+        focus="{{focusInput}}"
+        bindinput="onInput"
+      />
+      <view class="code-hint">6 位大写字母或数字，由家长提供</view>
+      <view wx:if="{{errorMsg}}" class="error">{{errorMsg}}</view>
     </view>
 
-    <view class="card card--family {{identity === 'family' && showCodeBox ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="family">
-      <view class="card-emoji">🤝</view>
-      <view class="card-name">我是家属</view>
-      <view class="card-desc">输入主家长提供的共享码，查看孩子学习情况</view>
+    <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
+  </scroll-view>
+
+  <!-- 步骤三：完成 -->
+  <scroll-view wx:elif="{{step === 2}}" scroll-y class="lp-scroll content">
+    <view class="done">
+      <view class="done-icon"><t-icon name="check-circle-filled" size="120rpx" /></view>
+      <view class="done-title">{{identity === 'parent' ? '创建成功' : '绑定成功'}}</view>
+      <view class="done-desc">{{identity === 'parent' ? '家庭账号已创建，请先添加至少一个孩子档案，生成学生邀请码' : '欢迎加入课小满，开始你的学习之旅'}}</view>
     </view>
+  </scroll-view>
+
+  <!-- 固定底部操作栏 -->
+  <view wx:if="{{!locked}}" class="footer">
+    <block wx:if="{{step === 0}}">
+      <t-button class="btn" theme="primary" block bindtap="onNext" disabled="{{!identity}}">下一步</t-button>
+    </block>
+
+    <block wx:elif="{{step === 1}}">
+      <view class="footer-row">
+        <view wx:if="{{!rebind}}" class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button
+            class="btn"
+            theme="primary"
+            block
+            bindtap="onPrimary"
+            loading="{{loading || submitting}}"
+            disabled="{{identity === 'parent' ? submitting : (code.length !== 6 || loading)}}"
+          >{{identity === 'parent' ? '确认创建' : (rebind ? '确认重新绑定' : '绑定')}}</t-button>
+        </view>
+      </view>
+    </block>
+
+    <block wx:elif="{{step === 2}}">
+      <t-button class="btn" theme="primary" block bindtap="onFinish">{{identity === 'parent' ? '去创建孩子档案' : '进入首页'}}</t-button>
+    </block>
   </view>
-
-  <!-- 邀请码绑定（学生/家属选中后同页展开；换绑时直接展开） -->
-  <view wx:if="{{showCodeBox}}" class="code-box">
-    <input
-      class="input"
-      type="text"
-      maxlength="6"
-      placeholder="{{placeholder}}"
-      placeholder-class="ph"
-      value="{{code}}"
-      focus="{{focusInput}}"
-      bindinput="onInput"
-    />
-    <view wx:if="{{errorMsg}}" class="error">{{errorMsg}}</view>
-    <t-button class="btn" theme="primary" block bindtap="onBind" loading="{{loading}}" disabled="{{code.length !== 6 || loading}}">{{rebind ? '确认重新绑定' : '绑定'}}</t-button>
-  </view>
-
-  <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
-  <view wx:if="{{!rebind}}" class="tip">身份确认后将锁定，如需变更请联系管理员</view>
 </view>

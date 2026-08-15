@@ -4,7 +4,7 @@
  * 认证分两层：
  *   1. 登录：wx.login 换 code → /api/lp/login 签发「小程序会话 token」（仅含 openid），与微信授权无关，打开即得。
  *   2. 业务身份：输入 6 位邀请码 → /api/lp/bind 绑定学生/管理员身份；有码能进业务页，无码进绑定页。
- * 业务请求带 X-LP-Token: <token>；邀请码被作废时后端返回 403（访问已锁定）。
+ * 业务请求带 X-LP-Token: <token>；绑定被解除时后端返回 401（回身份页重新绑定），账号被锁定返回 403（访问已锁定）。
  *
  * 传输方式：小程序已绑定云环境，直接经 wx.cloud.callContainer 调用云托管服务，
  * 请求头 X-WX-SERVICE 指定服务名，X-WX-OPENID / X-WX-APPID 由云托管网关自动注入。
@@ -16,6 +16,30 @@ export const CLOUD_SERVICE = 'kxm-service';
 /** 会话 token 读取 */
 function getToken() {
   try { return wx.getStorageSync('lp_token') || ''; } catch (_) { return ''; }
+}
+
+/** 生成请求链路 UUID（X-Request-Id，接口链路追踪关联键） */
+function genRequestId() {
+  const hex = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  return `${hex()}${hex()}-${hex()}-${hex()}-${hex()}-${hex()}${hex()}${hex()}`;
+}
+
+/** 异步上报前端耗时（fire-and-forget，不阻塞回调；失败静默） */
+function reportClientCost(requestId, clientCostMs) {
+  try {
+    wx.cloud.callContainer({
+      config: { env: CLOUD_ENV },
+      path: '/api/lp/reportTrace',
+      method: 'POST',
+      data: { requestId, clientCostMs },
+      header: {
+        'X-WX-SERVICE': CLOUD_SERVICE,
+        'X-LP-Token': getToken(),
+      },
+      success: () => {},
+      fail: () => {},
+    });
+  } catch (_) {}
 }
 
 /** 停止全局会话心跳（登录被解除/失效后避免重复轮询与重复跳页） */
@@ -48,6 +72,8 @@ function clearViewStudent() { setViewStudent(''); }
  */
 function request(path, opts = {}) {
   const { method = 'GET', data = {}, auth = true, redirect = true } = opts;
+  const requestId = genRequestId();
+  const startAt = Date.now();
   return new Promise((resolve, reject) => {
     wx.cloud.callContainer({
       config: { env: CLOUD_ENV },
@@ -57,36 +83,34 @@ function request(path, opts = {}) {
       header: {
         'X-WX-SERVICE': CLOUD_SERVICE,
         'X-LP-Token': auth ? getToken() : '',
+        'X-Request-Id': requestId,
       },
       success: (res) => {
+        reportClientCost(requestId, Date.now() - startAt);
         const body = (res && res.data) || {};
         if (body.code === 0) {
           resolve(body.data);
-        } else if (body.code === 401) {
-          wx.removeStorageSync('lp_token');
-          wx.removeStorageSync('lp_staff');
-          wx.removeStorageSync('lp_role');
-          wx.removeStorageSync('lp_view_staff_id');
-          stopSessionGuard();
-          if (redirect) wx.reLaunch({ url: '/pages/identity/identity' });
-          reject({ code: 401, msg: body.msg || '登录已过期' });
-        } else if (body.code === 403) {
-          // 邀请码已作废 / 访问被锁定 / 账号被后台锁定
+        } else if (body.code === 401 || body.code === 403) {
+          // 401：登录/绑定状态失效 → 回身份页重新绑定（不展示锁定态）
+          // 403：账号被后台锁定 → 回身份页展示锁定提示 + 联系管理员
+          const isLocked = body.code === 403;
           wx.removeStorageSync('lp_token');
           wx.removeStorageSync('lp_staff');
           wx.removeStorageSync('lp_role');
           wx.removeStorageSync('lp_view_staff_id');
           stopSessionGuard();
           if (redirect) {
-            if (body.msg) wx.setStorageSync('lp_lock_msg', body.msg);
-            wx.reLaunch({ url: '/pages/identity/identity?locked=1' });
+            if (isLocked && body.msg) wx.setStorageSync('lp_lock_msg', body.msg);
+            if (isLocked && body.lockInfo) wx.setStorageSync('lp_lock_info', body.lockInfo);
+            wx.reLaunch({ url: '/pages/identity/identity' + (isLocked ? '?locked=1' : '') });
           }
-          reject({ code: 403, msg: body.msg || '访问已锁定' });
+          reject({ code: body.code, msg: body.msg || (isLocked ? '访问已锁定' : '登录已过期') });
         } else {
           reject({ code: body.code, msg: body.msg || '操作失败' });
         }
       },
       fail: (err) => {
+        reportClientCost(requestId, Date.now() - startAt);
         console.error('[lp] callContainer fail', path, err);
         reject({ code: -1, msg: '网络异常，请稍后重试' });
       },

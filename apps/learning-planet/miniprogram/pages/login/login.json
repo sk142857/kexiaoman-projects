@@ -1,0 +1,9 @@
+{
+  "navigationStyle": "custom",
+  "navigationBarTextStyle": "black",
+  "disableScroll": true,
+  "usingComponents": {
+    "hero": "/components/hero/hero",
+    "t-loading": "tdesign-miniprogram/loading/loading"
+  }
+}

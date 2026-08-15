@@ -1,21 +1,51 @@
 {
   "pages": [
+    "pages/login/login",
     "pages/home/home",
     "pages/todo/todo",
     "pages/tasks/tasks",
     "pages/mine/mine",
-    "pages/identity/identity",
-    "pages/children/children",
-    "pages/child-edit/child-edit",
-    "pages/shares/shares",
-    "pages/backend-account/backend-account",
-    "pages/task-detail/task-detail",
-    "pages/task-edit/task-edit",
-    "pages/checkin/checkin",
-    "pages/collections/collections",
-    "pages/badges/badges",
-    "pages/subscribe/subscribe"
+    "pages/identity/identity"
   ],
+  "subpackages": [
+    {
+      "root": "pkg-task",
+      "name": "pkg-task",
+      "pages": [
+        "task-detail/task-detail",
+        "task-edit/task-edit",
+        "checkin/checkin"
+      ]
+    },
+    {
+      "root": "pkg-family",
+      "name": "pkg-family",
+      "pages": [
+        "children/children",
+        "child-edit/child-edit",
+        "shares/shares"
+      ]
+    },
+    {
+      "root": "pkg-mine",
+      "name": "pkg-mine",
+      "pages": [
+        "settings/settings",
+        "backend-account/backend-account",
+        "subscribe/subscribe",
+        "badges/badges",
+        "collections/collections"
+      ]
+    }
+  ],
+  "preloadRule": {
+    "pages/login/login": { "network": "all", "packages": ["pkg-task"] },
+    "pages/home/home": { "network": "all", "packages": ["pkg-task"] },
+    "pages/tasks/tasks": { "network": "all", "packages": ["pkg-task"] },
+    "pages/todo/todo": { "network": "all", "packages": ["pkg-task"] },
+    "pages/mine/mine": { "network": "all", "packages": ["pkg-mine", "pkg-family"] },
+    "pages/identity/identity": { "network": "all", "packages": ["pkg-family"] }
+  },
   "window": {
     "backgroundColor": "#F5F7FA",
     "backgroundTextStyle": "light",
