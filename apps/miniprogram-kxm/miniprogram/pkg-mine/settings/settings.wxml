@@ -23,7 +23,7 @@
         </view>
         <view class="menu-item" bindtap="onRebind">
           <view class="menu-icon menu-icon--rose">🔑</view>
-          <text class="menu-label">解除绑定</text>
+          <text class="menu-label">重新绑定</text>
           <text class="menu-arrow">›</text>
         </view>
       </view>

@@ -93,7 +93,7 @@ router.get("/profile", async (req, res) => {
     const staff = rows && rows[0];
     if (!staff) return res.json(fail("账号不存在", 403));
     res.json(ok({
-      app: req.appId || "learning-planet",
+      app: req.appId || "miniprogram-kxm",
       staff: {
         staff_id: String(staff.staff_id),
         username: staff.staff_username,
@@ -859,10 +859,10 @@ async function notifyReviewResult(req, checkin, task, result, note) {
     const { data: stuRows } = await db.from("lp_students")
       .select("openid")
       .eq("staff_id", checkin.created_by)
-      .eq("app_id", req.appId || "learning-planet")
+      .eq("app_id", req.appId || "miniprogram-kxm")
       .limit(1);
     await sendReviewNotification({
-      appId: req.appId || "learning-planet",
+      appId: req.appId || "miniprogram-kxm",
       openid: (stuRows && stuRows[0] && stuRows[0].openid) || "",
       staffId: checkin.created_by,
       checkinId: checkin.checkin_id,
@@ -976,7 +976,7 @@ router.post("/todos/review", async (req, res) => {
 router.get("/subscribe/status", async (req, res) => {
   try {
     const staffId = Number(me(req));
-    const cfg = await getAppConfig(req.appId || "learning-planet");
+    const cfg = await getAppConfig(req.appId || "miniprogram-kxm");
     const tmplIds = String((cfg && cfg.subscribe_tmpl_ids) || "")
       .split(",").map(s => s.trim()).filter(Boolean).slice(0, 20);
     const tmplNames = {
@@ -1051,7 +1051,7 @@ router.post("/subscribe/grant", async (req, res) => {
         grant_id: gid,
         staff_id: staffId,
         openid,
-        app_id: req.appId || "learning-planet",
+        app_id: req.appId || "miniprogram-kxm",
         tmpl_id: tmpl,
         grant_count: grantCount,
         used_count: 0,
@@ -1380,14 +1380,14 @@ router.post("/reportTrace", async (req, res) => {
 });
 
 // ==================== 数据上报（session / 事件，写入共享 user_sessions / user_events） ====================
-// 课小满无云服务，session/事件经 /api/lp/* 上报；身份取 LP JWT（req.lp.openid），app_id=learning-planet
+// 课小满无云服务，session/事件经 /api/lp/* 上报；身份取 LP JWT（req.lp.openid），app_id=miniprogram-kxm
 router.post("/collectSession", async (req, res) => {
   try {
     const s = req.body.session || {};
     await db.from("user_sessions").insert({
       session_id: s.session_id || genId(),
       openid: myOpenid(req),
-      app_id: req.appId || "learning-planet",
+      app_id: req.appId || "miniprogram-kxm",
       brand: s.brand || "",
       model: s.model || "",
       platform: s.platform || "",
@@ -1428,7 +1428,7 @@ router.post("/collectEvent", async (req, res) => {
     await db.from("user_events").insert({
       event_id: genId(),
       openid: myOpenid(req),
-      app_id: req.appId || "learning-planet",
+      app_id: req.appId || "miniprogram-kxm",
       event_type: String(eventType).slice(0, 24),
       event_name: String(eventName).slice(0, 64),
       page_path: String(pagePath || "").slice(0, 128),

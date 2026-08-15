@@ -1,18 +1,20 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Form, Input, Button, message } from 'antd';
 import { UserOutlined, LockOutlined, CloudOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
 import './Login.css';
 
 export default function Login() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
   // 已登录用户访问登录页直接回首页
   useEffect(() => {
     if (localStorage.getItem('admin_token')) {
-      window.location.href = '/admin/';
+      navigate('/', { replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   // 悬浮粒子（随机位置/时长，仅在挂载时生成一次）
   const particles = useMemo(() =>
@@ -31,7 +33,7 @@ export default function Login() {
       localStorage.setItem('admin_token', res.data.token);
       localStorage.setItem('admin_user', JSON.stringify(res.data.staff));
       message.success('登录成功');
-      window.location.href = '/admin/';
+      navigate('/', { replace: true });
     } catch (_) {
       // 错误已在拦截器提示
     } finally {

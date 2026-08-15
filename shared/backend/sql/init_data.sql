@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- 共享云托管后端 - 初始化数据脚本（DML 种子数据）
 -- 前置：需先执行 init_schema.sql 完成建表
 -- 执行方式：在数据库管理控制台（DMS）或 mysql 客户端执行本文件
@@ -133,22 +133,22 @@ INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, sort, item
   (12, 'task_status', 'done', '已完成', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE item_label = VALUES(item_label);
 
--- 5. 序列初始化（current_value = 种子数据最大编号 + 1）
-INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, updated_at) VALUES
-  ('task_id', '任务ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('task_checkin_id', '任务打卡ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('collection_id', '合集ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('task_timeline_event_id', '任务时间轴事件ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('subscribe_grant_id', '订阅授权ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('subscribe_send_id', '订阅发送ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('invite_id', '邀请码ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('child_id', '孩子档案ID', 1, 1, 1, CURRENT_TIMESTAMP),
-  ('staff_id', '管理员ID', 9002, 9001, 1, CURRENT_TIMESTAMP),
-  ('role_id', '角色ID', 5, 1, 1, CURRENT_TIMESTAMP),
-  ('menu_id', '菜单ID', 39, 1, 1, CURRENT_TIMESTAMP),
-  ('role_menu_id', '角色菜单ID', 61, 1, 1, CURRENT_TIMESTAMP),
-  ('dict_type_id', '字典类型ID', 4, 1, 1, CURRENT_TIMESTAMP),
-  ('dict_item_id', '字典项ID', 13, 1, 1, CURRENT_TIMESTAMP)
+-- 5. 序列初始化（current_value = 种子数据最大编号 + 1；batch = 号段大小，日志类 500，其余 200）
+INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, updated_at) VALUES
+  ('task_id', '任务ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('task_checkin_id', '任务打卡ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('collection_id', '合集ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('task_timeline_event_id', '任务时间轴事件ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
+  ('subscribe_grant_id', '订阅授权ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('subscribe_send_id', '订阅发送ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
+  ('invite_id', '邀请码ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('child_id', '孩子档案ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('staff_id', '管理员ID', 9002, 9001, 1, 200, CURRENT_TIMESTAMP),
+  ('role_id', '角色ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('menu_id', '菜单ID', 39, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('role_menu_id', '角色菜单ID', 61, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('dict_type_id', '字典类型ID', 4, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('dict_item_id', '字典项ID', 13, 1, 1, 200, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE current_value = GREATEST(current_value, VALUES(current_value));
 
 -- 6. 初始化超级管理员（sys_admin / sk0987，bcrypt cost10）
@@ -168,15 +168,15 @@ FROM t_staff
 WHERE NOT EXISTS (SELECT 1 FROM t_staff WHERE staff_username = 'sys_admin');
 
 -- 同步序列：确保 seqs.staff_id 覆盖新增的管理员 ID，避免后续发放冲突
-INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, updated_at)
-SELECT 'staff_id', '管理员ID', COALESCE(MAX(staff_id), 9000) + 1, 9001, 1, NOW()
+INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, updated_at)
+SELECT 'staff_id', '管理员ID', COALESCE(MAX(staff_id), 9000) + 1, 9001, 1, 200, NOW()
 FROM t_staff
 ON DUPLICATE KEY UPDATE current_value = GREATEST(current_value, (SELECT MAX(staff_id) FROM t_staff) + 1);
 
 -- 7. 小程序注册表 + 员工-小程序授权（多小程序共享后台；与 apps.js BUILTIN_APPS 保持一致）
 --    课小满默认订阅模板（审核结果通知）随种子写入；后台可另行维护 subscribe_tmpl_ids
 INSERT INTO t_apps (app_id, app_name, wechat_appid, app_status, subscribe_tmpl_ids, created_at, updated_at) VALUES
-  ('learning-planet', '课小满', 'wxa8035a4cd63554fe', 1, '91HSfOQSSVKHPwT2oNM4NdGuKe9Gw1uY0VkLf_nyJ9I,aIReeE_R92te__wWL7EKRknaZ0pXhSJ2Kcct_rNWzVg', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ('miniprogram-kxm', '课小满', 'wxa8035a4cd63554fe', 1, '91HSfOQSSVKHPwT2oNM4NdGuKe9Gw1uY0VkLf_nyJ9I,aIReeE_R92te__wWL7EKRknaZ0pXhSJ2Kcct_rNWzVg', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE app_name = VALUES(app_name), wechat_appid = VALUES(wechat_appid);
 
 -- admin 角色默认拥有全部小程序（幂等；与 upgrade_009_apps.sql 保持一致）

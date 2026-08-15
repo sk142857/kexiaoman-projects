@@ -1,0 +1,20 @@
+/* ==================== 后台全局样式（与 UI 设计规范一致，避免各组件内联重复定义） ==================== */
+
+/* 详情抽屉：label 固定宽度不换行，value 区可换行折行 */
+.detail-drawer-desc .ant-descriptions-view table {
+  table-layout: fixed;
+  width: 100%;
+}
+.detail-drawer-desc .ant-descriptions-item-label {
+  white-space: nowrap;
+  width: 110px;
+  min-width: 110px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+.detail-drawer-desc .ant-descriptions-item-content {
+  word-break: break-all;
+  word-wrap: break-word;
+}

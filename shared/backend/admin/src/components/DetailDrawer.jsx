@@ -14,25 +14,6 @@ import { renderDetailValue } from './fields.jsx';
 export default function DetailDrawer({ title, open, record, fields = [], onClose, width = 780, column = 2 }) {
   return (
     <Drawer title={title} width={width} open={open} onClose={onClose} destroyOnClose>
-      <style>{`
-        .detail-drawer-desc .ant-descriptions-view table {
-          table-layout: fixed;
-          width: 100%;
-        }
-        .detail-drawer-desc .ant-descriptions-item-label {
-          white-space: nowrap;
-          width: 110px;
-          min-width: 110px;
-          max-width: 110px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          vertical-align: top;
-        }
-        .detail-drawer-desc .ant-descriptions-item-content {
-          word-break: break-all;
-          word-wrap: break-word;
-        }
-      `}</style>
       <div className="detail-drawer-desc">
         {record && (
           <Descriptions bordered size="small" column={column}>

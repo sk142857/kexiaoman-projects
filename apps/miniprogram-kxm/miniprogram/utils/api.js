@@ -144,15 +144,17 @@ export const lpAuth = {
     return request('/api/lp/bind', { method: 'POST', data: { code, rebind: !!rebind } });
   },
   /** 家长注册：身份选择「我是家长」确认后自动建号/自动绑定/发共享码/下发后台账号
+   *  data: { nickname?, rebind? }（rebind=true 表示换绑到主家长身份）
    *  → { token, bound, role, staff, share_code, backend: { username, password } } */
-  registerParent: async (nickname) => {
+  registerParent: async (data = {}) => {
     if (!getToken()) {
       try {
         const res = await lpAuth.login();
         if (res && res.token) wx.setStorageSync('lp_token', res.token);
       } catch (_) {}
     }
-    return request('/api/lp/registerParent', { method: 'POST', data: { nickname } });
+    const opts = data && typeof data === 'object' ? data : { nickname: data };
+    return request('/api/lp/registerParent', { method: 'POST', data: opts });
   },
   /** 会话心跳：实时复核绑定状态（后台解除邀请码后立即收到 403 → 前端清登录态回绑定页） */
   sessionCheck: () => request('/api/lp/session'),

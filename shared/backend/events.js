@@ -10,7 +10,7 @@ const { genId, nowSql } = require("./utils");
 /**
  * 写一条用户事件
  * @param {object} p
- * @param {string} [p.appId] 小程序标识（app_id，如 learning-planet）
+ * @param {string} [p.appId] 小程序标识（app_id，如 miniprogram-kxm）
  * @param {string} p.openid 用户 openid
  * @param {string} p.eventType login/create/update/delete/end/reset 等
  * @param {string} p.eventName 事件名称（如 登录 / 创建打卡）
@@ -24,7 +24,7 @@ async function logEvent({ appId, openid, eventType, eventName, pagePath = "", bi
     await db.from("user_events").insert({
       event_id: genId(),
       openid: openid || "",
-      app_id: appId || "learning-planet",
+      app_id: appId || "miniprogram-kxm",
       event_type: String(eventType).slice(0, 24),
       event_name: String(eventName).slice(0, 64),
       page_path: String(pagePath || "").slice(0, 128),

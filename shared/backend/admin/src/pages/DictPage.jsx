@@ -102,10 +102,16 @@ export default function DictPage() {
   };
   const removeType = async (rec) => {
     try {
-      // 级联删除该字典下的所有字典项
-      const res = await crudApi.list('dict_items', { page: 1, pageSize: 500, dict_code: rec.dict_code });
-      const list = res.data.list || [];
-      for (const it of list) await crudApi.remove('dict_items', it.item_id);
+      // 级联删除该字典下的所有字典项（分页拉取，避免 >500 项时残留）
+      let page = 1;
+      const PAGE_SIZE = 500;
+      for (;;) {
+        const res = await crudApi.list('dict_items', { page, pageSize: PAGE_SIZE, dict_code: rec.dict_code });
+        const list = res.data.list || [];
+        for (const it of list) await crudApi.remove('dict_items', it.item_id);
+        if (list.length < PAGE_SIZE) break;
+        page += 1;
+      }
       await crudApi.remove('dict_types', rec.dict_id);
       clearDictMap(rec.dict_code);
       message.success('已删除');

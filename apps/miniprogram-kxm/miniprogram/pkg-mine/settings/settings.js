@@ -1,5 +1,5 @@
 // pages/settings/settings.js
-// 设置：后台账号（仅主家长）/ 订阅消息 / 解除绑定
+// 设置：后台账号（仅主家长）/ 订阅消息 / 重新绑定
 const { getRole } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
@@ -27,11 +27,11 @@ Page({
 
   onRebind() {
     wx.showModal({
-      title: '解除绑定',
-      content: '将进入绑定界面，使用新邀请码可更换当前绑定的账号',
+      title: '重新绑定',
+      content: '将解除当前绑定，重新进入身份选择流程，选择身份后输入新的邀请码即可换绑。确定继续吗？',
       success: (r) => {
         if (!r.confirm) return;
-        trackEvent('menu_click', '设置-解除绑定');
+        trackEvent('menu_click', '设置-重新绑定');
         wx.navigateTo({ url: '/pages/identity/identity?rebind=1' });
       },
     });

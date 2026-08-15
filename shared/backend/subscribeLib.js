@@ -37,7 +37,7 @@ const REVIEW_FIELDS = {
 const tokenCaches = {};
 
 async function getAccessToken(appId) {
-  const key = appId || "learning-planet";
+  const key = appId || "miniprogram-kxm";
   const cfg = await getAppConfig(key);
   const appid = (cfg && cfg.wechat_appid) || "";
   const secret = (cfg && cfg.app_secret) || "";
@@ -136,7 +136,7 @@ async function logSend(rec) {
       send_id: sendId,
       staff_id: Number(rec.staff_id) || 0,
       openid: String(rec.openid || "").slice(0, 64),
-      app_id: String(rec.app_id || "learning-planet").slice(0, 32),
+      app_id: String(rec.app_id || "miniprogram-kxm").slice(0, 32),
       tmpl_id: String(rec.tmpl_id || "").slice(0, 64),
       event_type: String(rec.event_type || "").slice(0, 24),
       biz_type: String(rec.biz_type || "").slice(0, 24),
@@ -189,7 +189,7 @@ async function sendReviewNotification({ appId, openid, staffId, checkinId, taskI
   const base = {
     staff_id: staffId,
     openid: openid || "",
-    app_id: appId || "learning-planet",
+    app_id: appId || "miniprogram-kxm",
     tmpl_id: tmplId,
     event_type: accept ? "review_approve" : "review_reject",
     biz_type: "task_checkin",
@@ -248,7 +248,7 @@ async function sendCheckinRemind({ appId, openid, staffId, taskId, taskTitle, de
   const base = {
     staff_id: staffId,
     openid: openid || "",
-    app_id: appId || "learning-planet",
+    app_id: appId || "miniprogram-kxm",
     tmpl_id: tmplId,
     event_type: "checkin_remind",
     biz_type: "task",

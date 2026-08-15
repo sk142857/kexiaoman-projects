@@ -51,7 +51,7 @@ export default function MonitorDashboard() {
     point: { size: 3, shape: 'circle' },
     tooltip: { formatter: (d) => ({ name: 'CPU 使用率', value: `${d.cpu}%` }) },
     yAxis: { min: 0, title: { text: '%' } },
-    xAxis: { label: { autoRotate: true, rotate: 45 } },
+    xAxis: { label: { autoRotate: true, rotate: 45 }, tickCount: 10 },
   };
 
   const memCfg = {
@@ -63,7 +63,7 @@ export default function MonitorDashboard() {
     xField: 'time', yField: 'value', seriesField: 'type',
     smooth: true, height: 260,
     color: ['#1677ff', '#52c41a', '#faad14'],
-    xAxis: { label: { autoRotate: true, rotate: 45 } },
+    xAxis: { label: { autoRotate: true, rotate: 45 }, tickCount: 10 },
   };
 
   const ioCfg = {
@@ -74,7 +74,7 @@ export default function MonitorDashboard() {
     xField: 'time', yField: 'value', seriesField: 'type',
     smooth: true, height: 260,
     color: ['#eb2f96', '#2f54eb'],
-    xAxis: { label: { autoRotate: true, rotate: 45 } },
+    xAxis: { label: { autoRotate: true, rotate: 45 }, tickCount: 10 },
   };
 
   // 响应时间趋势（按分钟聚合平均耗时）
@@ -85,14 +85,14 @@ export default function MonitorDashboard() {
     point: { size: 3, shape: 'circle' },
     tooltip: { formatter: (d) => ({ name: '平均响应时间', value: `${d.avgMs} ms` }) },
     yAxis: { min: 0, title: { text: 'ms' } },
-    xAxis: { label: { autoRotate: true, rotate: 45 } },
+    xAxis: { label: { autoRotate: true, rotate: 45 }, tickCount: 10 },
   };
 
   return (
     <div>
       <Row gutter={[16, 16]}>
         {statItems.map(it => (
-          <Col span={6} key={it.title}>
+          <Col xs={24} sm={12} xl={6} key={it.title}>
             <Card>
               <Statistic
                 title={it.title}

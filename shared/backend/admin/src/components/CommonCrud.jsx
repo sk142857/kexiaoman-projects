@@ -67,6 +67,8 @@ export default function CommonCrud({
   const [drawerRecord, setDrawerRecord] = useState(null);
   const [timelineRecord, setTimelineRecord] = useState(null);
   const [confirmState, setConfirmState] = useState(null);   // { type, record }
+  const [reviewNote, setReviewNote] = useState('');          // 审核驳回/通过原因（留痕）
+  const [submitting, setSubmitting] = useState(false);       // 弹窗提交防重复
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkinTask, setCheckinTask] = useState(null);
   const [checkinForm] = Form.useForm();
@@ -314,7 +316,14 @@ export default function CommonCrud({
   };
 
   const onSubmit = async () => {
-    const values = await form.validateFields();
+    let values;
+    try {
+      values = await form.validateFields();
+    } catch (e) {
+      if (e?.errorFields) return;
+      return;
+    }
+    setSubmitting(true);
     // 日期字段：dayjs → yyyy-MM-dd 字符串；图片/标签字段：统一为 JSON 数组字符串（无图为 '[]'，避免 null 入库）
     formFields.forEach(f => {
       if (f.type === 'date' && values[f.name]) {
@@ -340,8 +349,10 @@ export default function CommonCrud({
       }
       setModalOpen(false);
       actionRef.current?.reload();
-    } catch (e) {
-      if (e?.errorFields) return;
+    } catch (_) {
+      // 错误已在拦截器提示
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -354,10 +365,10 @@ export default function CommonCrud({
     } catch (_) {}
   };
 
-  // ==================== 审核（页面级弹窗确认） ====================
-  const onReview = async (record, action) => {
+  // ==================== 审核（页面级弹窗确认，驳回/通过原因留痕） ====================
+  const onReview = async (record, action, note) => {
     try {
-      await crudApi.review(biz, record[rowKey], action, reviewEndpoint);
+      await crudApi.review(biz, record[rowKey], action, reviewEndpoint, note || '');
       message.success(action === 'reject' ? '已驳回' : '审核通过');
       actionRef.current?.reload();
     } catch (_) {}
@@ -369,14 +380,20 @@ export default function CommonCrud({
     if (type === 'delete' && deleteTip) {
       try { tip = await deleteTip(record); } catch (_) {}
     }
+    setReviewNote('');
     setConfirmState({ type, record, tip });
   };
   const handleConfirm = async () => {
     const { type, record } = confirmState || {};
-    if (type === 'delete') await onDelete(record);
-    else if (type === 'batchDelete') await onBatchDelete();
-    else if (type === 'approve' || type === 'reject') await onReview(record, type);
-    setConfirmState(null);
+    setSubmitting(true);
+    try {
+      if (type === 'delete') await onDelete(record);
+      else if (type === 'batchDelete') await onBatchDelete();
+      else if (type === 'approve' || type === 'reject') await onReview(record, type, reviewNote);
+    } finally {
+      setSubmitting(false);
+      setConfirmState(null);
+    }
   };
 
   // ==================== 批量删除（物理删除腾讯云存储，file_uploads 等模块用） ====================
@@ -404,7 +421,14 @@ export default function CommonCrud({
   };
 
   const submitCheckin = async () => {
-    const values = await checkinForm.validateFields();
+    let values;
+    try {
+      values = await checkinForm.validateFields();
+    } catch (e) {
+      if (e?.errorFields) return;
+      return;
+    }
+    setSubmitting(true);
     try {
       await crudApi.taskCheckin({
         taskId: checkinTask[rowKey],
@@ -415,7 +439,10 @@ export default function CommonCrud({
       message.success('打卡成功');
       setCheckinOpen(false);
       actionRef.current?.reload();
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // ==================== 自定义操作弹窗（customActions modal 配置） ====================
@@ -424,7 +451,13 @@ export default function CommonCrud({
   const onSubmitCustomModal = async () => {
     const { action, record } = customModal || {};
     if (!action) return;
-    const values = await customForm.validateFields();
+    let values;
+    try {
+      values = await customForm.validateFields();
+    } catch (e) {
+      if (e?.errorFields) return;
+      return;
+    }
     if (action.modal && action.modal.fields) {
       action.modal.fields.forEach(f => {
         if (f.type === 'date' && values[f.name]) {
@@ -435,18 +468,24 @@ export default function CommonCrud({
         }
       });
     }
-    setCustomModal(null);
+    setSubmitting(true);
     try {
       await action.onClick(record, { refresh: () => actionRef.current && actionRef.current.reload() }, values);
-    } catch (_) {}
+      setCustomModal(null);
+    } catch (_) {
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // ==================== 操作列 ====================
   const canDelete = !readonly || allowDelete;
   // 操作按钮不换行，按实际渲染的按钮数量动态计算列宽（详情可隐藏）
   const btnCount = (!hideDetailBtn ? 1 : 0) + (canDelete ? 1 : 0) + (!readonly ? 1 : 0) + (checkin ? 1 : 0) + (review ? 2 : 0) + (timeline ? 1 : 0) + (copyCreate ? 1 : 0) + ((customActions && customActions.length) || 0);
-  // 2行3列网格模式下列宽按 3 列按钮计算，其余模式按按钮数量计算
-  const opWidth = gridOps ? 215 : btnCount * 50 + 12 + opWidthExtra;
+  // gridOps 网格：3 列固定，按列数 × 单列宽动态计算；其余模式按按钮数量计算
+  const opWidth = gridOps
+    ? Math.min(Math.max(btnCount, 1), 3) * 76 + 12 + opWidthExtra
+    : btnCount * 50 + 12 + opWidthExtra;
   // 命中禁用条件（如任务已完成）时禁止修改/删除
   const isLocked = (record) => {
     if (disableWhen && record[disableWhen.field] === disableWhen.value) return true;
@@ -706,7 +745,7 @@ export default function CommonCrud({
         }) : {}}
         toolBarRender={() => [
           (defaultDays || filters.length > 0) && (
-            <Space key="filters" size={0}>
+            <Space key="filters" size={0} wrap>
               {defaultDays && (
                 <DatePicker.RangePicker
                   key="timeRange"
@@ -757,6 +796,7 @@ export default function CommonCrud({
         onOk={onSubmit}
         onCancel={() => setModalOpen(false)}
         destroyOnClose
+        confirmLoading={submitting}
         width={menuTree ? 640 : (modalWidth || (formColumns > 1 ? 680 : 520))}
       >
         <Form form={form} layout="vertical">
@@ -811,6 +851,7 @@ export default function CommonCrud({
         onCancel={() => setConfirmState(null)}
         okText={confirmState?.type === 'delete' || confirmState?.type === 'batchDelete' ? '删除' : confirmState?.type === 'reject' ? '驳回' : '通过'}
         okButtonProps={{ danger: confirmState?.type === 'delete' || confirmState?.type === 'batchDelete' || confirmState?.type === 'reject' }}
+        confirmLoading={submitting}
       >
         <p>
           {confirmState?.type === 'delete' && (confirmState.tip || '删除后不可恢复，确定删除该记录吗？')}
@@ -818,6 +859,15 @@ export default function CommonCrud({
           {confirmState?.type === 'approve' && '确认审核通过该记录吗？'}
           {confirmState?.type === 'reject' && '确认驳回该记录吗？驳回后内容将对用户隐藏。'}
         </p>
+        {(confirmState?.type === 'approve' || confirmState?.type === 'reject') && (
+          <Input.TextArea
+            rows={3}
+            maxLength={500}
+            value={reviewNote}
+            onChange={(e) => setReviewNote(e.target.value)}
+            placeholder="审核原因（选填，写入操作审计留痕，驳回时建议填写）"
+          />
+        )}
       </Modal>
 
       {/* ==================== 任务打卡 页面级弹窗 ==================== */}
@@ -827,6 +877,7 @@ export default function CommonCrud({
         onOk={submitCheckin}
         onCancel={() => setCheckinOpen(false)}
         destroyOnClose
+        confirmLoading={submitting}
         width={560}
       >
         <Form form={checkinForm} layout="vertical">
@@ -849,6 +900,7 @@ export default function CommonCrud({
         onOk={onSubmitCustomModal}
         onCancel={() => setCustomModal(null)}
         destroyOnClose
+        confirmLoading={submitting}
         width={(customModal && customModal.action && customModal.action.modal && customModal.action.modal.width) || 520}
       >
         <Form form={customForm} layout="vertical">

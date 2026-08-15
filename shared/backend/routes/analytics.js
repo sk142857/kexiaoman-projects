@@ -23,7 +23,7 @@ router.post("/collectSession", async (req, res) => {
     await db.from("user_sessions").insert({
       session_id: s.session_id || genSessionId(),
       openid: req.openid,
-      app_id: req.appId || "learning-planet",
+      app_id: req.appId || "miniprogram-kxm",
       brand: s.brand || "",
       model: s.model || "",
       platform: s.platform || "",
@@ -78,7 +78,7 @@ router.post("/collectEvent", async (req, res) => {
     await db.from("user_events").insert({
       event_id: genId(),
       openid: req.openid,
-      app_id: req.appId || "learning-planet",
+      app_id: req.appId || "miniprogram-kxm",
       event_type: String(eventType).slice(0, 24),
       event_name: String(eventName).slice(0, 64),
       page_path: String(pagePath || "").slice(0, 128),

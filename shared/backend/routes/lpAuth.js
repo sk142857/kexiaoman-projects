@@ -6,12 +6,13 @@
  *      与微信授权（getUserProfile 等 scope）无关，打开即得，业务后端使用不被授权流程阻塞。
  *   2. 业务身份（邀请码准入，邀请码独立维护在 t_lp_invites，不再挂 t_staff）：
  *      - 身份选择后按邀请码绑定：输入 6 位邀请码绑定 openid ↔ staff_id（t_lp_students）。
- *      - 邀请码分两类（kind）：
+ *      - 邀请码分三类（kind）：
  *          student：学生码，由主家长在孩子档案中生成；绑定孩子学生账号（role=student），仅可绑一次。
+ *          parent：家长码，由管理员在后台为已注册的主家长账号生成（单次使用，绑定即作废）；绑定已有主家长账号（role=parent）。
  *          family：家属共享码，由主家长生成（单次使用，绑定即作废）；绑定后建家属账号（role=family）并写入家属关系。
  *      - 有码 → 能进业务页面；无码 → 进身份选择/绑定页；邀请码作废 → 立即锁定。
  *
- * 运行配置来源（t_apps.app_id = learning-planet）：
+ * 运行配置来源（t_apps.app_id = miniprogram-kxm）：
  *   wechat_appid  课小满 AppID
  *   app_secret    课小满 AppSecret（code2session）
  *   jwt_secret    课小满 JWT 签名密钥
@@ -31,7 +32,7 @@ const { getAppConfig } = require("../apps");
 const router = express.Router();
 
 // ==================== 应用常量 ====================
-const LP_APP = { app_id: "learning-planet", app_name: "课小满", wechat_appid: "wxa8035a4cd63554fe", app_status: 1 };
+const LP_APP = { app_id: "miniprogram-kxm", app_name: "课小满", wechat_appid: "wxa8035a4cd63554fe", app_status: 1 };
 
 // 邀请码字符集：排除易混淆 0/O/1/I
 const INVITE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -179,7 +180,7 @@ function lockInfo(rec) {
   };
 }
 
-/** 按邀请码查找可绑定的邀请记录（学生码或家属码，未绑定且未作废） */
+/** 按邀请码查找可绑定的邀请记录（学生码/家长码/家属码，未绑定且未作废） */
 async function findBindableInvite(code) {
   const c = String(code || "").trim().toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(c)) return null;
@@ -188,7 +189,7 @@ async function findBindableInvite(code) {
     .eq("invite_code", c).limit(1);
   if (error) throw error;
   const inv = data && data[0];
-  if (!inv || !["student", "family"].includes(inv.kind) || inv.status !== "available") return null;
+  if (!inv || !["student", "family", "parent"].includes(inv.kind) || inv.status !== "available") return null;
   return inv;
 }
 
@@ -374,7 +375,7 @@ router.post("/login", async (req, res) => {
 // ==================== 身份选择：注册为主家长（首次静默登录后） ====================
 // 用户确认「我是家长」→ 自动创建 t_staff(role=parent) + 自动绑定当前 openid +
 // 生成家属共享码 + 下发后台登录账号（明文密码仅此一次）。
-// 已绑定用户调用会返回当前绑定状态，不重复创建。
+// 已绑定主家长调用会返回当前绑定状态，不重复创建；已绑定其他身份（学生/家属）时须带 rebind=true 才会换绑为主家长。
 router.post("/registerParent", async (req, res) => {
   try {
     let openid = await verifySession(req);
@@ -397,7 +398,7 @@ router.post("/registerParent", async (req, res) => {
       return res.json(fail(lockMsg(lockRec0.locked_until), 423));
     }
 
-    // 已绑定 → 返回当前状态
+    // 已绑定 → 幂等返回当前状态；如需换绑到主家长身份（rebind=true 且当前非主家长）则继续创建新账号
     const { data: rows, error } = await db.from("lp_students")
       .select().eq("app_id", LP_APP.app_id).eq("openid", openid).limit(1);
     if (error) throw error;
@@ -405,10 +406,17 @@ router.post("/registerParent", async (req, res) => {
     if (bind && bind.bound_status === 1) {
       const cur = await staffById(bind.staff_id);
       if (cur && cur.staff_status === 1) {
-        const token = await signToken(openid);
-        return res.json(ok({
-          token, bound: true, role: cur.staff_role, staff: staffBrief(cur),
-        }, "已注册"));
+        // 已是主家长：幂等返回当前状态（含重新绑定时仍选「家长-创建」）
+        if (cur.staff_role === "parent") {
+          const token = await signToken(openid);
+          return res.json(ok({
+            token, bound: true, role: "parent", staff: staffBrief(cur),
+          }, "已注册"));
+        }
+        // 绑定到其他身份（学生/家属）：仅显式换绑（rebind）时才允许切为主家长
+        if (!(req.body || {}).rebind) {
+          return res.json(fail("该账号已绑定其他身份，如需更换请重新绑定", 400));
+        }
       }
     }
 
@@ -458,6 +466,7 @@ router.post("/registerParent", async (req, res) => {
 // ==================== 绑定邀请码（会话 token 已含 openid，只需邀请码） ====================
 // 按 kind 分支：
 //   student：学生码，绑定孩子学生账号（role=student），码置 bound；
+//   parent：家长码，单次使用，绑定后台已有主家长账号（role=parent），码置 bound；
 //   family：家属共享码，单次使用，创建家属账号（role=family）+ 写家属关系 + 码置 bound。
 router.post("/bind", async (req, res) => {
   try {
@@ -550,6 +559,71 @@ router.post("/bind", async (req, res) => {
         bound: true,
         role: student.staff_role,
         staff: staffBrief(student),
+      }, "绑定成功"));
+    }
+
+    // ==================== 家长码绑定（绑定后台已注册的主家长账号，单次使用） ====================
+    // 适用：主家长账号已由管理员在后台建立（如后台管理员注册/首建），小程序端输入管理员下发的家长码即可绑定，
+    // 无需再走 registerParent 自动建号，避免出现「后台一个账号、小程序一个账号」的双账号。
+    if (inv.kind === "parent") {
+      const parent = await staffById(inv.owner_staff_id);
+      if (!parent || parent.staff_role !== "parent" || parent.staff_status !== 1) {
+        return res.json(fail("该主家长账号不可用，请联系管理员", 400));
+      }
+      // 当前 openid 是否已绑定
+      const { data: rows, error } = await db.from("lp_students")
+        .select().eq("app_id", LP_APP.app_id).eq("openid", openid).limit(1);
+      if (error) throw error;
+      if (rows && rows[0]) {
+        const b = rows[0];
+        // 同码重复绑定（含网络失败后的重试）：幂等返回成功
+        if (String(b.staff_id) === String(parent.staff_id)) {
+          if (b.bound_status !== 1) {
+            await db.from("lp_students")
+              .update({ bound_status: 1, updated_at: nowSql() })
+              .eq("id", b.id).eq("app_id", LP_APP.app_id).eq("openid", openid);
+          }
+          const token = await signToken(openid);
+          return res.json(ok({ token, bound: true, role: parent.staff_role, staff: staffBrief(parent) }, "绑定成功"));
+        }
+        // 已绑定其他账号：当前绑定仍有效（账号在职 + 绑定未锁定）且未显式申请重绑 → 拒绝
+        let currentValid = false;
+        try {
+          const cur = await staffById(b.staff_id);
+          currentValid = !!(cur && cur.staff_status === 1 && b.bound_status === 1);
+        } catch (_) { currentValid = false; }
+        if (currentValid && !rebind) {
+          return res.json(fail("该账号已绑定其他身份，如需更换请重新绑定", 400));
+        }
+        await db.from("lp_students")
+          .update({ staff_id: parent.staff_id, bound_status: 1, updated_at: nowSql() })
+          .eq("id", b.id).eq("app_id", LP_APP.app_id).eq("openid", openid);
+      } else {
+        await db.from("lp_students").insert({
+          staff_id: parent.staff_id,
+          app_id: LP_APP.app_id,
+          openid,
+          bound_status: 1,
+          bound_at: nowSql(),
+          created_at: nowSql(),
+          updated_at: nowSql(),
+        });
+      }
+      // 家长码单次使用，绑定即作废
+      await db.from("lp_invites").update({
+        status: "bound",
+        bound_openid: openid,
+        bound_staff_id: parent.staff_id,
+        bound_at: nowSql(),
+        updated_at: nowSql(),
+      }).eq("invite_id", inv.invite_id);
+      touchUserProfile(openid);
+      const token = await signToken(openid);
+      return res.json(ok({
+        token,
+        bound: true,
+        role: parent.staff_role,
+        staff: staffBrief(parent),
       }, "绑定成功"));
     }
 

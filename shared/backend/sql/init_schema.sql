@@ -23,7 +23,7 @@ DROP TABLE IF EXISTS t_users;
 CREATE TABLE t_users (
   user_id      BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   openid       VARCHAR(64)  NOT NULL COMMENT '用户 openid（共享环境已去 AppID 前缀）',
-  app_id       VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '所属小程序 app_id',
+  app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
   user_uid     VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '用户ID（随机10位数字）',
   nickname     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '昵称',
   avatar_emoji VARCHAR(16)  NOT NULL DEFAULT '🌱' COMMENT '头像 emoji',
@@ -56,7 +56,7 @@ DROP TABLE IF EXISTS t_user_sessions;
 CREATE TABLE t_user_sessions (
   session_id        VARCHAR(64)  NOT NULL COMMENT '会话 ID（主键）',
   openid            VARCHAR(64)  NOT NULL COMMENT '用户 openid',
-  app_id            VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '所属小程序 app_id',
+  app_id            VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
   brand             VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '设备品牌',
   model             VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '设备型号',
   platform          VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '平台 ios/android',
@@ -229,7 +229,7 @@ CREATE TABLE t_staff_events (
 -- 小程序注册表（多小程序共享后台；密钥类配置存表，后台可维护，不用环境变量）
 DROP TABLE IF EXISTS t_apps;
 CREATE TABLE t_apps (
-  app_id        VARCHAR(32)  NOT NULL COMMENT '应用标识（app_code，如 learning-planet）',
+  app_id        VARCHAR(32)  NOT NULL COMMENT '应用标识（app_code，如 miniprogram-kxm）',
   app_name      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '应用名称',
   wechat_appid  VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '微信小程序 AppID',
   app_secret    VARCHAR(255) NOT NULL DEFAULT '' COMMENT '小程序 AppSecret（code2session 用，后台配置）',
@@ -290,7 +290,7 @@ DROP TABLE IF EXISTS t_user_events;
 CREATE TABLE t_user_events (
   event_id   VARCHAR(16)  NOT NULL COMMENT '主键（13位时间戳+3位随机数）',
   openid     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '用户 openid',
-  app_id     VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '所属小程序 app_id',
+  app_id     VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
   event_type VARCHAR(24)  NOT NULL DEFAULT 'custom' COMMENT 'login/page_view/menu_click/button_click/create/update/delete/end/reset/custom',
   event_name VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '事件名称（如 点击学习管理）',
   page_path  VARCHAR(128) NOT NULL DEFAULT '' COMMENT '页面路径',
@@ -441,7 +441,7 @@ DROP TABLE IF EXISTS t_lp_students;
 CREATE TABLE t_lp_students (
   id           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   staff_id     BIGINT       NOT NULL DEFAULT 0 COMMENT '学生 staff_id（t_staff，role=student）',
-  app_id       VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '小程序 app_id',
+  app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   openid       VARCHAR(64)  NOT NULL COMMENT '小程序用户 openid（去前缀规范值）',
   bound_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '绑定时间',
   bound_status TINYINT      NOT NULL DEFAULT 1 COMMENT '1正常 0已锁定（邀请码作废后锁定）',
@@ -456,7 +456,7 @@ CREATE TABLE t_lp_students (
 DROP TABLE IF EXISTS t_lp_invites;
 CREATE TABLE t_lp_invites (
   invite_id       BIGINT       NOT NULL COMMENT '主键（序列发放）',
-  app_id          VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '小程序 app_id',
+  app_id          VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   invite_code     VARCHAR(8)   NOT NULL DEFAULT '' COMMENT '6位大写邀请码（生成时排除0/O/1/I）',
   kind            VARCHAR(16)  NOT NULL DEFAULT 'student' COMMENT 'student学生码 / family家属共享码',
   owner_staff_id  BIGINT       NOT NULL DEFAULT 0 COMMENT '归属账号：学生码=孩子student账号；家属码=主家长账号',
@@ -480,7 +480,7 @@ CREATE TABLE t_lp_invites (
 DROP TABLE IF EXISTS t_lp_children;
 CREATE TABLE t_lp_children (
   child_id          BIGINT       NOT NULL COMMENT '主键（序列发放）',
-  app_id            VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '小程序 app_id',
+  app_id            VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   parent_staff_id   BIGINT       NOT NULL DEFAULT 0 COMMENT '主家长 staff_id',
   student_staff_id  BIGINT       NOT NULL DEFAULT 0 COMMENT '孩子学生账号 staff_id（t_staff role=student）',
   child_name        VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '孩子姓名',
@@ -502,7 +502,7 @@ CREATE TABLE t_lp_children (
 DROP TABLE IF EXISTS t_lp_family_members;
 CREATE TABLE t_lp_family_members (
   id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  app_id            VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '小程序 app_id',
+  app_id            VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   owner_staff_id    BIGINT       NOT NULL DEFAULT 0 COMMENT '主家长 staff_id',
   member_staff_id   BIGINT       NOT NULL DEFAULT 0 COMMENT '家属账号 staff_id',
   member_openid     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '家属小程序 openid',
@@ -522,7 +522,7 @@ CREATE TABLE t_lp_subscribe_grants (
   grant_id     BIGINT       NOT NULL COMMENT '主键（序列发放）',
   staff_id     BIGINT       NOT NULL DEFAULT 0 COMMENT '学生 staff_id',
   openid       VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '小程序用户 openid',
-  app_id       VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '小程序 app_id',
+  app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   tmpl_id      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '订阅消息模板ID（第一阶段可为空）',
   grant_count  INT          NOT NULL DEFAULT 1 COMMENT '本次授权获得的订阅次数',
   used_count   INT          NOT NULL DEFAULT 0 COMMENT '已消耗次数',
@@ -544,7 +544,7 @@ CREATE TABLE t_lp_subscribe_sends (
   send_id     BIGINT       NOT NULL COMMENT '主键（序列发放）',
   staff_id    BIGINT       NOT NULL DEFAULT 0 COMMENT '接收人 staff_id',
   openid      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '接收人 openid',
-  app_id      VARCHAR(32)  NOT NULL DEFAULT 'learning-planet' COMMENT '小程序 app_id',
+  app_id      VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   tmpl_id     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '模板ID',
   event_type  VARCHAR(24)  NOT NULL DEFAULT '' COMMENT '业务事件类型 review_approve/review_reject',
   biz_type    VARCHAR(24)  NOT NULL DEFAULT '' COMMENT '业务类型 task_checkin',
@@ -570,6 +570,7 @@ CREATE TABLE t_seqs (
   current_value BIGINT       NOT NULL DEFAULT 1 COMMENT '当前值（下次发放的值）',
   init_value    BIGINT       NOT NULL DEFAULT 1 COMMENT '初始值',
   step          INT          NOT NULL DEFAULT 1 COMMENT '步长',
+  batch         INT          NOT NULL DEFAULT 200 COMMENT '号段大小（每次向 seqs 领取的 ID 数量，后台可调整）',
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (seq_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='序列管理';

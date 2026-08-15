@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Tag, Progress, Button, Modal, Form, DatePicker, Input, Empty, Spin, Space, message, Tooltip } from 'antd';
+import { Card, Row, Col, Tag, Button, Modal, Form, DatePicker, Input, Empty, Spin, Space, message, Tooltip, Image } from 'antd';
 import { FlagOutlined, CalendarOutlined, PictureOutlined } from '@ant-design/icons';
 import { ImageUploader, parseImages, toImageUrl, toThumbUrl, IMG_FALLBACK, fmtDateOnly } from '../components/fields.jsx';
 import { crudApi } from '../services/api';
@@ -131,14 +131,17 @@ export default function TodoTasksPage() {
                   style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #eef1f5', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}
                   styles={{ body: { padding: 0 } }}
                 >
-                  {/* 封面图（第一张，全铺） */}
+                  {/* 封面图（第一张，全铺；加载失败回退占位图） */}
                   {cover ? (
                     <div style={{ position: 'relative', width: '100%', height: 150, overflow: 'hidden', background: '#f5f6f8' }}>
-                      <img
+                      <Image
                         src={toThumbUrl(cover, 600)}
+                        fallback={IMG_FALLBACK}
                         alt=""
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        width="100%"
+                        height={150}
+                        style={{ objectFit: 'cover', display: 'block' }}
+                        preview={false}
                       />
                       <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 1 }}>
                         <Tag color={status.color} style={{ margin: 0, fontSize: 12 }}>{status.label}</Tag>
@@ -178,12 +181,14 @@ export default function TodoTasksPage() {
                       )}
                     </div>
 
-                    {/* 打卡进度 */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <span style={{ fontSize: 13, color: '#8c8c8c' }}>已打卡 {t.checkin_count || 0} 次</span>
+                    {/* 打卡次数（真实计数，不做伪进度条） */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                      <Space size={6}>
+                        <CalendarOutlined style={{ color: '#1677ff', fontSize: 13 }} />
+                        <span style={{ fontSize: 13, color: '#595959' }}>已打卡 <b style={{ color: '#1677ff' }}>{t.checkin_count || 0}</b> 次</span>
+                      </Space>
                       <span style={{ fontSize: 12, color: '#bfbfbf' }}>开始 {t.start_date ? fmtDateOnly(t.start_date) : '-'}</span>
                     </div>
-                    <Progress percent={t.checkin_count > 0 ? 50 : 0} showInfo={false} strokeColor="#1677ff" trailColor="#eef1f5" />
 
                     {/* 打卡按钮 */}
                     <Button

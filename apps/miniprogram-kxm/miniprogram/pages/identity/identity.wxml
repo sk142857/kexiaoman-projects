@@ -1,7 +1,7 @@
 <view class="lp-page">
   <!-- 头部：品牌 + 步骤条 -->
   <view wx:if="{{!locked}}" class="header">
-    <hero sub="{{rebind ? '输入新邀请码，更换当前绑定的账号' : '选择身份并绑定，即可开始使用'}}" />
+    <hero sub="{{rebind ? '重新选择身份与账号，更换当前绑定' : '选择身份并绑定，即可开始使用'}}" />
     <t-steps class="steps" current="{{step}}" readonly>
       <t-step-item title="选择身份" />
       <t-step-item title="绑定账号" />
@@ -42,7 +42,7 @@
         <view class="card-icon icon--parent"><t-icon name="home-filled" size="44rpx" /></view>
         <view class="card-main">
           <view class="card-name">我是家长</view>
-          <view class="card-desc">创建家庭档案，管理孩子的学习任务与每日打卡</view>
+          <view class="card-desc">创建家庭档案，或输入邀请码绑定已有账号</view>
         </view>
         <view class="card-check {{identity === 'parent' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
       </view>
@@ -65,21 +65,41 @@
         <view class="card-check {{identity === 'family' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
       </view>
     </view>
+    <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
   </scroll-view>
 
   <!-- 步骤二：绑定信息 -->
   <scroll-view wx:elif="{{step === 1}}" scroll-y class="lp-scroll content">
-    <view wx:if="{{rebind}}" class="rebind-tip">重新绑定将更换当前绑定的账号</view>
+    <view wx:if="{{rebind}}" class="rebind-tip">重新绑定将解除当前绑定并更换为您所选身份对应的账号</view>
 
     <view wx:if="{{identity === 'parent'}}" class="parent-box">
-      <view class="parent-title">确认创建主家长账号</view>
-      <view class="parent-item">自动创建家庭档案与后台登录账号</view>
-      <view class="parent-item">生成家属共享码，可邀请家属加入</view>
-      <view class="parent-item">孩子档案可在「我的」中维护</view>
+      <view class="parent-title">创建主家长账号</view>
+      <view class="parent-mode">
+        <view class="mode-item {{parentMode === 'create' ? 'mode-item--active' : ''}}" bindtap="onPickParentMode" data-mode="create">
+          <view class="mode-radio {{parentMode === 'create' ? 'mode-radio--active' : ''}}"></view>
+          <view class="mode-main">
+            <view class="mode-name">创建新账号</view>
+            <view class="mode-desc">自动创建家庭档案与后台登录账号</view>
+          </view>
+        </view>
+        <view class="mode-item {{parentMode === 'bind' ? 'mode-item--active' : ''}}" bindtap="onPickParentMode" data-mode="bind">
+          <view class="mode-radio {{parentMode === 'bind' ? 'mode-radio--active' : ''}}"></view>
+          <view class="mode-main">
+            <view class="mode-name">绑定已有账号</view>
+            <view class="mode-desc">后台已注册过主家长账号，输入邀请码绑定</view>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{parentMode === 'create'}}" class="parent-items">
+        <view class="parent-item">自动创建家庭档案与后台登录账号</view>
+        <view class="parent-item">生成家属共享码，可邀请家属加入</view>
+        <view class="parent-item">孩子档案可在「我的」中维护</view>
+      </view>
     </view>
 
-    <view wx:else class="code-box">
-      <view class="code-label">{{identity === 'family' ? '家属共享码' : '学生邀请码'}}</view>
+    <view wx:if="{{identity !== 'parent' || parentMode === 'bind'}}" class="code-box">
+      <view class="code-label">{{identity === 'family' ? '家属共享码' : identity === 'parent' ? '家长邀请码' : '学生邀请码'}}</view>
       <input
         class="input"
         type="text"
@@ -90,19 +110,17 @@
         focus="{{focusInput}}"
         bindinput="onInput"
       />
-      <view class="code-hint">6 位大写字母或数字，由家长提供</view>
+      <view class="code-hint">{{identity === 'family' ? '6 位大写字母或数字，由主家长提供' : identity === 'parent' ? '6 位大写字母或数字，由管理员提供' : '6 位大写字母或数字，由家长提供'}}</view>
       <view wx:if="{{errorMsg}}" class="error">{{errorMsg}}</view>
     </view>
-
-    <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
   </scroll-view>
 
   <!-- 步骤三：完成 -->
   <scroll-view wx:elif="{{step === 2}}" scroll-y class="lp-scroll content">
     <view class="done">
       <view class="done-icon"><t-icon name="check-circle-filled" size="120rpx" /></view>
-      <view class="done-title">{{identity === 'parent' ? '创建成功' : '绑定成功'}}</view>
-      <view class="done-desc">{{identity === 'parent' ? '家庭账号已创建，请先添加至少一个孩子档案，生成学生邀请码' : '欢迎加入课小满，开始你的学习之旅'}}</view>
+      <view class="done-title">{{(identity === 'parent' && parentMode === 'create') ? '创建成功' : '绑定成功'}}</view>
+      <view class="done-desc">{{identity === 'parent' && parentMode === 'create' ? '家庭账号已创建，请先添加至少一个孩子档案，生成学生邀请码' : identity === 'parent' ? '已绑定主家长账号，可查看与维护孩子档案' : identity === 'family' ? '欢迎加入家庭，随时查看孩子的学习情况' : '欢迎加入课小满，开始你的学习之旅'}}</view>
     </view>
   </scroll-view>
 
@@ -114,7 +132,7 @@
 
     <block wx:elif="{{step === 1}}">
       <view class="footer-row">
-        <view wx:if="{{!rebind}}" class="footer-prev">
+        <view class="footer-prev">
           <t-button class="btn" variant="outline" block bindtap="onPrev">上一步</t-button>
         </view>
         <view class="footer-main">
@@ -124,8 +142,8 @@
             block
             bindtap="onPrimary"
             loading="{{loading || submitting}}"
-            disabled="{{identity === 'parent' ? submitting : (code.length !== 6 || loading)}}"
-          >{{identity === 'parent' ? '确认创建' : (rebind ? '确认重新绑定' : '绑定')}}</t-button>
+            disabled="{{(identity === 'parent' && parentMode === 'create') ? submitting : (code.length !== 6 || loading)}}"
+          >{{(identity === 'parent' && parentMode === 'create') ? '确认创建' : (rebind ? '确认重新绑定' : '绑定')}}</t-button>
         </view>
       </view>
     </block>

@@ -83,8 +83,9 @@ export const crudApi = {
   remove: (biz, id) => api.post(`/admin/api/${biz}/delete`, { id }),
   // 批量删除（file_uploads：物理删除腾讯云存储对象 + 登记记录）
   batchDelete: (biz, ids) => api.post(`/admin/api/${biz}/batchDelete`, { ids }),
-  // 内容审核：action = approve / reject（endpoint 默认 review，用户资料审核为 reviewProfile）
-  review: (biz, id, action, endpoint = 'review') => api.post(`/admin/api/${biz}/${endpoint}`, { id, action }),
+  // 内容审核：action = approve / reject，note 为审核原因（写入审计留痕）
+  // （endpoint 默认 review，用户资料审核为 reviewProfile）
+  review: (biz, id, action, endpoint = 'review', note = '') => api.post(`/admin/api/${biz}/${endpoint}`, { id, action, note }),
   // 用户账号锁定/解锁（按 user_id，含时效；操作写入 staff_events 审计）
   userLock: (id, data) => api.post('/admin/api/users/lock', { id, ...data }),
   userUnlock: (id) => api.post('/admin/api/users/unlock', { id }),
@@ -99,6 +100,8 @@ export const crudApi = {
   taskTimeline: (params) => api.get('/admin/api/tasks/timeline', { params }),
   // 删除任务前统计（关联打卡数 / 图片数），供删除确认弹窗展示级联删除提醒
   taskDeleteStats: (taskId) => api.get('/admin/api/tasks/deleteStats', { params: { taskId } }),
+  // 删除员工前风控核验统计（关联任务/打卡/合集/绑定关系），供删除确认弹窗提示
+  staffDeleteStats: (staffId) => api.get('/admin/api/staff/deleteStats', { params: { staffId } }),
   // 上传图片（base64 → 云存储）
   upload: (biz, file) => api.post('/admin/api/upload', { biz, file }),
   // 课小满邀请码独立管理（t_lp_invites，仅管理员）：作废 / 重新生成

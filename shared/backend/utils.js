@@ -52,9 +52,4 @@ function genId() {
   return `${Date.now()}${rand}`;
 }
 
-/** 生成用户 ID：随机 10 位数字（1000000000-9999999999），不足 10 位补 0 */
-function genUserUid() {
-  return String(Math.floor(1000000000 + Math.random() * 9000000000));
-}
-
-module.exports = { formatDate, calcStreak, thisMonthPrefix, monthRange, nowSql, genId, genUserUid };
+module.exports = { formatDate, calcStreak, thisMonthPrefix, monthRange, nowSql, genId };

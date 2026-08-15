@@ -8,7 +8,8 @@
  * - 登录/资料修改事件统一经 events.logEvent 入库（带 app_id）
  */
 const { db } = require("./db");
-const { genUserUid, nowSql } = require("./utils");
+const { nowSql } = require("./utils");
+const { nextUserUid } = require("./userUid");
 const { publicUrl } = require("./storage");
 const { logEvent } = require("./events");
 
@@ -55,21 +56,15 @@ function avatarCharFromNickname(nickname) {
   return /[a-z]/.test(ch) ? ch.toUpperCase() : ch;
 }
 
-/** 生成唯一 10 位数字用户ID（碰撞重试） */
+/** 生成唯一 10 位数字用户ID（进程内备用池 + DB 唯一性校验，避免连续4个及以上重复数字） */
 async function genUniqueUserUid() {
-  for (let i = 0; i < 5; i++) {
-    const uid = genUserUid();
-    const { data, error } = await db.from("users").select("user_uid").eq("user_uid", uid).limit(1);
-    if (error) throw error;
-    if (!data || !data[0]) return uid;
-  }
-  return genUserUid();
+  return nextUserUid();
 }
 
 /** 组装用户资料返回体 */
 function buildProfile(u) {
   return {
-    appId: u.app_id || "learning-planet",
+    appId: u.app_id || "miniprogram-kxm",
     userId: u.user_uid || "",
     nickname: u.nickname || "用户",
     avatar: u.avatar || "",          // 128px 相对路径
@@ -106,7 +101,7 @@ function normalizeOpenid(rawOpenid, wechatAppid) {
  * @param {string} openid 已规范化的 openid
  */
 async function ensureUser(app, openid) {
-  const appId = (app && app.app_id) || "learning-planet";
+  const appId = (app && app.app_id) || "miniprogram-kxm";
   const lookupList = [openid];
 
   // 若当前传入 openid 仍带前缀（理论上已规范化），补一次去前缀查找；反之亦然
@@ -147,7 +142,7 @@ async function ensureUser(app, openid) {
 
 /** 记录登录/首次进入事件（登录逻辑共用的埋点） */
 function logLoginEvent({ app, openid, userId, pagePath }) {
-  const appId = (app && app.app_id) || "learning-planet";
+  const appId = (app && app.app_id) || "miniprogram-kxm";
   logEvent({
     appId,
     openid,

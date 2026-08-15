@@ -123,7 +123,8 @@ function crudRouter(opts) {
   router.get("/list", async (req, res) => {
     try {
       const { page = 1, pageSize = 20, keyword, order = "desc", startTime, endTime } = req.query;
-      const size = Math.min(Number(pageSize) || 20, 100);
+      // 上限 500：供动态下拉（派发学生/归属账号/绑定用户等 optionsSource）整批加载；分页列表本身受 20/50/100 控制
+      const size = Math.min(Number(pageSize) || 20, 500);
       const pageNo = Math.max(1, Number(page) || 1);
       const offset = (pageNo - 1) * size;
       const scope = (readScopeFn || scopeFn) ? (readScopeFn || scopeFn)(req) : null;

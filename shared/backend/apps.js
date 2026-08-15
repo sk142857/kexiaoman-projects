@@ -2,7 +2,7 @@
  * 多小程序应用注册表
  *
  * 所有小程序共享同一云环境 + 同一套云托管后端，通过 app_id 区分。
- * - app_id 即 app_code（如 learning-planet），作为业务表 app 维度字段值
+ * - app_id 即 app_code（如 miniprogram-kxm），作为业务表 app 维度字段值
  * - 数据库 apps 表为权威注册表；BUILTIN_APPS 为内置兜底（表未初始化/查询失败时也能工作）
  * - 云托管自动注入请求头 X-WX-APPID（调用方小程序 AppID）、X-WX-OPENID（用户 openid，
  *   共享环境下可能带 "{AppID}_" 前缀，见 appAuth.js 的前缀剥离）
@@ -13,7 +13,7 @@ const { cached, invalidate, invalidatePrefix } = require("./cache");
 
 /** 内置注册表兜底（与 sql/init_data.sql 种子数据保持一致） */
 const BUILTIN_APPS = {
-  "learning-planet": { app_id: "learning-planet", app_name: "课小满", wechat_appid: "wxa8035a4cd63554fe", app_status: 1 },
+  "miniprogram-kxm": { app_id: "miniprogram-kxm", app_name: "课小满", wechat_appid: "wxa8035a4cd63554fe", app_status: 1 },
 };
 
 /** 按微信 AppID 在内置注册表中查找应用 */

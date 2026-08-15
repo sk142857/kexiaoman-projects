@@ -7,7 +7,7 @@ const SESSION_GUARD_INTERVAL = 20000;
 
 App({
   globalData: {
-    appId: 'learning-planet',
+    appId: 'miniprogram-kxm',
     appName: '课小满',
     sessionTimer: null,
   },

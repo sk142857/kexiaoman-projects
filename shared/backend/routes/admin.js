@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 后台管理路由（cloud admin）
  * - 登录签发 JWT
  * - adminAuth 中间件校验 token
@@ -495,7 +495,7 @@ function avatarChar(nickname) {
 // 用户管理（可写：昵称/性别/头像/状态；额外资料审核路由 /reviewProfile）
 router.post("/api/users/reviewProfile", adminAuth, async (req, res) => {
   try {
-    const { id, action } = req.body || {};
+    const { id, action, note } = req.body || {};
     if (!id) return res.json(fail("缺少 ID"));
     const { data: rows, error } = await db.from("users").select().eq("user_id", id).limit(1);
     if (error) throw error;
@@ -529,7 +529,7 @@ router.post("/api/users/reviewProfile", adminAuth, async (req, res) => {
     }
     const { error: upErr } = await db.from("users").update(values).eq("user_id", id);
     if (upErr) throw upErr;
-    logStaffEvent({ req, staff: req.staff, eventType: "review", eventName: `审核用户资料（${action === "reject" ? "驳回" : "通过"}）`, module: "users", apiPath: "/api/users/reviewProfile", bizId: id });
+    logStaffEvent({ req, staff: req.staff, eventType: "review", eventName: `审核用户资料（${action === "reject" ? "驳回" : "通过"}）`, module: "users", apiPath: "/api/users/reviewProfile", bizId: id, extra: note ? { action, note } : { action } });
     res.json(ok(null, action === "reject" ? "已驳回" : "审核通过"));
   } catch (e) {
     console.error("[admin] users reviewProfile error", e);
@@ -558,7 +558,7 @@ async function enrichUsersLp(list) {
   try {
     if (openids.length > 0) {
       const { data: binds, error: bErr } = await db.from("lp_students")
-        .select("openid, staff_id, bound_status").eq("app_id", "learning-planet")
+        .select("openid, staff_id, bound_status").eq("app_id", "miniprogram-kxm")
         .in("openid", openids).limit(openids.length);
       if (!bErr) (binds || []).forEach(b => { if (!bindMap[b.openid]) bindMap[b.openid] = b; });
       const staffIds = [...new Set((binds || []).map(b => Number(b.staff_id)).filter(v => v > 0))];
@@ -569,7 +569,7 @@ async function enrichUsersLp(list) {
       }
       const { data: invites, error: iErr } = await db.from("lp_invites")
         .select("invite_id, invite_code, status, bound_openid")
-        .eq("app_id", "learning-planet").in("bound_openid", openids)
+        .eq("app_id", "miniprogram-kxm").in("bound_openid", openids)
         .order("invite_id", { ascending: false }).limit(Math.max(50, openids.length * 2));
       if (!iErr) (invites || []).forEach(iv => { if (!inviteMap[iv.bound_openid]) inviteMap[iv.bound_openid] = iv; });
     }
@@ -693,7 +693,7 @@ router.use("/api/file_uploads", crudRouter({
 
 // 文件批量删除：物理删除腾讯云存储对象 + 同步删除 file_uploads 登记记录
 // 注意与打卡删除的 markRemoved（仅审计标记、不删存储）不同，本接口是真实清理存储
-router.post("/api/file_uploads/batchDelete", async (req, res) => {
+router.post("/api/file_uploads/batchDelete", adminAuth, async (req, res) => {
   try {
     const { ids } = req.body || {};
     if (!Array.isArray(ids) || ids.length === 0) return res.json(fail("请选择要删除的文件"));
@@ -802,6 +802,50 @@ async function cleanupStaffLpData(staffId) {
     .eq("bound_staff_id", id).eq("status", "bound");
 }
 
+/**
+ * 员工删除前风控核验：统计该账号名下关联的业务数据
+ * - 任务类（核心）：作为创建人的任务 / 作为派发人的任务 / 创建的打卡 / 创建的合集
+ * - 关系类（提示）：绑定的小程序用户 / 孩子档案 / 家属关系 / 订阅授权
+ * 用于：删除确认弹窗提示（deleteStats 接口）+ 后端删除硬拦截（onBeforeDelete）
+ */
+async function countStaffBiz(staffId) {
+  const id = String(staffId);
+  const num = (r) => (r && !r.error && typeof r.count === "number" ? r.count : 0);
+  const [tc, ta, ck, col, stu, chd, fam, sub] = await Promise.all([
+    db.from("tasks").select("task_id", { count: "exact" }).eq("created_by", id).limit(1),
+    db.from("task_assignees").select("task_id", { count: "exact" }).eq("staff_id", id).limit(1),
+    db.from("task_checkins").select("checkin_id", { count: "exact" }).eq("created_by", id).limit(1),
+    db.from("task_collections").select("collection_id", { count: "exact" }).eq("created_by", id).limit(1),
+    db.from("lp_students").select("id", { count: "exact" }).eq("staff_id", id).limit(1),
+    db.from("lp_children").select("child_id", { count: "exact" }).or(`parent_staff_id.eq.${id},student_staff_id.eq.${id}`).limit(1),
+    db.from("lp_family_members").select("id", { count: "exact" }).or(`owner_staff_id.eq.${id},member_staff_id.eq.${id}`).limit(1),
+    db.from("subscribe_grants").select("grant_id", { count: "exact" }).eq("staff_id", id).limit(1),
+  ]);
+  return {
+    task_created: num(tc),
+    task_assigned: num(ta),
+    task_count: num(tc) + num(ta),
+    checkin_count: num(ck),
+    collection_count: num(col),
+    bind_count: num(stu),
+    child_count: num(chd),
+    family_count: num(fam),
+    sub_grant_count: num(sub),
+  };
+}
+
+// 员工删除前风控核验统计（供前端删除确认弹窗提示）
+router.get("/api/staff/deleteStats", adminAuth, async (req, res) => {
+  try {
+    const { staffId } = req.query;
+    if (!staffId) return res.json(fail("缺少员工 ID"));
+    res.json(ok(await countStaffBiz(staffId)));
+  } catch (e) {
+    console.error("[admin] staff deleteStats error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 // 管理员管理
 // - passwordFields：staff_password 只在非空时写入并做 bcrypt 哈希（新增/重置密码）
 // - exclude：列表/详情响应剔除密码哈希，避免泄露
@@ -815,6 +859,18 @@ router.use("/api/staff", adminAuth, crudRouter({
   // 自我保护：禁止删除/禁用/修改自己的账号，避免误操作锁死后台
   protectSelf: true,
   pkGenerator: () => nextSeq("staff_id"),
+  // 删除前严格风控核验：名下存在任务/打卡/合集等业务数据时一律拒绝，须先删除关联任务
+  onBeforeDelete: async (req, delRecord) => {
+    const s = await countStaffBiz(delRecord.staff_id);
+    const parts = [];
+    if (s.task_count > 0) parts.push(`${s.task_count} 个任务`);
+    if (s.checkin_count > 0) parts.push(`${s.checkin_count} 条打卡`);
+    if (s.collection_count > 0) parts.push(`${s.collection_count} 个合集`);
+    if (parts.length > 0) {
+      return `该账号名下存在 ${parts.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
+    }
+    return null;
+  },
   onAfterUpdate: async (req, values, id) => {
     invalidateStaffRows([id]);
     // 停用员工（staff_status→0）时同步作废其邀请码，避免「待绑定」孤儿码
@@ -875,9 +931,17 @@ router.post("/api/staff/apps", adminAuth, async (req, res) => {
 });
 
 // ==================== 课小满邀请码管理（独立模块，与 staff 解耦） ====================
-// 邀请码独立维护在 t_lp_invites：kind=student 学生码 / kind=family 家属共享码。
+// 邀请码独立维护在 t_lp_invites：kind=student 学生码 / kind=parent 家长码 / kind=family 家属共享码。
 // 支持后台新增/编辑/删除（管理员），新增时自动生成 6 位邀请码并校验归属角色；
-// 删除已绑定的学生码时同步锁定该学生小程序访问（与作废语义一致）。
+// 删除已绑定/已作废的学生码、家长码时同步锁定对应账号的小程序访问（与作废语义一致）。
+const INVITE_KIND_OWNER_ROLE = { student: "student", parent: "parent", family: "parent" };
+const INVITE_KIND_ERR = {
+  student: "学生码归属账号必须是有效学生账号",
+  parent: "家长码归属账号必须是有效主家长账号",
+  family: "家属共享码归属账号必须是有效主家长账号",
+};
+const INVITE_KIND_MSG = "邀请码类型无效（student 学生码 / parent 家长码 / family 家属共享码）";
+
 router.use("/api/lp_invites", adminAuth, crudRouter({
   table: "lp_invites", pk: "invite_id",
   writable: ["kind", "owner_staff_id", "child_id", "status"],
@@ -885,7 +949,7 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
   filters: ["kind", "status"],
   pkGenerator: () => nextSeq("invite_id"),
   defaults: (req) => ({
-    app_id: "learning-planet",
+    app_id: "miniprogram-kxm",
     created_by: Number(req.staff && req.staff.staff_id) || 0,
   }),
   // 非管理员仅可查看/操作自己名下的邀请码（管理员全部）
@@ -897,15 +961,15 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
     : { field: "owner_staff_id", value: req.staff.staff_id },
   onBeforeCreate: async (req, values) => {
     const kind = String(values.kind || "");
-    if (!["student", "family"].includes(kind)) return "邀请码类型无效（student 学生码 / family 家属共享码）";
+    if (!(kind in INVITE_KIND_OWNER_ROLE)) return INVITE_KIND_MSG;
     const ownerId = Number(values.owner_staff_id);
     if (!ownerId) return "请选择归属账号";
-    const needRole = kind === "student" ? "student" : "parent";
+    const needRole = INVITE_KIND_OWNER_ROLE[kind];
     const { data } = await db.from("staff")
       .select("staff_id, staff_role, staff_status").eq("staff_id", ownerId).limit(1);
     const owner = data && data[0];
     if (!owner || owner.staff_role !== needRole || owner.staff_status !== 1) {
-      return kind === "student" ? "学生码归属账号必须是有效学生账号" : "家属共享码归属账号必须是有效主家长账号";
+      return INVITE_KIND_ERR[kind];
     }
     values.kind = kind;
     values.owner_staff_id = ownerId;
@@ -919,7 +983,7 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
   },
   onBeforeUpdate: async (req, oldRecord, values) => {
     const kind = values.kind !== undefined ? String(values.kind) : (oldRecord && oldRecord.kind);
-    if (kind && !["student", "family"].includes(kind)) return "邀请码类型无效（student 学生码 / family 家属共享码）";
+    if (kind && !(kind in INVITE_KIND_OWNER_ROLE)) return INVITE_KIND_MSG;
     // 状态白名单：bound 只能由小程序绑定产生，禁止手动改为 bound（原值已是 bound 时允许保留）
     if (values.status !== undefined) {
       const oldStatus = oldRecord && oldRecord.status;
@@ -931,12 +995,12 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
     if (values.kind !== undefined || values.owner_staff_id !== undefined) {
       const ownerId = values.owner_staff_id !== undefined ? Number(values.owner_staff_id) : Number(oldRecord && oldRecord.owner_staff_id);
       if (!ownerId) return "请选择归属账号";
-      const needRole = kind === "student" ? "student" : "parent";
+      const needRole = INVITE_KIND_OWNER_ROLE[kind];
       const { data } = await db.from("staff")
         .select("staff_id, staff_role, staff_status").eq("staff_id", ownerId).limit(1);
       const owner = data && data[0];
       if (!owner || owner.staff_role !== needRole || owner.staff_status !== 1) {
-        return kind === "student" ? "学生码归属账号必须是有效学生账号" : "家属共享码归属账号必须是有效主家长账号";
+        return INVITE_KIND_ERR[kind];
       }
       values.owner_staff_id = ownerId;
     }
@@ -944,8 +1008,8 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
     return null;
   },
   onBeforeDelete: async (req, record) => {
-    // 删除已绑定的学生码：同步锁定该学生的小程序访问，避免「绑定在、邀请码无」的悬空态
-    if (record && record.kind === "student" && Number(record.bound_staff_id) > 0) {
+    // 删除已绑定的学生码/家长码：同步锁定对应账号的小程序访问，避免「绑定在、邀请码无」的悬空态
+    if (record && ["student", "parent"].includes(record.kind) && Number(record.bound_staff_id) > 0) {
       try {
         await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() })
           .eq("staff_id", Number(record.bound_staff_id));
@@ -987,7 +1051,7 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
   },
 }));
 
-// 作废邀请码（仅管理员）：kind=student 且已绑定时同步锁定该学生名下小程序访问
+// 作废邀请码（仅管理员）：kind=student/parent 且已绑定时同步锁定对应账号名下小程序访问
 router.post("/api/lp_invites/revoke", adminAuth, async (req, res) => {
   try {
     if (req.staff.role !== "admin") return res.json(fail("无权操作", 403));
@@ -996,34 +1060,34 @@ router.post("/api/lp_invites/revoke", adminAuth, async (req, res) => {
     const inv = await inviteById(id);
     if (!inv) return res.json(fail("邀请码不存在"));
     await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() }).eq("invite_id", inv.invite_id);
-    if (inv.kind === "student" && Number(inv.bound_staff_id) > 0) {
+    if (["student", "parent"].includes(inv.kind) && Number(inv.bound_staff_id) > 0) {
       try {
         await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() }).eq("staff_id", Number(inv.bound_staff_id));
       } catch (_) {}
     }
     logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "作废邀请码（锁定小程序访问）", module: "lp_invites", apiPath: "/api/lp_invites/revoke", bizId: inv.invite_id, extra: { invite_code: inv.invite_code, kind: inv.kind } });
-    res.json(ok(null, "邀请码已作废" + (inv.kind === "student" && Number(inv.bound_staff_id) > 0 ? "，该学生的小程序访问已锁定" : "")));
+    res.json(ok(null, "邀请码已作废" + (["student", "parent"].includes(inv.kind) && Number(inv.bound_staff_id) > 0 ? "，对应账号的小程序访问已锁定" : "")));
   } catch (e) {
     console.error("[admin] lp_invites revoke error", e);
     res.json(fail("服务异常", 500));
   }
 });
 
-// 重新生成学生邀请码（仅管理员）：作废该学生当前可用的学生码并发新码，恢复其名下小程序访问
+// 重新生成学生/家长邀请码（仅管理员）：作废该账号当前可用的可用码并发新码，恢复其名下小程序访问
 router.post("/api/lp_invites/regenerate", adminAuth, async (req, res) => {
   try {
     if (req.staff.role !== "admin") return res.json(fail("无权操作", 403));
     const { id } = req.body || {};
     if (!id) return res.json(fail("缺少 invite_id"));
     const inv = await inviteById(id);
-    if (!inv || inv.kind !== "student") return res.json(fail("仅学生码可重新生成"));
+    if (!inv || !["student", "parent"].includes(inv.kind)) return res.json(fail("仅学生码、家长码可重新生成"));
     await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
-      .eq("kind", "student").eq("owner_staff_id", inv.owner_staff_id).eq("status", "available");
-    const next = await createInvite({ kind: "student", ownerStaffId: Number(inv.owner_staff_id), childId: Number(inv.child_id) || 0, createdBy: Number(req.staff.staff_id) || 0 });
+      .eq("kind", inv.kind).eq("owner_staff_id", inv.owner_staff_id).eq("status", "available");
+    const next = await createInvite({ kind: inv.kind, ownerStaffId: Number(inv.owner_staff_id), childId: Number(inv.child_id) || 0, createdBy: Number(req.staff.staff_id) || 0 });
     try {
       await db.from("lp_students").update({ bound_status: 1, updated_at: nowSql() }).eq("staff_id", Number(inv.owner_staff_id));
     } catch (_) {}
-    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "重新生成学生邀请码", module: "lp_invites", apiPath: "/api/lp_invites/regenerate", bizId: inv.owner_staff_id, extra: { old_code: inv.invite_code, new_code: next.invite_code } });
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "重新生成邀请码", module: "lp_invites", apiPath: "/api/lp_invites/regenerate", bizId: inv.owner_staff_id, extra: { old_code: inv.invite_code, new_code: next.invite_code, kind: inv.kind } });
     res.json(ok({ invite_code: next.invite_code }, "新邀请码已生成"));
   } catch (e) {
     console.error("[admin] lp_invites regenerate error", e);
@@ -1267,12 +1331,12 @@ router.post("/api/lp_students/create", adminAuth, async (req, res) => {
     }
     // 唯一约束：同一 openid 仅一条绑定（uk_app_openid）
     const { data: ex } = await db.from("lp_students")
-      .select("id").eq("app_id", "learning-planet").eq("openid", oid).limit(1);
+      .select("id").eq("app_id", "miniprogram-kxm").eq("openid", oid).limit(1);
     if (ex && ex[0]) return res.json(fail("该 openid 已存在绑定关系，请改用「变更绑定」"));
 
     await db.from("lp_students").insert({
       staff_id: targetId,
-      app_id: "learning-planet",
+      app_id: "miniprogram-kxm",
       openid: oid,
       bound_status: Number(boundStatus) === 0 ? 0 : 1,
       bound_at: nowSql(),
@@ -2340,9 +2404,9 @@ router.get("/api/checkin_reviews/list", adminAuth, async (req, res) => {
 async function notifyAdminReview(req, checkin, task, result, note) {
   try {
     const { data: stuRows } = await db.from("lp_students")
-      .select("openid").eq("staff_id", checkin.created_by).eq("app_id", req.appId || "learning-planet").limit(1);
+      .select("openid").eq("staff_id", checkin.created_by).eq("app_id", req.appId || "miniprogram-kxm").limit(1);
     await sendReviewNotification({
-      appId: req.appId || "learning-planet",
+      appId: req.appId || "miniprogram-kxm",
       openid: (stuRows && stuRows[0] && stuRows[0].openid) || "",
       staffId: checkin.created_by,
       checkinId: checkin.checkin_id,
@@ -2467,7 +2531,7 @@ router.post("/api/subscribe_grants/grant", adminAuth, async (req, res) => {
       grant_id: gid,
       staff_id: sid,
       openid: "",
-      app_id: req.appId || "learning-planet",
+      app_id: req.appId || "miniprogram-kxm",
       tmpl_id: String(tmplId || "").slice(0, 64),
       grant_count: cnt,
       used_count: 0,

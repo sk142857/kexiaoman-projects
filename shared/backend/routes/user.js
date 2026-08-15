@@ -14,7 +14,7 @@ const { ensureUser, buildProfile, avatarCharFromNickname, InitError } = require(
 
 const router = express.Router();
 
-const appIdOf = (req) => (req.appId || (req.app && req.app.app_id) || "learning-planet");
+const appIdOf = (req) => (req.appId || (req.app && req.app.app_id) || "miniprogram-kxm");
 
 // ==================== 获取用户资料（静默注册 + 登录事件） ====================
 router.get("/getProfile", async (req, res) => {

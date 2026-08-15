@@ -52,7 +52,7 @@ shared/backend/
 - 其余 `/api/lp/*`（profile / dashboard / tasks / checkins / collections / upload）走 `lpAuth` JWT，
   每次请求实时复核邀请码状态（作废即锁定）。
 - 邀请码生成/作废接口：`POST /api/staff/generateInvite`、`POST /api/staff/revokeInvite`（后台管理员管理）。
-- 前端：`apps/learning-planet/miniprogram/`（登录/绑定/仪表盘/任务/打卡/合集/我的）。
+- 前端：`apps/miniprogram-kxm/miniprogram/`（登录/绑定/仪表盘/任务/打卡/合集/我的）。
 
 > ⚠️ **AI-SKIP 警告**：`package.json` 中的 `ws` 依赖**不可删除**。
 > `@cloudbase/js-sdk` 的 `app.rdb()` 运行时通过 WebSocket 连接 MySQL，动态 require `ws`。

@@ -7,7 +7,7 @@
 
 | 小程序 | 目录 | 微信 AppID | 业务表前缀 |
 |--------|------|-----------|-----------|
-| 课小满 | `apps/learning-planet/` | `wxa8035a4cd63554fe` | `t_lp_*` |
+| 课小满 | `apps/miniprogram-kxm/` | `wxa8035a4cd63554fe` | `t_lp_*` |
 
 > 📄 完整技术架构文档见 [docs/技术架构文档.md](docs/技术架构文档.md)（技术选型、数据模型、后台管理、监控体系、部署方案）
 >
@@ -19,7 +19,7 @@
 
 ```
 ├── apps/                       # 各小程序前端工程（微信开发者工具分别打开对应目录）
-│   └── learning-planet/        # 课小满
+│   └── miniprogram-kxm/        # 课小满
 │       ├── miniprogram/
 │       └── project.config.json #   AppID=wxa8035a4cd63554fe
 ├── shared/backend/             # 共享云托管后端（唯一代码库，多小程序共用）
@@ -84,7 +84,7 @@
 后端缓存 60s，修改后最多 1 分钟生效；未配置时登录/绑定会报错并打印告警。
 
 **环境内直调要点**：
-- 小程序前端：`apps/learning-planet/miniprogram/utils/api.js` 定义 `CLOUD_ENV`（`cloud1-d6gddqzrsda16338f`）
+- 小程序前端：`apps/miniprogram-kxm/miniprogram/utils/api.js` 定义 `CLOUD_ENV`（`cloud1-d6gddqzrsda16338f`）
   与 `CLOUD_SERVICE`（`kxm-service`），所有请求经 `wx.cloud.callContainer` 携带 `X-LP-Token` 调用 `/api/lp/*`。
 - 部署：需在云开发控制台把课小满绑定到云环境 `cloud1-d6gddqzrsda16338f`（多小程序共享环境），
   云托管服务名部署为 `kxm-service`。

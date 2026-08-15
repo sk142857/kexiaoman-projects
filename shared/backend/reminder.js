@@ -18,7 +18,7 @@ const { formatDate } = require("./utils");
 const { getAppConfig } = require("./apps");
 const { sendCheckinRemind } = require("./subscribeLib");
 
-const APP_ID = "learning-planet";
+const APP_ID = "miniprogram-kxm";
 const DEFAULT_WINDOW = "18:00-22:00";
 const DEFAULT_REMIND_DAYS = 3;
 const DEFAULT_OVERDUE_DAYS = 7;

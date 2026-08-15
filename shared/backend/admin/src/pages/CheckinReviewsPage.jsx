@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Avatar, message, Statistic, Row, Col } from 'antd';
 import { CheckOutlined, CloseOutlined, ReloadOutlined, AuditOutlined } from '@ant-design/icons';
-import { ImageList, fmtDateTime } from '../components/fields.jsx';
+import { ImageList, fmtDateTime, EmptyText } from '../components/fields.jsx';
 import { crudApi } from '../services/api';
 
 const STATUS_MAP = { todo: '未开始', doing: '进行中', done: '已完成' };
@@ -89,7 +89,7 @@ export default function CheckinReviewsPage() {
     { title: '任务', dataIndex: 'task_title', key: 'task_title', width: 200, ellipsis: true },
     { title: '任务状态', dataIndex: 'task_status', key: 'task_status', width: 90, render: (v) => <Tag color={STATUS_COLOR[v] || 'default'}>{STATUS_MAP[v] || v || '-'}</Tag> },
     { title: '打卡日期', dataIndex: 'checkin_date', key: 'checkin_date', width: 110 },
-    { title: '备注', dataIndex: 'checkin_note', key: 'checkin_note', width: 220, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <span style={{ color: '#bbb' }}>无</span>) },
+    { title: '备注', dataIndex: 'checkin_note', key: 'checkin_note', width: 220, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
     { title: '图片', dataIndex: 'images', key: 'images', width: 170, render: (v) => <ImageList value={v || []} thumb={44} /> },
     { title: '提交时间', dataIndex: 'created_at', key: 'created_at', width: 150, render: (v) => fmtDateTime(v) },
     {

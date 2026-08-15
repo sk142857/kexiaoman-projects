@@ -52,10 +52,12 @@ const MENU_TYPE_MAP = {
 // 课小满邀请码（独立维护于 t_lp_invites，与 staff 解耦）
 const INVITE_KIND_MAP = {
   student: { label: '学生码', color: 'blue' },
+  parent: { label: '家长码', color: 'gold' },
   family: { label: '家属共享码', color: 'purple' },
 };
 const INVITE_KIND_OPTIONS = [
   { value: 'student', label: '学生码' },
+  { value: 'parent', label: '家长码' },
   { value: 'family', label: '家属共享码' },
 ];
 const INVITE_STATUS_MAP = {
@@ -432,6 +434,27 @@ export const MODULES = {
     title: '管理员管理',
     searchable: ['staff_username', 'staff_nickname'],
     searchKey: 'staff_username',
+    // 删除前严格风控核验：先查名下关联数据，存在任务/打卡/合集时提示必须先删除任务（后端同样硬拦截）
+    deleteTip: async (record) => {
+      let stats = {};
+      try {
+        const res = await crudApi.staffDeleteStats(record.staff_id);
+        stats = res.data || {};
+      } catch (_) {}
+      const biz = [];
+      if (stats.task_count) biz.push(`${stats.task_count} 个任务`);
+      if (stats.checkin_count) biz.push(`${stats.checkin_count} 条打卡`);
+      if (stats.collection_count) biz.push(`${stats.collection_count} 个合集`);
+      if (biz.length > 0) {
+        return `该账号名下存在 ${biz.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
+      }
+      const extra = [];
+      if (stats.bind_count) extra.push(`绑定 ${stats.bind_count} 个小程序用户`);
+      if (stats.child_count) extra.push(`孩子档案 ${stats.child_count} 个`);
+      if (stats.family_count) extra.push(`家属关系 ${stats.family_count} 条`);
+      const tail = extra.length ? `（删除后同步作废关联邀请码并清理绑定关系：${extra.join('、')}）` : '（删除后同步作废其关联邀请码）';
+      return `删除账号「${record.staff_nickname || record.staff_username || ''}」后不可恢复${tail}，确定删除吗？`;
+    },
     columns: [
       { title: 'ID', dataIndex: 'staff_id', key: 'staff_id', width: 80 },
       { title: '账号', dataIndex: 'staff_username', key: 'staff_username' },
@@ -723,6 +746,7 @@ export const MODULES = {
     filters: [
       { name: 'kind', label: '类型', options: [
         { value: 'student', label: '学生码' },
+        { value: 'parent', label: '家长码' },
         { value: 'family', label: '家属共享码' },
       ] },
       { name: 'status', label: '状态', options: [
@@ -760,8 +784,8 @@ export const MODULES = {
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
     formFields: [
-      { name: 'kind', label: '类型', type: 'select', options: INVITE_KIND_OPTIONS, rules: [{ required: true, message: '请选择类型' }], tip: '学生码：绑定孩子学生账号；家属共享码：单次使用，绑定即作废' },
-      { name: 'owner_staff_id', label: '归属账号', type: 'select', optionsSource: 'staff', optionsParams: { pageSize: 500 }, optionsMap: { value: 'staff_id', label: 'staff_nickname' }, showSearch: true, rules: [{ required: true, message: '请选择归属账号' }], tip: '学生码选择学生账号；家属共享码选择主家长账号' },
+      { name: 'kind', label: '类型', type: 'select', options: INVITE_KIND_OPTIONS, rules: [{ required: true, message: '请选择类型' }], tip: '学生码：绑定孩子学生账号；家长码：绑定后台已有主家长账号；家属共享码：单次使用，绑定即作废' },
+      { name: 'owner_staff_id', label: '归属账号', type: 'select', optionsSource: 'staff', optionsParams: { pageSize: 500 }, optionsMap: { value: 'staff_id', label: 'staff_nickname' }, showSearch: true, rules: [{ required: true, message: '请选择归属账号' }], tip: '学生码选择学生账号；家长码、家属共享码选择主家长账号' },
       { name: 'child_id', label: '关联孩子档案', type: 'select', optionsSource: 'lp_children', optionsParams: { pageSize: 500 }, optionsMap: { value: 'child_id', label: 'child_name' }, showSearch: true, allowClear: true, tip: '学生码可关联孩子档案（选填）；家属共享码无需填写' },
       { name: 'status', label: '状态', type: 'select', options: [
         { value: 'available', label: '未绑定' },
@@ -776,8 +800,8 @@ export const MODULES = {
         label: '重新生成',
         icon: <SafetyOutlined />,
         color: '#1677ff',
-        show: (r, ctx) => ctx.isAdmin && r.kind === 'student',
-        confirm: '将为该学生生成新的学生码（旧可用学生码作废）并恢复其名下小程序访问，确定？',
+        show: (r, ctx) => ctx.isAdmin && ['student', 'parent'].includes(r.kind),
+        confirm: '将为该账号生成新的邀请码（旧可用邀请码作废）并恢复其名下小程序访问，确定？',
         onClick: async (r, ctx) => {
           const res = await crudApi.lpInviteRegenerate(r.invite_id);
           message.success(`新邀请码：${res.data.invite_code}`);
@@ -835,7 +859,7 @@ export const MODULES = {
     ],
     // 左侧：基础信息
     formFields: [
-      { name: 'app_id', label: '应用ID（如 learning-planet）', type: 'text', rules: [{ required: true }], placeholder: '应用ID不可重复', span: 12 },
+      { name: 'app_id', label: '应用ID（如 miniprogram-kxm）', type: 'text', rules: [{ required: true }], placeholder: '应用ID不可重复', span: 12 },
       { name: 'app_name', label: '名称', type: 'text', rules: [{ required: true }], span: 12 },
       { name: 'wechat_appid', label: '微信 AppID', type: 'text', placeholder: 'wx 开头', span: 12 },
       { name: 'app_status', label: '状态', type: 'select', options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], span: 12 },
@@ -1481,7 +1505,8 @@ export const MODULES = {
       { title: '序列名称', dataIndex: 'seq_name', key: 'seq_name', width: 160 },
       { title: '当前值', dataIndex: 'current_value', key: 'current_value', width: 100 },
       { title: '初始值', dataIndex: 'init_value', key: 'init_value', width: 100 },
-      { title: '步长', dataIndex: 'step', key: 'step', width: 80 },
+      { title: '步长', dataIndex: 'step', key: 'step', width: 70 },
+      { title: '号段', dataIndex: 'batch', key: 'batch', width: 70, render: (v) => <Tag color="green">{v}</Tag> },
       { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
     ],
     detailFields: [
@@ -1490,6 +1515,7 @@ export const MODULES = {
       { name: 'current_value', label: '当前值（下次发放值）' },
       { name: 'init_value', label: '初始值' },
       { name: 'step', label: '步长' },
+      { name: 'batch', label: '号段大小（每次领取的 ID 数量）' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
     formFields: [
@@ -1498,6 +1524,7 @@ export const MODULES = {
       { name: 'current_value', label: '当前值（下次发放值）', type: 'number', span: 12, placeholder: '当前值' },
       { name: 'init_value', label: '初始值', type: 'number', span: 12, placeholder: '初始值' },
       { name: 'step', label: '步长', type: 'number', span: 12, placeholder: '步长' },
+      { name: 'batch', label: '号段大小', type: 'number', span: 12, placeholder: '号段大小（每次领取的 ID 数量）' },
     ],
   },
 };

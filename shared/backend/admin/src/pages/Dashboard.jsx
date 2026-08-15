@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import { Dropdown, message } from 'antd';
-import { menuApi, auditApi } from '../services/api';
+import { menuApi, auditApi, authApi } from '../services/api';
 import {
   DashboardOutlined, LineChartOutlined, UserOutlined, HeartOutlined,
   EditOutlined, RiseOutlined, HistoryOutlined, ClockCircleOutlined,
@@ -77,13 +77,50 @@ export default function Dashboard() {
   const [routes, setRoutes] = useState([]);
   const [leafPaths, setLeafPaths] = useState([]);
   const [openKeys, setOpenKeys] = useState([]);
+  // 可管理的小程序（多小程序切换器）：仅多应用时显示
+  const [apps, setApps] = useState([]);
+  const [currentApp, setCurrentApp] = useState(localStorage.getItem('admin_app') || '');
 
-  let staff = {};
-  try {
-    staff = JSON.parse(localStorage.getItem('admin_user') || '{}');
-  } catch (_) {
-    staff = {};
-  }
+  const [staff, setStaff] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('admin_user') || '{}');
+    } catch (_) {
+      return {};
+    }
+  });
+
+  // 进入时校验/刷新当前用户信息（角色被后台修改后前端即时生效；401 由拦截器跳登录）
+  useEffect(() => {
+    authApi.me()
+      .then(res => {
+        const s = res.data.staff || {};
+        if (s.staff_id) {
+          const local = {
+            staff_id: s.staff_id,
+            username: s.username,
+            nickname: s.nickname,
+            role: s.role,
+          };
+          localStorage.setItem('admin_user', JSON.stringify(local));
+          setStaff(local);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // 加载可管理的小程序：非单应用时顶栏展示切换器
+  useEffect(() => {
+    authApi.myApps()
+      .then(res => {
+        const list = res.data.apps || [];
+        setApps(list);
+        const cur = res.data.current || '';
+        if (!list.some(a => a.app_id === localStorage.getItem('admin_app'))) {
+          setCurrentApp(cur);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     menuApi.list()
@@ -159,6 +196,13 @@ export default function Dashboard() {
     }).catch(() => {});
   };
 
+  // 切换小程序：写入 admin_app 后整页刷新（后续请求自动携带 app 参数）
+  const onSwitchApp = (appId) => {
+    if (appId === currentApp) return;
+    localStorage.setItem('admin_app', appId);
+    window.location.href = '/admin/';
+  };
+
   return (
     <ProLayout
       title="课小满后台管理系统"
@@ -188,6 +232,26 @@ export default function Dashboard() {
           </Dropdown>
         ),
       }}
+      actionsRender={() => (
+        apps.length > 1 ? [
+          <Dropdown
+            key="app-switcher"
+            menu={{
+              selectable: true,
+              selectedKeys: [currentApp || apps[0]?.app_id],
+              items: apps.map(a => ({
+                key: a.app_id,
+                label: a.app_name || a.app_id,
+                onClick: () => onSwitchApp(a.app_id),
+              })),
+            }}
+          >
+            <span style={{ cursor: 'pointer', marginRight: 12, color: 'rgba(0,0,0,0.65)' }}>
+              <AppstoreOutlined /> {currentApp ? (apps.find(a => a.app_id === currentApp)?.app_name || currentApp) : (apps[0]?.app_name || '')}
+            </span>
+          </Dropdown>,
+        ] : []
+      )}
       contentStyle={{ minHeight: '100vh' }}
     >
       <div style={{ padding: 16 }}>

@@ -103,7 +103,7 @@ app.use(async (req, res, next) => {
   const wechatAppid = (app && app.wechat_appid) || "";
   const openid = normalizeOpenid(rawOpenid, wechatAppid);
   req.openid = openid;
-  req.app = app || { app_id: "learning-planet", app_name: "课小满", wechat_appid: "" };
+  req.app = app || { app_id: "miniprogram-kxm", app_name: "课小满", wechat_appid: "" };
   req.appId = req.app.app_id;
   next();
 });
