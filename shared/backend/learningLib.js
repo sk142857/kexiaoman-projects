@@ -24,7 +24,7 @@ async function cachedStaffRows(ids) {
   if (miss.length > 0) {
     try {
       const { data, error } = await db.from("staff")
-        .select("staff_id, staff_username, staff_nickname")
+        .select("staff_id, staff_username, staff_nickname, staff_avatar")
         .in("staff_id", miss).limit(miss.length);
       if (!error && Array.isArray(data)) data.forEach(s => {
         const k = String(s.staff_id);
@@ -100,6 +100,17 @@ function normalizeCheckinType(v) {
   return CHECKIN_TYPE_ALLOWED.includes(s) ? s : "image";
 }
 
+// ==================== 来源端 ====================
+// 发布任务/打卡来自哪个端：web（Web 后台）/ miniprogram（小程序）
+const TASK_SOURCE_ALLOWED = ["web", "miniprogram"];
+const TASK_SOURCE_DEFAULT = "web";
+/** 规范化来源端：空/非法回退 web */
+function normalizeTaskSource(v, fallback = TASK_SOURCE_DEFAULT) {
+  const s = String(v || "").trim();
+  if (TASK_SOURCE_ALLOWED.includes(s)) return s;
+  return TASK_SOURCE_ALLOWED.includes(String(fallback || "").trim()) ? String(fallback).trim() : TASK_SOURCE_DEFAULT;
+}
+
 // ==================== 图片字段解析 ====================
 /** 图片字段解析：兼容 JSON 数组字符串 / 逗号分隔 / 数组，返回相对路径数组 */
 function parseImgList(value) {
@@ -155,6 +166,7 @@ async function attachStaffInfo(rows) {
       _creatorStaffId: r.created_by,
       _creatorUsername: s.staff_username || "",
       _creatorNickname: s.staff_nickname || "",
+      _creatorAvatar: s.staff_avatar || "",
     };
   });
 }
@@ -350,6 +362,9 @@ module.exports = {
   CHECKIN_TYPE_MAP,
   CHECKIN_TYPE_ALLOWED,
   normalizeCheckinType,
+  TASK_SOURCE_ALLOWED,
+  TASK_SOURCE_DEFAULT,
+  normalizeTaskSource,
   parseImgList,
   attachAssignees,
   attachStaffInfo,

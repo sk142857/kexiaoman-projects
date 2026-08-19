@@ -1,5 +1,5 @@
 .sub-main {
-  padding: 24rpx 32rpx calc(var(--safe-bottom) + 32rpx);
+  padding: 24rpx 32rpx calc(env(safe-area-inset-bottom) + 48rpx);
 }
 
 .sub-card {

@@ -1,7 +1,7 @@
 // pages/task-edit/task-edit.js
 // 新增/编辑任务（步骤式表单）：标题 → 时间 → 设置 → 描述 → 确认预览
 const { lp, family, getRole, getViewStudent } = require('../../utils/api');
-const { fileToBase64, fileUrl, relPath } = require('../../utils/image');
+const { uploadImageFile, fileUrl, relPath } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
 const SUBJECTS = ['语文', '数学', '英语', '阅读', '作业', '运动'];
@@ -282,10 +282,8 @@ Page({
   },
 
   async _uploadOne(file) {
-    const b64 = await fileToBase64(file.url);
-    const up = await lp.upload('tasks', [{ data: b64, contentType: 'image/jpeg', fileName: file.name || 'img.jpg' }]);
-    const f = (up.files || [])[0];
-    return (f && f.path) || '';
+    const rel = await uploadImageFile(file.url, 'tasks');
+    return rel || '';
   },
 
   /** t-upload 删除图片回调 */

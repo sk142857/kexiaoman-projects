@@ -15,7 +15,7 @@
 
 /* ==================== 内容滚动区 ==================== */
 .content {
-  padding: 24rpx 32rpx 240rpx;
+  padding: 24rpx 32rpx 48rpx;
   box-sizing: border-box;
 }
 .form-card {

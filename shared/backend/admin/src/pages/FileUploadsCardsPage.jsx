@@ -44,39 +44,47 @@ const contentTypeTag = (ct) => {
   return <Tag style={{ margin: 0 }}>{s || '-'}</Tag>;
 };
 
-/** 媒体主区：图片整幅展示（可点击预览原图）、视频整幅播放（含首帧预览）、音频居中播放、其余占位 */
+// 媒体区正方形：紧贴卡片内侧（上/左/右 0 间距），宽高随卡片自适应（同行卡片等宽，正方形统一）
+/** 媒体主区：图片/视频固定正方形（紧贴卡片上/左/右边缘），音频居中播放、其余占位
+ * 用 padding-top:100% 方形盒子 + 内部绝对定位，避免 aspect-ratio 被高固有内容撑大 */
 const MediaArea = ({ record }) => {
   const ct = String((record && record.content_type) || '');
   const url = record && record.file_url ? toImageUrl(record.file_url) : '';
   if (isVideoRecord(record) && url) {
     return (
-      <div style={{ height: 220, background: '#000', display: 'flex', alignItems: 'center' }}>
-        <video controls preload="metadata" src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+      <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: '#000', overflow: 'hidden' }}>
+        <video controls preload="metadata" src={url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       </div>
     );
   }
   if (/^audio\//i.test(ct) && url) {
     return (
-      <div style={{ height: 150, background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <AudioPlayer value={record.file_url} />
+      <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <AudioPlayer value={record.file_url} />
+        </div>
       </div>
     );
   }
   if (/^image\//i.test(ct) && url) {
     return (
-      <Image
-        width="100%"
-        height={220}
-        src={toThumbUrl(record.file_url, 900)}
-        fallback={IMG_FALLBACK}
-        preview={{ src: url }}
-        style={{ objectFit: 'cover', display: 'block' }}
-      />
+      <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: '#fafafa', overflow: 'hidden' }}>
+        {/* antd Image：wrapperStyle 作用于外层 .ant-image，style 作用于内层 <img>，均走内联样式避免被 hash 覆盖 */}
+        <Image
+          wrapperStyle={{ position: 'absolute', inset: 0 }}
+          src={toThumbUrl(record.file_url, 900)}
+          fallback={IMG_FALLBACK}
+          preview={{ src: url }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      </div>
     );
   }
   return (
-    <div style={{ height: 150, background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 12 }}>
-      {ct || '未知文件类型'}
+    <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: '#fafafa' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 12 }}>
+        {ct || '未知文件类型'}
+      </div>
     </div>
   );
 };
@@ -110,8 +118,8 @@ const FileCard = ({ record, onDetail, onDelete }) => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px' }}>
-        <Button size="small" icon={<EyeOutlined />} onClick={() => onDetail(record)}>详情</Button>
-        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(record)}>删除</Button>
+        <Button size="middle" block icon={<EyeOutlined />} onClick={() => onDetail(record)}>详情</Button>
+        <Button size="middle" block danger icon={<DeleteOutlined />} onClick={() => onDelete(record)}>删除</Button>
       </div>
     </Card>
   );
@@ -121,7 +129,7 @@ export default function FileUploadsCardsPage() {
   const keywordRef = useRef('');
   const filterRef = useRef({});
   const pageRef = useRef(1);
-  const pageSizeRef = useRef(16);
+  const pageSizeRef = useRef(18);
   // 默认最近 3 天（与表格模块 defaultDays: 3 一致），可切换时间范围
   const timeRangeRef = useRef([
     dayjs().subtract(2, 'day').startOf('day'),
@@ -258,7 +266,7 @@ export default function FileUploadsCardsPage() {
         <Button icon={<ReloadOutlined />} onClick={() => reload(1)} />
       </div>
 
-      {/* ==================== 卡片网格（2 列等宽，媒体大幅展示） ==================== */}
+      {/* ==================== 卡片网格（6 列等宽，媒体大幅展示） ==================== */}
       {loading ? (
         <PageSkeleton type="cards" twoCol noCover toolbar />
       ) : list.length === 0 ? (
@@ -266,7 +274,7 @@ export default function FileUploadsCardsPage() {
       ) : (
         <Row gutter={[16, 16]}>
           {list.map(record => (
-            <Col span={12} key={record.file_id}>
+            <Col span={4} key={record.file_id}>
               <FileCard
                 record={record}
                 onDetail={() => setDrawerRecord(record)}
@@ -284,7 +292,7 @@ export default function FileUploadsCardsPage() {
           pageSize={pageSizeRef.current}
           total={total}
           showSizeChanger
-          pageSizeOptions={[8, 16, 32, 64]}
+          pageSizeOptions={[8, 16, 18, 32, 64]}
           showTotal={(t) => `共 ${t} 条`}
           onChange={onPageChange}
           onShowSizeChange={onPageSizeChange}

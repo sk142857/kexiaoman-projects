@@ -84,6 +84,10 @@
   color: #08979c;
   background: #e6fffb;
 }
+.meta-tag.web {
+  color: #722ed1;
+  background: #f9f0ff;
+}
 .deadline {
   font-size: 24rpx;
   color: #8a919f;

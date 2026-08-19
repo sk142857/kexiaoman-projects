@@ -36,6 +36,15 @@ const CHECKIN_TYPE_OPTIONS = [
   { value: 'voice', label: '语音打卡（学生录制一段语音）' },
   { value: 'video', label: '视频打卡（学生上传 ≤1GB 视频，提交后自动压缩）' },
 ];
+// 发布/打卡来源（Web 后台 / 小程序）
+const TASK_SOURCE_MAP = {
+  web: { label: 'Web后台', color: 'purple' },
+  miniprogram: { label: '小程序', color: 'blue' },
+};
+const TASK_SOURCE_OPTIONS = [
+  { value: 'web', label: 'Web后台' },
+  { value: 'miniprogram', label: '小程序' },
+];
 // 任务状态 → 进度百分比兜底（正常由任务独立字段 progress 驱动，见 taskProgressOf）
 const TASK_STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
 /** 任务进度取值：优先独立字段 progress，缺失按状态兜底（待完成默认 1%） */
@@ -1359,6 +1368,7 @@ export const MODULES = {
       ] },
       { name: 'subject', label: '科目', optionsSource: 'dict_items', optionsParams: { dict_code: 'subject' }, optionsMap: { value: 'item_value', label: 'item_label' } },
       { name: 'collection_id', label: '合集', type: 'collection' },
+      { name: 'source', label: '发布来源', options: TASK_SOURCE_OPTIONS },
     ],
     columns: [
       { title: '任务ID', dataIndex: 'task_id', key: 'task_id', width: 60, render: (v) => <PlainText value={v} maxWidth={55} /> },
@@ -1374,6 +1384,7 @@ export const MODULES = {
       { title: '描述', dataIndex: 'description', key: 'description', width: 220, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '任务状态', dataIndex: 'task_status', key: 'task_status', listSlot: 'content', width: 170, render: (_, r) => renderTaskStatus(_, r, true) },
       { title: '打卡方式', dataIndex: 'checkin_type', key: 'checkin_type', width: 90, render: (v) => <StatusTag value={v} map={CHECKIN_TYPE_MAP} /> },
+      { title: '发布来源', dataIndex: 'source', key: 'source', width: 100, render: (v) => <StatusTag value={v} map={TASK_SOURCE_MAP} /> },
       { title: '派发人员', dataIndex: 'assignee_names', key: 'assignee_names', width: 120, render: (v, r) => <AssigneeTags names={r.assignee_names} /> },
       { title: '图片', dataIndex: 'images', key: 'images', width: 110, align: 'center', render: (v) => <TableImages value={v} maxShow={1} /> },
       { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
@@ -1383,6 +1394,7 @@ export const MODULES = {
       { name: 'title', label: '任务标题', span: 2 },
       { name: 'task_status', label: '任务状态', type: 'tag', map: TASK_STATUS_MAP },
       { name: 'checkin_type', label: '打卡方式', type: 'tag', map: CHECKIN_TYPE_MAP },
+      { name: 'source', label: '发布来源', type: 'tag', map: TASK_SOURCE_MAP },
       { name: 'score', label: '任务评分', type: 'scoreRate' },
       { name: 'assignee_names', label: '任务派发', type: 'assignees' },
       { name: 'subject', label: '科目', type: 'dictTag', dict: 'subject' },
@@ -1440,6 +1452,7 @@ export const MODULES = {
     drawerWidth: 820,
     filters: [
       { name: 'checkin_date', label: '打卡日期', type: 'date' },
+      { name: 'source', label: '打卡来源', options: TASK_SOURCE_OPTIONS },
     ],
     columns: [
       { title: 'ID', dataIndex: 'checkin_id', key: 'checkin_id', width: 80 },
@@ -1447,6 +1460,7 @@ export const MODULES = {
       { title: '任务标题', dataIndex: 'task_title', key: 'task_title', width: 160, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '任务状态', dataIndex: 'task_status', key: 'task_status', listSlot: 'content', width: 170, render: renderTaskStatus },
       { title: '打卡方式', dataIndex: 'checkin_type', key: 'checkin_type', width: 90, render: (v) => <StatusTag value={v} map={CHECKIN_TYPE_MAP} /> },
+      { title: '打卡来源', dataIndex: 'source', key: 'source', width: 100, render: (v) => <StatusTag value={v} map={TASK_SOURCE_MAP} /> },
       { title: '语音', dataIndex: 'voice_url', key: 'voice_url', width: 90, render: (v) => (v ? <AudioPlayer value={v} /> : <EmptyText />) },
       { title: '图片', dataIndex: 'checkin_images', key: 'checkin_images', width: 110, align: 'center', render: (v) => <TableImages value={v} maxShow={1} /> },
       { title: '备注', dataIndex: 'checkin_note', key: 'checkin_note', width: 170, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
@@ -1460,6 +1474,7 @@ export const MODULES = {
       { name: 'task_status', label: '任务状态', type: 'tag', map: TASK_STATUS_MAP },
       { name: 'checkin_date', label: '打卡日期', type: 'dateOnly' },
       { name: 'checkin_type', label: '打卡方式', type: 'tag', map: CHECKIN_TYPE_MAP },
+      { name: 'source', label: '打卡来源', type: 'tag', map: TASK_SOURCE_MAP },
       { name: 'voice_url', label: '语音打卡', type: 'audio', durationField: 'voice_duration', span: 2 },
       { name: 'video_url', label: '视频打卡', type: 'video', durationField: 'video_duration', sizeField: 'video_size', coverField: 'video_cover', span: 2 },
       { name: 'checkin_note', label: '备注', type: 'longText', span: 2 },

@@ -10,14 +10,14 @@ const jwt = require("jsonwebtoken");
 const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql, formatDate } = require("../utils");
-const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, VIDEO_MAX_SIZE } = require("../storage");
+const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, storageFileExists, VIDEO_MAX_SIZE } = require("../storage");
 const { crudRouter } = require("./adminApi");
 const { nextSeq } = require("../seq");
 const { logStaffEvent } = require("../staffAudit");
 const { logTaskEvent } = require("../taskTimeline");
 const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = require("../apps");
 const { createInvite, inviteById, genUniqueInviteCode } = require("./lpAuth");
-const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType } = require("../learningLib");
+const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
 const { sendReviewNotification } = require("../subscribeLib");
 
@@ -2214,7 +2214,7 @@ router.use("/api/tasks", adminAuth, crudRouter({
   table: "tasks", pk: "task_id",
   writable: ["title", "subject", "description", "images", "task_status", "checkin_type", "score", "start_date", "deadline", "tags", "collection_id", "task_link"],
   search: ["title", "subject"],
-  filters: ["task_status", "subject", "collection_id"],
+  filters: ["task_status", "subject", "collection_id", "source"],
   // 按用户过滤（staff_id，非表字段故不走白名单 filters）：创建人 = 该员工 或 任务派发给该员工
   // 注意：RDB 查询链是 thenable，async 函数不能直接 return 构建器（会被吞掉提前执行），须返回 { q } 包装
   extraFilter: async (req, q) => {
@@ -2234,7 +2234,7 @@ router.use("/api/tasks", adminAuth, crudRouter({
   },
   scopeFn: taskScope,
   readScopeFn: () => null,
-  defaults: (req) => ({ created_by: (req.staff && req.staff.staff_id) || "", progress: 1 }),
+  defaults: (req) => ({ created_by: (req.staff && req.staff.staff_id) || "", progress: 1, source: "web" }),
   enrich: async (rows) => {
     const list = rows || [];
     if (list.length === 0) return list;
@@ -2422,13 +2422,30 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
       if (!vUrl || !vUrl.startsWith("kxm/voice/")) return res.json(fail("请先录制语音再打卡"));
       if (vDur < 1 || vDur > 60) return res.json(fail("语音时长不合法"));
       if (Array.isArray(images) && images.length > 0) return res.json(fail("语音打卡不支持图片"));
+      // 完整性校验：语音文件必须已登记上传（active）且真实存在于云存储
+      const { data: vRows } = await db.from("file_uploads").select("file_id").eq("file_path", vUrl).eq("file_status", "active").limit(1);
+      const vRec = vRows && vRows[0];
+      if (!vRec) return res.json(fail("请先录制语音再打卡"));
+      if ((await storageFileExists(vUrl)) === false) return res.json(fail("语音文件不存在，请重新录制"));
     } else if (checkinType === "video") {
       // 视频打卡：必须携带已上传的视频文件（限 1GB），禁止图片
       if (!vUrl2 || !vUrl2.startsWith("kxm/videos/")) return res.json(fail("请先上传视频再打卡"));
       if (vDur2 < 1 || vDur2 > 3600) return res.json(fail("视频时长不合法"));
       if (Array.isArray(images) && images.length > 0) return res.json(fail("视频打卡不支持图片"));
+      // 完整性校验：视频必须已登记上传（active）且真实存在于云存储
+      const { data: vRows } = await db.from("file_uploads").select("file_id").eq("file_path", vUrl2).eq("file_status", "active").limit(1);
+      const vRec = vRows && vRows[0];
+      if (!vRec) return res.json(fail("请先上传视频再打卡"));
+      if ((await storageFileExists(vUrl2)) === false) return res.json(fail("视频文件不存在，请重新上传"));
     } else {
       imgList = (images || []).slice(0, 9);
+      // 完整性校验：每张图片必须已登记上传（active）
+      if (imgList.length > 0) {
+        const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
+        const registered = new Set((imgRows || []).map(r => r.file_path));
+        const missing = imgList.filter(p => !registered.has(p));
+        if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
+      }
     }
 
     const checkinDate = date || formatDate(new Date());
@@ -2449,6 +2466,7 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
       // 图片存 JSON 数组字符串（如 ["a.jpg"]，无图为 []）
       checkin_images: JSON.stringify(imgList),
       checkin_type: checkinType,
+      source: "web",
       voice_url: checkinType === "voice" ? vUrl : "",
       voice_duration: checkinType === "voice" ? vDur : 0,
       video_url: checkinType === "video" ? vUrl2 : "",
@@ -2642,7 +2660,7 @@ router.use("/api/task_checkins", adminAuth, crudRouter({
   table: "task_checkins", pk: "checkin_id",
   writable: [],
   search: ["checkin_note"],
-  filters: ["checkin_date"],
+  filters: ["checkin_date", "source"],
   scopeFn: taskScope,
   readScopeFn: () => null,
   readonly: true,
@@ -2667,8 +2685,8 @@ router.use("/api/task_checkins", adminAuth, crudRouter({
 }));
 
 // ==================== 学习管理：待办任务（学生卡片视图数据源） ====================
-// 学生：展示「派发给我 / 我创建」且待完成（todo/doing）、且我还没有待审核/已通过打卡的任务；
-// 管理员：展示全部待完成任务（便于总览推进进度）。
+// 学生：展示「派发给我 / 我创建」且未完成（todo/doing）的任务；
+// 管理员：展示全部未完成任务（便于总览推进进度）。
 // 权限：todo_tasks 菜单已对学生/管理员授权；列表仅返回任务基础字段 + 卡片展示所需关联信息。
 /** 学生可见任务 ID 集合：派发给我 + 我创建（与小程序端 myTaskIds 逻辑一致） */
 async function todoTaskIds(staffId) {
@@ -2699,17 +2717,8 @@ router.get("/api/todo_tasks/list", adminAuth, async (req, res) => {
       const { data: rows, error } = await db.from("tasks")
         .select().in("task_id", ids).order("updated_at", { ascending: false }).limit(200);
       if (error) throw error;
-      let mine = rows || [];
-      // 已提交过（待审核或已通过）的任务视为已处理，不再出现在待办
-      const taskIds = mine.map(t => t.task_id);
-      if (taskIds.length > 0) {
-        const { data: handledRows } = await db.from("task_checkins")
-          .select("task_id").eq("created_by", staffId).in("task_id", taskIds)
-          .in("review_status", ["pending", "approved"]).limit(5000);
-        const handled = new Set((handledRows || []).map(c => String(c.task_id)));
-        mine = mine.filter(t => t.task_status !== "done" && !handled.has(String(t.task_id)));
-      }
-      all = mine;
+      // 待办 = 未完成的任务（待完成 todo / 进行中 doing），已完成的不展示
+      all = (rows || []).filter(t => t.task_status === "todo" || t.task_status === "doing");
     }
 
     // 附加合集名称 / 创建人 / 派发学生（与任务管理卡片页一致）
@@ -2735,6 +2744,7 @@ router.get("/api/todo_tasks/list", adminAuth, async (req, res) => {
         task_status: t.task_status,
         progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
         checkin_type: normalizeCheckinType(t.checkin_type),
+        source: normalizeTaskSource(t.source),
         score: t.score,
         deadline: t.deadline,
         start_date: t.start_date,
@@ -2795,6 +2805,7 @@ async function attachReviewInfo(rows) {
         checkin_note: c.checkin_note,
         images: parseImgList(c.checkin_images),
         checkin_type: normalizeCheckinType(c.checkin_type),
+        source: normalizeTaskSource(c.source, "miniprogram"),
         voice_url: c.voice_url || "",
         voice_duration: Number(c.voice_duration) || 0,
         video_url: c.video_url || "",
@@ -3509,6 +3520,8 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
         checkin_date: c.checkin_date,
         note: c.checkin_note,
         has_images: hasImages(c.checkin_images),
+        checkin_type: normalizeCheckinType(c.checkin_type),
+        source: normalizeTaskSource(c.source, "miniprogram"),
         created_by: c.created_by,
         created_at: c.created_at,
       })))).map(c => ({
@@ -3522,6 +3535,8 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       title: t.title,
       subject: t.subject,
       task_status: t.task_status,
+      checkin_type: normalizeCheckinType(t.checkin_type),
+      source: normalizeTaskSource(t.source),
       checkin_count: t.checkin_count || 0,
       deadline: t.deadline,
     }));

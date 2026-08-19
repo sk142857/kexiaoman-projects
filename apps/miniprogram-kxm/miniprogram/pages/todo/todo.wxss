@@ -66,6 +66,18 @@
   color: #d46b08;
   background: #fff7e6;
 }
+.todo-tag.web {
+  color: #722ed1;
+  background: #f9f0ff;
+}
+.todo-tag.todo {
+  color: #f6685d;
+  background: #fdeeed;
+}
+.todo-tag.doing {
+  color: #e37318;
+  background: #fdf1e4;
+}
 .todo-deadline {
   font-size: 24rpx;
   color: #8a919f;
@@ -132,6 +144,11 @@
   background: #fdf1e4;
   border-radius: 999rpx;
   padding: 6rpx 16rpx;
+}
+.review-badge.source {
+  color: #722ed1;
+  background: #f9f0ff;
+  margin-right: 8rpx;
 }
 .review-task {
   margin-top: 18rpx;

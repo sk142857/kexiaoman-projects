@@ -18,19 +18,22 @@
 
       <empty wx:if="{{!loading && list.length === 0}}" icon="{{isManager ? '📋' : '🎉'}}" title="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" desc="{{isManager ? '孩子的打卡会展示在这里' : '所有任务都完成啦'}}" />
 
-      <!-- 学生待办：未打卡任务 -->
+      <!-- 学生待办：未完成任务（待完成 + 进行中） -->
       <block wx:if="{{!isManager}}">
         <view wx:for="{{list}}" wx:key="task_id" class="todo-item" bindtap="goTask" data-id="{{item.task_id}}">
           <view class="todo-bar"></view>
           <view class="todo-body">
             <view class="todo-title">{{item.title}}</view>
             <view class="todo-meta">
+              <text wx:if="{{item.task_status === 'doing'}}" class="todo-tag doing">进行中</text>
+              <text wx:elif="{{item.task_status === 'todo'}}" class="todo-tag todo">待完成</text>
               <text wx:if="{{item.subject}}" class="todo-tag">{{item.subject}}</text>
+              <text wx:if="{{item.sourceText === 'Web后台'}}" class="todo-tag web">Web后台发布</text>
               <text wx:if="{{item.checkin_type === 'voice'}}" class="todo-tag voice">语音打卡</text>
               <text wx:if="{{item.deadline}}" class="todo-deadline">截止 {{item.deadline}}</text>
             </view>
             <view class="todo-foot">
-              <text class="todo-go">去完成 ›</text>
+              <text class="todo-go">去处理 ›</text>
             </view>
           </view>
         </view>
@@ -45,6 +48,7 @@
               <text class="review-name">{{item.student.nickname}}</text>
               <text class="review-time">{{item.submitTime || item.checkin_date}} 提交</text>
             </view>
+            <text wx:if="{{item.sourceText === 'Web后台'}}" class="review-badge source">Web后台</text>
             <text class="review-badge">待审核</text>
           </view>
           <view class="review-task" bindtap="goTask" data-id="{{item.task_id}}">

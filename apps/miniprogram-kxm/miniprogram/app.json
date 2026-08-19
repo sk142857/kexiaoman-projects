@@ -6,7 +6,8 @@
     "pages/tasks/tasks",
     "pages/mine/mine",
     "pages/identity/identity",
-    "pages/identity-switch/identity-switch"
+    "pages/identity-switch/identity-switch",
+    "pages/service-error/service-error"
   ],
   "subpackages": [
     {

@@ -33,8 +33,9 @@ const BIZ_WHITELIST = ["avatar", "events", "tasks", "voice", "videos"];
 // 视频大小上限：1GB
 const VIDEO_MAX_SIZE = 1024 * 1024 * 1024;
 // 视频压缩参数：最长边不超过该值（720p 档），CRF 越低越清晰体积越大
+// CRF 23 接近视觉无损，避免 CRF28 压缩过狠导致体积骤降画质受损
 const VIDEO_MAX_EDGE = 1280;
-const VIDEO_CRF = 28;
+const VIDEO_CRF = 23;
 // 视频封面抽帧参数：最长边不超过该值（缩略图足够），q:v 越低越清晰
 const VIDEO_COVER_MAX_EDGE = 640;
 const VIDEO_COVER_QUALITY = 3;
@@ -208,7 +209,7 @@ async function probeVideoDuration(filePath) {
 
 /**
  * ffmpeg 转码压缩视频：
- * - 最长边压到 720p 档（1280），不放大；H.264 CRF28 + AAC 96k
+ * - 最长边压到 720p 档（1280），不放大；H.264 CRF23 + AAC 96k
  * - 恒定的偶数宽高（libx264 要求）、faststart 便于在线播放
  * - 单线程跑（容器 0.25 核，多线程无收益）
  */
@@ -318,7 +319,7 @@ async function compressVideo({ path: relPath, duration } = {}) {
       const uploaded = await uploadRawVideo(buffer);
       const newUrl = publicUrl(uploaded.path);
       const ratio = stat.size > 0 ? Number(((1 - outStat.size / stat.size) * 100).toFixed(1)) : 0;
-      // 更新 file_uploads 登记：路径指向压缩版，保留原文件大小做压缩比展示
+      // 更新 file_uploads 登记：路径指向压缩版，原大小/压缩比保留做统计展示
       const { db } = require("./db");
       await db.from("file_uploads")
         .update({
@@ -326,6 +327,7 @@ async function compressVideo({ path: relPath, duration } = {}) {
           file_url: newUrl,
           file_cos_id: uploaded.cosId,
           file_size: outStat.size,
+          file_size_orig: stat.size,
           file_size_compressed: outStat.size,
           file_size_ratio: ratio,
           content_type: "video/mp4",
@@ -344,6 +346,82 @@ async function compressVideo({ path: relPath, duration } = {}) {
     console.error("[storage] 视频压缩失败，保留原文件", src, e.message);
     return { path: src, url, size: 0, duration: Math.max(0, Math.floor(Number(duration) || 0)), cover: coverPath };
   }
+}
+
+/**
+ * 图片后台压缩（异步，fire-and-forget，失败降级保留原文件）：
+ * 下载原图 → sharp 压缩（最长边 1080 / q80，去 EXIF）→ 上传压缩版 → 更新 file_uploads 登记
+ * （file_path 指向压缩版 + 压缩比统计）→ 压缩确有收益（体积下降 ≥10%）才物理删除原文件。
+ * 对齐 compressVideo：小程序端直传原图（绕过 callContainer 100KB 限制），压缩统一在后端完成。
+ * @param {object} opts { path: 云存储相对路径 kxm/tasks/... 或 kxm/avatar/... }
+ * @returns {Promise<{ path, url, size, origSize, compressedSize, contentType }>}
+ */
+async function compressImageAsync({ path } = {}) {
+  const src = String(path || "").replace(/^\/+/, "");
+  if (!src.startsWith(`${STORAGE_ROOT}/tasks/`) && !src.startsWith(`${STORAGE_ROOT}/avatar/`)) {
+    throw new Error("非法图片路径");
+  }
+  const biz = src.startsWith(`${STORAGE_ROOT}/avatar/`) ? "avatar" : "tasks";
+  const url = publicUrl(src);
+  const { db } = require("./db");
+  let origSize = 0;
+  let processed = false;
+  try {
+    const { data } = await db.from("file_uploads").select("file_size, file_size_orig").eq("file_path", src).limit(1);
+    const rec = data && data[0];
+    origSize = Number((rec && rec.file_size) || 0);
+    // 已由后端处理过（压缩过或评估过无收益）→ 直接返回原路径，避免编辑任务时重复压缩
+    processed = Number((rec && rec.file_size_orig) || 0) > 0;
+  } catch (_) {}
+  if (processed) return { path: src, url, size: origSize };
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`下载图片失败 HTTP ${resp.status}`);
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  if (buffer.length === 0) return { path: src, size: origSize };
+  const contentType = /\.png$/i.test(src) ? "image/png" : "image/jpeg";
+  const result = await compressImage(buffer, { maxEdge: DEFAULT_MAX_EDGE, quality: DEFAULT_QUALITY, contentType });
+  const out = result.buffer;
+  const outType = result.contentType;
+  const effOrig = origSize || buffer.length;
+  // 压缩无收益（体积未下降 ≥10%）→ 保留原文件，标记已处理，不折腾存储
+  if (out.length >= effOrig * 0.9) {
+    try {
+      await db.from("file_uploads")
+        .update({ file_size: effOrig, file_size_orig: effOrig, file_size_compressed: effOrig, file_size_ratio: 0 })
+        .eq("file_path", src);
+    } catch (_) {}
+    console.log("[storage] 图片压缩无收益，保留原文件", src, effOrig, out.length);
+    return { path: src, url, size: effOrig, origSize: effOrig, compressedSize: out.length, contentType: outType };
+  }
+  const dateDir = new Date().toISOString().slice(0, 10);
+  const fileId = genId();
+  const ext = /png/i.test(outType) ? "png" : "jpg";
+  const newPath = `${STORAGE_ROOT}/${biz}/${dateDir}/${fileId}.${ext}`;
+  const storage = app.storage.from();
+  const { data, error } = await storage.upload(newPath, out, { contentType: outType });
+  if (error) throw error;
+  const cosId = (data && (data.id || data.fileID)) || "";
+  const newUrl = publicUrl(newPath);
+  const ratio = effOrig > 0 ? Number(((1 - out.length / effOrig) * 100).toFixed(1)) : 0;
+  // 更新登记记录：路径指向压缩版，原大小/压缩比保留做统计展示
+  await db.from("file_uploads")
+    .update({
+      file_path: newPath,
+      file_url: newUrl,
+      file_cos_id: cosId,
+      file_size: out.length,
+      file_size_orig: effOrig,
+      file_size_compressed: out.length,
+      file_size_ratio: ratio,
+      content_type: outType,
+    })
+    .eq("file_path", src);
+  // 物理删除原文件（登记记录已指向压缩版，无需再删原记录）
+  try {
+    await removeFiles([src]);
+  } catch (_) {}
+  console.log(`[storage] 图片压缩完成 ${src} → ${newPath}（${(effOrig / 1024).toFixed(0)}KB → ${(out.length / 1024).toFixed(0)}KB，节省 ${ratio}%）`);
+  return { path: newPath, url: newUrl, size: out.length, origSize: effOrig, compressedSize: out.length, contentType: outType };
 }
 
 /**
@@ -483,6 +561,29 @@ async function copyImageNew({ openid, staffId, srcPath, contentType, biz, target
 }
 
 /**
+ * 校验云存储文件是否真实存在（打卡/任务媒体完整性校验用）
+ * @param {string} relPath 云存储相对路径（如 kxm/videos/...）
+ * @returns {Promise<boolean|null>} true=确认存在 / false=确认不存在 / null=判定失败（无法确认，调用方按存在放行）
+ */
+async function storageFileExists(relPath) {
+  const p = String(relPath || "").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!p) return false;
+  try {
+    const storage = app.storage.from();
+    storage.bucketId = STORAGE_BUCKET;
+    const { data, error } = await storage.exists(p);
+    if (error) {
+      console.error("[storage] storageFileExists 判定失败", p, (error && error.message) || error);
+      return null;
+    }
+    return data === true;
+  } catch (e) {
+    console.error("[storage] storageFileExists 异常", p, e.message);
+    return null;
+  }
+}
+
+/**
  * 从腾讯云存储物理删除一组文件（传统模式云存储，app.storage.from().remove）
  * - 返回成功删除与失败的路径列表，调用方可据此同步清理 file_uploads 登记记录
  * - ClassicStorageFileApi.remove 返回 { data, error } 而非抛错，且内部会先 info() 探测
@@ -535,5 +636,5 @@ async function removeFiles(paths = []) {
 module.exports = {
   STORAGE_BUCKET, STORAGE_DOMAIN, STORAGE_ROOT, BIZ_WHITELIST, VIDEO_MAX_SIZE,
   publicUrl, isBizAllowed, uploadImage, logUpload, bindBizId, markRemoved, removeFiles,
-  dupSharedImages, compressVideo,
+  dupSharedImages, compressVideo, compressImageAsync, storageFileExists,
 };

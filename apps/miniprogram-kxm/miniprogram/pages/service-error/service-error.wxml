@@ -1,0 +1,33 @@
+<!-- pages/service-error/service-error.wxml -->
+<!-- 云托管冷启动/服务暂不可用提示页：自动重连（倒计时）+ 手动重试，成功后返回原页面 -->
+<view class="lp-page se-page">
+  <view class="se-body">
+    <view class="se-icon">
+      <t-icon name="server" size="72rpx" />
+    </view>
+    <view class="se-title">服务正在唤醒中</view>
+    <view class="se-desc">云端服务空闲后重新启动需要一点时间，请稍候</view>
+
+    <!-- 倒计时自动重连中 -->
+    <view wx:if="{{status === 'counting'}}" class="se-state">
+      <view class="se-count">{{countdown}} 秒后自动重试</view>
+      <view class="se-sub" wx:if="{{attempts > 0}}">已自动重连 {{attempts}} 次</view>
+      <t-button class="se-btn" theme="primary" block bindtap="onManualRetry">立即重试</t-button>
+    </view>
+
+    <!-- 正在重试请求 -->
+    <view wx:elif="{{status === 'connecting'}}" class="se-state">
+      <view class="se-connecting"><t-loading theme="spinner" size="48rpx" /></view>
+      <view class="se-sub">正在连接服务，请稍候...</view>
+    </view>
+
+    <!-- 自动重连多次失败，等待手动 -->
+    <view wx:else class="se-state">
+      <view class="se-count se-count--fail">连接失败</view>
+      <view class="se-sub" wx:if="{{msg}}">{{msg}}</view>
+      <view class="se-sub">请检查网络后重试，服务唤醒可能需要几分钟</view>
+      <t-button class="se-btn" theme="primary" block bindtap="onManualRetry">重新连接</t-button>
+      <view class="se-link" bindtap="goHome">返回首页</view>
+    </view>
+  </view>
+</view>

@@ -1,12 +1,14 @@
 // pages/todo/todo.js
 // 待办主菜单：信息筛选 + 快速处理，不做任务管理
-// - Student：只展示当前需要处理（未打卡）的任务，点击直接去完成
+// - Student：展示所有未完成任务（待完成 todo + 进行中 doing），点击直接去处理
 // - 家长/家属/管理员：展示本家庭待审核打卡，快速「通过 / 驳回」，处理后立即从待办移除
 const { lp, getRole, setViewStudent } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 const { fileUrl } = require('../../utils/image');
 
 const MANAGER_ROLES = ['admin', 'parent', 'family'];
+// 来源：web（Web后台）/ miniprogram（小程序）
+const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
 
 Page({
   data: {
@@ -55,6 +57,7 @@ Page({
           videoCover: it.video_cover ? fileUrl(it.video_cover) : '',
           studentAvatar: String(nickname).charAt(0) || '生',
           submitTime: String(it.created_at || '').slice(0, 16),
+          sourceText: SOURCE_TEXT[it.source] || (it.source === 'web' ? 'Web后台' : '小程序'),
         };
       });
       this.setData({ type: res.type || 'student', list, count: res.count || 0 });

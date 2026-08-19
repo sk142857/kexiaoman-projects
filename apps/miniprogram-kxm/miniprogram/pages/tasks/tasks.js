@@ -15,6 +15,8 @@ const STATUS_THEME = {
   done: { text: '已完成', color: '#16a87a', bg: '#e6faf4', border: '#b3eedd' },
 };
 const STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
+// 发布来源：web（Web后台）/ miniprogram（小程序）
+const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
 
 Page({
   data: {
@@ -61,6 +63,7 @@ Page({
             statusBg: theme.bg,
             statusBorder: theme.border,
             scoreColor: t.score >= 8 ? '#16a87a' : t.score >= 5 ? '#67c23a' : '#b0b6c0',
+            sourceText: SOURCE_TEXT[t.source] || (t.source === 'web' ? 'Web后台' : '小程序'),
           };
         }),
       });

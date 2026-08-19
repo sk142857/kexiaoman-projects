@@ -4,7 +4,7 @@
 // 数据源 /admin/api/task_checkins（通用 CRUD，enrich 附带任务信息与进度）。
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
-  Button, Modal, Input, DatePicker, Tag, Badge, Card, Row, Col, Pagination, Empty, message,
+  Button, Modal, Input, DatePicker, Select, Tag, Badge, Card, Row, Col, Pagination, Empty, message,
 } from 'antd';
 import { EyeOutlined, HistoryOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import { crudApi } from '../services/api';
@@ -25,17 +25,17 @@ const CHECKIN_TYPE_MAP = {
   video: { label: '视频打卡', color: 'cyan' },
 };
 
+// 打卡来源（Web 后台 / 小程序）
+const TASK_SOURCE_MAP = {
+  web: { label: 'Web后台', color: 'purple' },
+  miniprogram: { label: '小程序', color: 'blue' },
+};
+
 // 打卡审核状态（task_checkins.review_status）
 const REVIEW_STATUS_MAP = {
   pending: { label: '待审核', color: 'warning' },
   approved: { label: '已通过', color: 'success' },
   rejected: { label: '已驳回', color: 'error' },
-};
-
-/** 打卡进度：优先任务独立 progress，缺失按状态兜底 */
-const progressOf = (r) => {
-  const p = Number(r && r.task_progress);
-  return Number.isFinite(p) && p >= 0 ? p : (r.task_status === 'done' ? 100 : r.task_status === 'doing' ? 50 : 1);
 };
 
 export default function CheckinCardsPage() {
@@ -143,7 +143,7 @@ export default function CheckinCardsPage() {
     });
   };
 
-  // ==================== 组装卡片参数（author / actions / items / progress） ====================
+  // ==================== 组装卡片参数（author / actions / items） ====================
   const buildCard = (record) => {
     const status = statusOf(record.task_status);
     const review = REVIEW_STATUS_MAP[record.review_status] || { label: record.review_status || '-', color: 'default' };
@@ -172,6 +172,11 @@ export default function CheckinCardsPage() {
         { key: 'review', label: '审核状态', children: <Tag color={review.color} style={{ margin: 0 }}>{review.label}</Tag> },
         { key: 'date', label: '打卡日期', children: record.checkin_date || '-' },
         { key: 'type', label: '打卡方式', children: checkinTypeLabel },
+        { key: 'source', label: '打卡来源', children: (() => { const c = TASK_SOURCE_MAP[record.source] || {}; return record.source ? <Tag color={c.color}>{c.label || record.source}</Tag> : '-'; })() },
+        // 按打卡模式展示对应媒体：图文打卡显图片、语音打卡显语音、视频打卡显视频，互不混显
+        ...(record.checkin_type === 'image'
+          ? [{ key: 'images', label: '打卡图片', span: 2, children: <TaskImages images={record.checkin_images} /> }]
+          : []),
         ...(record.checkin_type === 'voice' && record.voice_url
           ? [{ key: 'voice', label: '语音打卡', span: 2, children: <AudioPlayer value={record.voice_url} duration={record.voice_duration} /> }]
           : []),
@@ -184,24 +189,30 @@ export default function CheckinCardsPage() {
           span: 2,
           children: record.checkin_note ? <div style={{ minHeight: 60, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.checkin_note}</div> : '-',
         },
-        { key: 'images', label: '打卡图片', span: 2, children: <TaskImages images={record.checkin_images} /> },
         { key: 'taskId', label: '任务编号', children: record.task_id },
         { key: 'creator', label: '打卡人', children: name },
         { key: 'createdAt', label: '打卡时间', children: fmtDateTime(record.created_at) },
       ],
-      progress: progressOf(record),
     };
   };
 
   return (
     <div>
-      {/* ==================== 工具栏：筛选（打卡日期）+ 搜索（打卡备注）+ 重置/刷新 ==================== */}
+      {/* ==================== 工具栏：筛选（打卡日期/来源）+ 搜索（打卡备注）+ 重置/刷新 ==================== */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <DatePicker
           placeholder="打卡日期"
           allowClear
           value={filterValues.checkin_date ? dayjs(filterValues.checkin_date) : undefined}
           onChange={(v) => onFilterChange('checkin_date', v ? v.format('YYYY-MM-DD') : undefined)}
+        />
+        <Select
+          placeholder="打卡来源"
+          allowClear
+          style={{ width: 130 }}
+          value={filterValues.source}
+          options={[{ value: 'web', label: 'Web后台' }, { value: 'miniprogram', label: '小程序' }]}
+          onChange={(v) => onFilterChange('source', v)}
         />
         <Input.Search
           placeholder="搜索打卡备注"

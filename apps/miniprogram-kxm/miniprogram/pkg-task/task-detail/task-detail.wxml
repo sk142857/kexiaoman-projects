@@ -29,8 +29,8 @@
         <t-tag wx:if="{{checkinType === 'voice'}}" class="tag-gap" size="small" variant="light" theme="warning">语音打卡</t-tag>
         <t-tag wx:elif="{{checkinType === 'video'}}" class="tag-gap" size="small" variant="light" theme="primary">视频打卡</t-tag>
         <t-tag wx:elif="{{checkinType === 'image'}}" class="tag-gap" size="small" variant="outline" theme="default">图文打卡</t-tag>
-        <t-tag wx:if="{{task.deadline}}" class="tag-gap" size="small" variant="light" theme="warning">截止 {{task.deadline}}</t-tag>
         <t-tag wx:if="{{task.score > 0}}" class="tag-gap" size="small" variant="light" theme="{{task.score >= 5 ? 'success' : 'warning'}}">评分 {{task.score}}分</t-tag>
+        <t-tag wx:if="{{sourceText}}" class="tag-gap" size="small" variant="outline" theme="default">{{sourceText}}发布</t-tag>
       </view>
       <view class="task-progress">
         <task-progress percent="{{task.progress}}" height="16" />
@@ -42,44 +42,91 @@
       <view wx:if="{{images.length}}" class="imgs">
         <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" bindtap="preview" data-url="{{item}}" />
       </view>
-      <view wx:if="{{task.creator_name || task.created_at}}" class="created-info">
-        <text wx:if="{{task.creator_name}}" class="created-text">创建人：{{task.creator_name}}</text>
-        <text wx:if="{{task.created_at}}" class="created-text">创建于 {{task.created_at}}</text>
+      <view wx:if="{{creatorName && createdTime}}" class="created-info">
+        <image wx:if="{{creatorAvatar}}" class="creator-avatar" src="{{creatorAvatar}}" mode="aspectFill" />
+        <view wx:else class="creator-avatar creator-avatar--char">{{creatorChar}}</view>
+        <text class="created-text">{{creatorName}} 于 {{createdTime}} 创建</text>
       </view>
-      <view class="foot">打卡 {{task.checkin_count}} 次</view>
+      <view class="foot">
+        <text class="foot-checkin">打卡 {{task.checkin_count}} 次</text>
+        <text wx:if="{{task.deadline}}" class="foot-deadline">截止 {{task.deadline}}</text>
+      </view>
     </view>
 
     <!-- 打卡记录 -->
-    <view class="section-title">打卡记录</view>
-    <empty wx:if="{{checkins.length === 0}}" icon="📊" title="还没有打卡" desc="完成任务后提交打卡即可展示" />
-      <view wx:for="{{checkins}}" wx:key="checkin_id" class="checkin">
-        <view class="checkin-head">
-          <text class="checkin-date">{{item.checkin_date}}</text>
-          <view class="checkin-head-right">
-            <text class="checkin-status" style="color: {{item.reviewColor}}; background: {{item.reviewBg}};">{{item.reviewText}}</text>
-            <text wx:if="{{item.canDelete}}" class="del" bindtap="onDeleteCheckin" data-id="{{item.checkin_id}}">删除</text>
+    <view class="ck-sec">
+      <view class="section-title">
+        <view class="section-title-main">
+          <text class="section-title-icon">📝</text>
+          <text>打卡记录</text>
+        </view>
+        <text class="section-title-count">共 {{checkins.length}} 次</text>
+      </view>
+
+      <empty wx:if="{{checkins.length === 0}}" icon="📊" title="还没有打卡" desc="完成任务后提交打卡即可展示" />
+
+      <view wx:for="{{checkins}}" wx:key="checkin_id" class="ck-card">
+        <view class="ck-accent"></view>
+        <view class="ck-head">
+          <view class="ck-date">
+            <text class="ck-day">{{item.dateDay}}</text>
+            <view class="ck-date-sub">
+              <text class="ck-month">{{item.dateMonth}}</text>
+              <text class="ck-week">{{item.dateWeek}}</text>
+            </view>
+          </view>
+          <view class="ck-head-right">
+            <view class="ck-status" style="color: {{item.reviewColor}}; background: {{item.reviewBg}};">{{item.reviewText}}</view>
+            <view wx:if="{{item.scoreText}}" class="ck-score">{{item.scoreText}}</view>
           </view>
         </view>
-        <view wx:if="{{item.checkin_note}}" class="checkin-note">{{item.checkin_note}}</view>
-        <view wx:if="{{item.review_note}}" class="checkin-review">审核说明：{{item.review_note}}</view>
-        <view wx:if="{{item.checkin_type === 'video' && item.videoUrl}}" class="checkin-video">
+
+        <view wx:if="{{item.checkin_type === 'video' && item.videoUrl}}" class="ck-media">
           <video class="video" src="{{item.videoUrl}}" controls objectFit="contain" poster="{{item.videoCover}}" />
-          <view wx:if="{{item.video_duration}}" class="checkin-video-meta">时长 {{item.video_duration}} 秒</view>
+          <view wx:if="{{item.video_duration}}" class="ck-media-meta">{{item.mediaText}} · 时长 {{item.video_duration}} 秒</view>
         </view>
-        <view wx:elif="{{item.checkin_type === 'voice' && item.voiceUrl}}" class="checkin-voice">
+        <view wx:elif="{{item.checkin_type === 'voice' && item.voiceUrl}}" class="ck-media">
           <voice-player src="{{item.voiceUrl}}" duration="{{item.voice_duration}}" />
+          <view class="ck-media-meta">{{item.mediaText}}</view>
         </view>
-        <view wx:elif="{{item.images.length}}" class="imgs">
-          <image wx:for="{{item.images}}" wx:for-item="img" wx:key="index" class="img sm" src="{{img}}" mode="aspectFill" data-index="{{index}}" data-cid="{{item.checkin_id}}" bindtap="previewCheckin" />
+        <view wx:elif="{{item.images.length}}" class="ck-media">
+          <view class="ck-imgs">
+            <view wx:for="{{item.images}}" wx:for-item="img" wx:for-index="i" wx:key="index" class="ck-img-wrap">
+              <image class="ck-img" src="{{img}}" mode="aspectFill" data-index="{{i}}" data-cid="{{item.checkin_id}}" bindtap="previewCheckin" />
+              <view wx:if="{{i === 3 && item.totalImages > 4}}" class="ck-img-more">+{{item.totalImages - 4}}</view>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{item.checkin_note}}" class="ck-note">{{item.checkin_note}}</view>
+
+        <view wx:if="{{item.review_note}}" class="ck-review">
+          <view class="ck-review-dot" style="background: {{item.reviewColor}};"></view>
+          <view class="ck-review-body">
+            <text class="ck-review-label" style="color: {{item.reviewColor}};">{{item.reviewLabel}}</text>
+            <text class="ck-review-text">{{item.review_note}}</text>
+          </view>
+        </view>
+
+        <view class="ck-foot">
+          <view class="ck-submitter">
+            <image wx:if="{{item.submitter_avatar}}" class="ck-submitter-avatar" src="{{item.submitter_avatar}}" mode="aspectFill" />
+            <view wx:else class="ck-submitter-avatar ck-submitter-avatar--char">{{item.submitter_initial}}</view>
+            <text class="ck-time">{{item.submitter_name}} 于 {{item.submitTime}} 提交</text>
+          </view>
+          <view class="ck-actions">
+            <text wx:if="{{item.sourceText}}" class="ck-source">{{item.sourceText}}提交</text>
+            <text wx:if="{{item.canDelete}}" class="ck-del" bindtap="onDeleteCheckin" data-id="{{item.checkin_id}}">删除</text>
+          </view>
         </view>
       </view>
+    </view>
   </block>
   </view>
 </scroll-view>
 
   <!-- 底部操作栏：开始/完成/打卡/编辑/删除/复制 一律贴底，页面中间不放按钮 -->
   <view wx:if="{{task && (canCheckin || canManage || canCopy)}}" class="lp-actions">
-    <t-button wx:if="{{canCheckin && task.task_status === 'todo'}}" class="act-start" theme="primary" variant="base" block bindtap="onStart">开始任务</t-button>
     <t-button wx:if="{{canCheckin && task.task_status === 'doing'}}" class="act-finish" theme="default" variant="outline" block bindtap="onFinish">完成任务</t-button>
     <t-button wx:if="{{canCheckin && task.task_status !== 'done'}}" class="act-checkin" theme="primary" variant="base" block bindtap="onCheckin">打卡</t-button>
     <t-button wx:if="{{canCopy}}" class="act-copy" theme="default" variant="outline" block bindtap="onCopy">克隆任务</t-button>

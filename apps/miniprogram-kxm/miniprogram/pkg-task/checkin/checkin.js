@@ -53,6 +53,7 @@ Page({
     this._loadTitle(options.taskId);
     // 录音事件统一绑定（惰性单例录音器，避免重复注册）
     voice.onStop((res) => {
+      this._clearRecTimer();
       this.setData({
         voiceState: 'recorded',
         voiceTempPath: res.tempFilePath || '',
@@ -61,16 +62,15 @@ Page({
       });
     });
     voice.onError(() => {
+      this._clearRecTimer();
       this.setData({ voiceState: 'idle', recordingMs: 0 });
       wx.showToast({ title: '录音失败，请重试', icon: 'none' });
-    });
-    voice.onTimeUpdate((res) => {
-      if (res && res.duration) this.setData({ recordingMs: res.duration });
     });
   },
 
   onUnload() {
-    // 清理录音与本地试听
+    // 清理录音、录音计时器与本地试听
+    this._clearRecTimer();
     if (this.data.voiceState === 'recording') {
       try { voice.stop(); } catch (_) {}
     }
@@ -130,12 +130,31 @@ Page({
       .then((paths) => this.setData({ images: [...this.data.images, ...paths.map(fileUrl)] }))
       .catch(() => {});
   },
+  previewImage(e) {
+    const urls = this.data.images;
+    if (!urls.length) return;
+    const index = Number(e.currentTarget.dataset.index) || 0;
+    wx.previewImage({ current: urls[index], urls });
+  },
   removeImage(e) {
     const i = Number(e.currentTarget.dataset.index);
     this.setData({ images: this.data.images.filter((_, idx) => idx !== i) });
   },
 
   // ==================== 语音打卡 ====================
+  // RecorderManager 无 onTimeUpdate，录音时长用定时器自增
+  _startRecTimer() {
+    this._clearRecTimer();
+    this._recTimer = setInterval(() => {
+      this.setData({ recordingMs: (this.data.recordingMs || 0) + 1000 });
+    }, 1000);
+  },
+  _clearRecTimer() {
+    if (this._recTimer) {
+      clearInterval(this._recTimer);
+      this._recTimer = null;
+    }
+  },
   onMicTap() {
     if (this.data.voiceState === 'recording') {
       voice.stop();
@@ -143,6 +162,7 @@ Page({
     }
     if (this.data.voiceState === 'idle') {
       this.setData({ voiceState: 'recording', recordingMs: 0 });
+      this._startRecTimer();
       voice.start();
     }
   },

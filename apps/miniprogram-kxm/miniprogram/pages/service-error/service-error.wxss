@@ -1,0 +1,73 @@
+/* pages/service-error/service-error.wxss */
+.se-page {
+  background: linear-gradient(180deg, #eaf2ff 0%, #f5f7fa 100%);
+}
+.se-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 64rpx;
+  padding-bottom: 8vh;
+}
+.se-icon {
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 50%;
+  background: #eef4ff;
+  color: #2b6de0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.se-title {
+  margin-top: 32rpx;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.se-desc {
+  margin-top: 16rpx;
+  color: #8a919f;
+  font-size: 26rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+.se-state {
+  margin-top: 56rpx;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.se-count {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #2b6de0;
+}
+.se-count--fail {
+  color: #ff4d4f;
+}
+.se-connecting {
+  height: 48rpx;
+  color: #2b6de0;
+}
+.se-sub {
+  margin-top: 16rpx;
+  color: #8a919f;
+  font-size: 24rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+.se-btn {
+  margin-top: 48rpx;
+  width: 100%;
+  max-width: 560rpx;
+}
+.se-link {
+  margin-top: 32rpx;
+  color: #5c6470;
+  font-size: 26rpx;
+  padding: 8rpx 24rpx;
+}

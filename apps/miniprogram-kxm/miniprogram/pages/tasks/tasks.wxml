@@ -29,9 +29,10 @@
           <view class="task-title">{{item.title}}</view>
           <view class="task-status" style="background: {{item.statusBg}}; color: {{item.statusColor}}; border-color: {{item.statusBorder}};">{{item.statusText}}</view>
         </view>
-        <view wx:if="{{item.subject || item.collection_name || item.checkin_type}}" class="task-meta">
+        <view wx:if="{{item.subject || item.collection_name || item.checkin_type || item.sourceText}}" class="task-meta">
           <text wx:if="{{item.subject}}" class="meta-tag">{{item.subject}}</text>
           <text wx:if="{{item.collection_name}}" class="meta-tag outline">{{item.collection_name}}</text>
+          <text wx:if="{{item.sourceText === 'Web后台'}}" class="meta-tag web">Web后台</text>
           <text wx:if="{{item.checkin_type === 'voice'}}" class="meta-tag voice">语音打卡</text>
           <text wx:elif="{{item.checkin_type === 'video'}}" class="meta-tag video">视频打卡</text>
           <text wx:if="{{item.deadline}}" class="deadline">截止 {{item.deadline}}</text>

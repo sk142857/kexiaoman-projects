@@ -1,15 +1,35 @@
 // pages/task-detail/task-detail.js
 const { lp, getViewStudent, getRole } = require('../../utils/api');
-const { fileUrl } = require('../../utils/image');
+const { fileUrl, previewUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
 const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成' };
 const REVIEW_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
+const REVIEW_LABEL = { pending: '审核说明', approved: '老师点评', rejected: '驳回原因' };
 const REVIEW_THEME = {
   pending: { color: '#e37318', bg: '#fdf1e4' },
   approved: { color: '#16a87a', bg: '#e6faf4' },
   rejected: { color: '#f6685d', bg: '#fdeeed' },
 };
+// 发布/打卡来源：web（Web后台）/ miniprogram（小程序）
+const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+// 打卡日期拆分为 日/月/星期 三段，供卡片头部大号日期块展示
+function splitDate(dateStr) {
+  if (!dateStr) return { day: '', month: '', week: '' };
+  const s = String(dateStr).slice(0, 10);
+  const d = new Date(`${s}T00:00:00`);
+  if (Number.isNaN(d.getTime())) {
+    return { day: s.slice(8), month: s.slice(5, 7) ? `${Number(s.slice(5, 7))}月` : '', week: '' };
+  }
+  return { day: String(d.getDate()).padStart(2, '0'), month: `${d.getMonth() + 1}月`, week: WEEKDAYS[d.getDay()] };
+}
+
+// 完整时间：YYYY-MM-DD HH:MM:SS（MySQL datetime），ISO 时间补空格
+function fmtFull(ts) {
+  return String(ts || '').trim().slice(0, 19).replace('T', ' ');
+}
 
 Page({
   data: {
@@ -54,10 +74,23 @@ Page({
       const checkins = (res.checkins || []).map(c => {
         const st = c.review_status || 'approved';
         const theme = REVIEW_THEME[st] || REVIEW_THEME.approved;
+        const totalImages = (c.images || []).length;
+        const dateParts = splitDate(c.checkin_date);
         return {
           ...c,
-          images: (c.images || []).map(fileUrl),
+          images: (c.images || []).slice(0, 4).map(fileUrl),
+          totalImages,
+          dateDay: dateParts.day,
+          dateMonth: dateParts.month,
+          dateWeek: dateParts.week,
+          submitTime: fmtFull(c.created_at),
+          submitter_avatar: fileUrl(c.submitter_avatar || ''),
+          submitter_initial: String(c.submitter_name || '').slice(0, 1),
+          scoreText: Number(c.review_score) > 0 ? `${c.review_score} 分` : '',
+          mediaText: c.checkin_type === 'voice' ? '语音打卡' : (c.checkin_type === 'video' ? '视频打卡' : '图文打卡'),
+          sourceText: SOURCE_TEXT[c.source] || (c.source === 'web' ? 'Web后台' : '小程序'),
           reviewText: REVIEW_TEXT[st] || '已通过',
+          reviewLabel: REVIEW_LABEL[st] || '审核说明',
           reviewColor: theme.color,
           reviewBg: theme.bg,
           canDelete: !isDone || this.data.isManager,
@@ -71,7 +104,12 @@ Page({
         checkins,
         images: ((task && task.images) || []).map(fileUrl),
         isDone,
+        creatorName: (task && (task.creator_name || '创建者')),
+        creatorAvatar: fileUrl((task && task.creator_avatar) || ''),
+        creatorChar: String((task && task.creator_name) || '创').slice(0, 1),
+        createdTime: fmtFull(task && task.created_at),
         checkinType: (task && task.checkin_type) || 'image',
+        sourceText: SOURCE_TEXT[(task && task.source)] || (task && task.source === 'web' ? 'Web后台' : '小程序'),
         // 已完成任务仅可查看：学生隐藏编辑/删除/打卡；家长/家属/管理员不受限
         canManage: this.data.isManager || (own && !isDone),
         canCheckin: !this.data.isManager && !isDone,
@@ -87,26 +125,19 @@ Page({
   },
 
   preview(e) {
-    const url = e.currentTarget.dataset.url;
-    wx.previewImage({ urls: this.data.images, current: url });
+    const url = previewUrl(e.currentTarget.dataset.url);
+    const urls = this.data.images.map(previewUrl);
+    wx.previewImage({ urls, current: url });
   },
 
   previewCheckin(e) {
     const index = Number(e.currentTarget.dataset.index);
     const cid = String(e.currentTarget.dataset.cid);
     const item = this.data.checkins.find(c => String(c.checkin_id) === cid);
-    const urls = (item && item.images) || [];
+    const urls = ((item && item.images) || []).map(previewUrl);
     const url = urls[index];
     if (!url) return;
     wx.previewImage({ urls, current: url });
-  },
-
-  onStart() {
-    lp.taskStatus({ id: this.data.id, status: 'doing' }).then(() => {
-      trackEvent('button_click', '开始任务', { taskId: this.data.id });
-      wx.showToast({ title: '已开始', icon: 'success' });
-      this._load();
-    }).catch((e) => wx.showToast({ title: e.msg, icon: 'none' }));
   },
 
   onFinish() {

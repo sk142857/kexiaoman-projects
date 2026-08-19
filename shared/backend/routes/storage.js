@@ -48,7 +48,9 @@ router.post("/upload", async (req, res) => {
         path,
         url: publicUrl(path),
         cosId: String(img.fileID || ""),
+        // 前端直传的是原文件，size 即原始大小 → 一并写入 origSize，供压缩比统计
         size: Number(img.size) || 0,
+        origSize: Number(img.size) || 0,
         contentType: inferContentType(String(img.contentType || ""), path),
         fileName: String(img.name || "").slice(0, 255),
       };

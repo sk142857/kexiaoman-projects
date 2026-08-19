@@ -17,6 +17,11 @@ const CHECKIN_TYPE_MAP = {
   voice: { label: '语音打卡', color: 'warning' },
   video: { label: '视频打卡', color: 'cyan' },
 };
+// 打卡来源（Web 后台 / 小程序）
+const TASK_SOURCE_MAP = {
+  web: { label: 'Web后台', color: 'purple' },
+  miniprogram: { label: '小程序', color: 'blue' },
+};
 // 任务状态字典（label / color 直接取自字典）
 const STATUS_MAP = { todo: '待完成', doing: '进行中', done: '已完成' };
 const STATUS_COLOR = { todo: 'default', doing: 'processing', done: 'success' };
@@ -87,12 +92,11 @@ export default function CheckinReviewsPage() {
 
   const statusOf = (v) => ({ label: STATUS_MAP[v] || v || '-', color: STATUS_COLOR[v] || 'default' });
 
-  // 组装卡片参数（author / actions / items / progress），复用 TaskCard 组件：
+  // 组装卡片参数（author / actions / items），复用 TaskCard 组件：
   // actions 仅保留审核按钮（通过/不通过），并在字段区增加用户提交的打卡内容 / 打卡图片 / 语音
   const buildCard = (record) => {
     const status = statusOf(record.task_status);
     const checkinTypeLabel = (CHECKIN_TYPE_MAP[record.checkin_type] || {}).label || record.checkin_type || '-';
-    const progress = Number(record.task_progress) >= 0 ? Number(record.task_progress) : (record.task_status === 'done' ? 100 : record.task_status === 'doing' ? 50 : 1);
     return {
       author: {
         name: record.student.nickname || '学生',
@@ -121,6 +125,7 @@ export default function CheckinReviewsPage() {
         },
         { key: 'date', label: '打卡日期', children: record.checkin_date || '-' },
         { key: 'type', label: '打卡方式', children: checkinTypeLabel },
+        { key: 'source', label: '打卡来源', children: (() => { const c = TASK_SOURCE_MAP[record.source] || {}; return record.source ? <Tag color={c.color}>{c.label || record.source}</Tag> : '-'; })() },
         { key: 'submit', label: '提交时间', children: fmtDateTime(record.created_at) },
         {
           key: 'note',
@@ -132,17 +137,18 @@ export default function CheckinReviewsPage() {
             </div>
           ),
         },
-        { key: 'images', label: '打卡图片', span: 2, children: <TaskImages images={record.images} /> },
+        // 按打卡模式展示对应媒体：图文打卡显图片、语音打卡显语音、视频打卡显视频，互不混显
+        ...(record.checkin_type === 'image'
+          ? [{ key: 'images', label: '打卡图片', span: 2, children: <TaskImages images={record.images} /> }]
+          : []),
         ...(record.checkin_type === 'voice' && record.voice_url
           ? [{ key: 'voice', label: '语音打卡', span: 2, children: <AudioPlayer value={record.voice_url} duration={record.voice_duration} /> }]
           : []),
         ...(record.checkin_type === 'video' && record.video_url
           ? [{ key: 'video', label: '视频打卡', span: 2, children: <VideoPlayer value={record.video_url} duration={record.video_duration} size={record.video_size} poster={record.video_cover} /> }]
           : []),
-        { key: 'taskId', label: '任务编号', children: record.task_id },
         { key: 'studentName', label: '提交学生', children: record.student.username || record.student.nickname || '-' },
       ],
-      progress,
     };
   };
 

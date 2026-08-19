@@ -1,7 +1,7 @@
 // pages/profile-edit/profile-edit.js
 // 编辑个人资料：头像（原生 chooseAvatar 组件）+ 昵称；用户ID 只读展示
 const { lp } = require('../../utils/api');
-const { fileToBase64, fileUrl } = require('../../utils/image');
+const { uploadImageFile, fileUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
@@ -64,12 +64,9 @@ Page({
     wx.showLoading({ title: '保存中...', mask: true });
     try {
       let avatar = this.data.avatar;
-      // 有新的临时头像则先上传原图（压缩由后端完成）
+      // 有新的临时头像则先上传（客户端压缩 + 直传云存储）
       if (this.data.tempAvatarPath) {
-        const b64 = await fileToBase64(this.data.tempAvatarPath);
-        const up = await lp.upload('avatar', [{ data: b64, contentType: 'image/jpeg', fileName: 'avatar.jpg' }]);
-        const files = (up && up.files) || [];
-        if (files.length > 0) avatar = files[0].path;
+        avatar = await uploadImageFile(this.data.tempAvatarPath, 'avatar');
       }
       await lp.updateProfile({ nickname: n, avatar });
       const s = wx.getStorageSync('lp_staff') || {};

@@ -44,7 +44,10 @@
         <view class="field">
           <view class="label">打卡图片（最多9张）</view>
           <view class="img-grid">
-            <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" data-index="{{index}}" bindtap="removeImage" />
+            <view wx:for="{{images}}" wx:key="index" class="img-item">
+              <image class="img" src="{{item}}" mode="aspectFill" data-index="{{index}}" bindtap="previewImage" />
+              <view class="img-del" data-index="{{index}}" catchtap="removeImage">✕</view>
+            </view>
             <view wx:if="{{images.length < 9}}" class="img add" bindtap="addImages">＋</view>
           </view>
         </view>

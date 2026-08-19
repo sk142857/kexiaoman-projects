@@ -19,6 +19,11 @@ const CHECKIN_TYPE_MAP = {
   voice: { label: '语音打卡', color: 'warning' },
   video: { label: '视频打卡', color: 'cyan' },
 };
+// 发布来源（Web 后台 / 小程序）
+const TASK_SOURCE_MAP = {
+  web: { label: 'Web后台', color: 'purple' },
+  miniprogram: { label: '小程序', color: 'blue' },
+};
 
 /** 读取音频时长（秒），元数据加载失败返回 0 */
 const readAudioDuration = (url) => new Promise((resolve) => {
@@ -268,6 +273,7 @@ export default function TodoTasksPage() {
         },
         { key: 'collection', label: '归属合集', children: record.collection_name || '-' },
         { key: 'checkinType', label: '打卡方式', children: checkinTypeLabel },
+        { key: 'source', label: '发布来源', children: (() => { const c = TASK_SOURCE_MAP[record.source] || {}; return record.source ? <Tag color={c.color}>{c.label || record.source}</Tag> : '-'; })() },
         { key: 'score', label: '任务评分', children: record.score > 0 ? `${record.score}分` : '-' },
         {
           key: 'period',

@@ -1,5 +1,5 @@
 .page {
-  padding: 24rpx 32rpx calc(var(--safe-bottom) + 240rpx);
+  padding: 24rpx 32rpx calc(env(safe-area-inset-bottom) + 48rpx);
 }
 
 /* ==================== 提示文案 ==================== */
@@ -160,12 +160,9 @@
   color: #b0b6c0;
 }
 
-/* ==================== 底部固定操作栏 ==================== */
+/* ==================== 底部操作栏（flex 子项贴底，见规范 §3.1，skyline 下不用 fixed） ==================== */
 .footer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex-shrink: 0;
   display: flex;
   padding: 20rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
   background: #ffffff;

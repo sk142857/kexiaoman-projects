@@ -206,6 +206,7 @@ export default function LearningDashboard() {
     { title: '备注', dataIndex: 'note', ellipsis: true },
     { title: '图片', dataIndex: 'has_images', width: 80, render: (v) => (v ? <Tag color="green">有</Tag> : <Tag>无</Tag>) },
     { title: '打卡人', dataIndex: 'created_by', width: 160, render: (v, r) => <StaffCell staffId={v} username={r._creatorUsername} nickname={r._creatorNickname} /> },
+    { title: '来源', dataIndex: 'source', width: 90, render: (v) => <Tag color={(v === 'web') ? 'purple' : 'blue'}>{v === 'web' ? 'Web后台' : (v === 'miniprogram' ? '小程序' : '-')}</Tag> },
     { title: '时间', dataIndex: 'created_at', width: 150 },
   ];
 
@@ -213,6 +214,7 @@ export default function LearningDashboard() {
     { title: '任务', dataIndex: 'title', width: 140, ellipsis: true },
     { title: '科目', dataIndex: 'subject', width: 80, render: (v) => v || '-' },
     { title: '状态', dataIndex: 'task_status', width: 90, render: (v) => <Tag color={STATUS_COLOR[v] || 'default'}>{STATUS_LABEL[v] || v}</Tag> },
+    { title: '来源', dataIndex: 'source', width: 90, render: (v) => <Tag color={(v === 'web') ? 'purple' : 'blue'}>{v === 'web' ? 'Web后台' : (v === 'miniprogram' ? '小程序' : '-')}</Tag> },
     { title: '打卡次数', dataIndex: 'checkin_count', width: 90 },
     { title: '截止', dataIndex: 'deadline', width: 110 },
   ];

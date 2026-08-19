@@ -46,7 +46,6 @@ function stop() {
 function onStart(cb) { getRecorder().onStart(cb); }
 function onStop(cb) { getRecorder().onStop(cb); }
 function onError(cb) { getRecorder().onError(cb); }
-function onTimeUpdate(cb) { getRecorder().onTimeUpdate(cb); }
 
 /** 取消录音（丢弃本次录音） */
 function cancel() {
@@ -99,6 +98,6 @@ function uploadVoice(tempFilePath, durationMs) {
 
 module.exports = {
   start, stop, cancel,
-  onStart, onStop, onError, onTimeUpdate,
+  onStart, onStop, onError,
   uploadVoice,
 };

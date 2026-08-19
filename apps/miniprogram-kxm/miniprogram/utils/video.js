@@ -1,10 +1,10 @@
 /**
- * 课小满 - 视频工具（选择 + 本地压缩 + 直传云存储 + 登记）
+ * 课小满 - 视频工具（选择 + 直传云存储 + 登记）
  *
- * 打卡视频 ≤1GB：选片后先本地 wx.compressVideo 压缩（medium），再
- * wx.cloud.uploadFile 直传云存储（绕过 callContainer 请求体 100KB 限制），
+ * 打卡视频 ≤1GB：选片后原样 wx.cloud.uploadFile 直传云存储
+ * （绕过 callContainer 请求体 100KB 限制，前端不做本地压缩），
  * 最后调 /api/storage/upload 登记 t_file_uploads（biz=videos，路径 kxm/videos/{date}/{id}.mp4）。
- * 后端在打卡创建后对视频做 ffmpeg 二次压缩（720p CRF28）节省空间，压缩完成前
+ * 后端在打卡创建后对视频做 ffmpeg 异步压缩（720p CRF23）节省空间，压缩完成前
  * video_url 为原始路径，压缩完成后自动回写为压缩后路径。
  * 返回/存储：云存储「相对路径」（如 kxm/videos/2026-08-19/xxx.mp4），
  * 展示时用 utils/image.js 的 fileUrl() 拼完整域名。
@@ -33,34 +33,8 @@ function formatSize(bytes) {
   return `${(n / 1024 / 1024).toFixed(1)}MB`;
 }
 
-/** 读取本地文件大小（失败返回 0） */
-function getFileSize(filePath) {
-  return new Promise((resolve) => {
-    wx.getFileInfo({
-      filePath,
-      success: (res) => resolve(Number(res.size) || 0),
-      fail: () => resolve(0),
-    });
-  });
-}
-
-/** 本地压缩视频（medium，兼顾体积与清晰度；失败回退原视频） */
-function compressLocal(src) {
-  return new Promise((resolve) => {
-    wx.compressVideo({
-      src,
-      quality: 'medium',
-      success: (res) => resolve(res.tempFilePath || src),
-      fail: (err) => {
-        console.warn('[video] 本地压缩失败，使用原视频', (err && err.errMsg) || err);
-        resolve(src);
-      },
-    });
-  });
-}
-
 /**
- * 选择并本地压缩一个视频：校验 ≤1GB，返回本地临时文件
+ * 选择视频：校验 ≤1GB，返回原文件（不做本地压缩，压缩统一由后端异步完成）
  * @returns {Promise<{ tempFilePath, duration, size } | null>} 取消选择返回 null
  */
 function chooseVideo() {
@@ -79,18 +53,7 @@ function chooseVideo() {
           return;
         }
         const duration = Math.max(1, Math.round(Number(item.duration) || 0));
-        try {
-          const compressed = await compressLocal(item.tempFilePath);
-          const csize = await getFileSize(compressed);
-          if (csize > MAX_SIZE) {
-            wx.showToast({ title: '视频不能超过 1GB', icon: 'none' });
-            reject(new Error('视频超过 1GB'));
-            return;
-          }
-          resolve({ tempFilePath: compressed, duration, size: csize || size });
-        } catch (_) {
-          resolve({ tempFilePath: item.tempFilePath, duration, size });
-        }
+        resolve({ tempFilePath: item.tempFilePath, duration, size });
       },
       fail: () => resolve(null),
     });
