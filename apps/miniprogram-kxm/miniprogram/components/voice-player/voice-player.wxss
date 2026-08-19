@@ -1,0 +1,56 @@
+.vp {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  background: #f5f7fa;
+  border-radius: 16rpx;
+  box-sizing: border-box;
+}
+.vp-btn {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #1677ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.vp-play {
+  width: 0;
+  height: 0;
+  border-left: 20rpx solid #ffffff;
+  border-top: 12rpx solid transparent;
+  border-bottom: 12rpx solid transparent;
+  margin-left: 6rpx;
+}
+.vp-pause {
+  display: flex;
+  gap: 8rpx;
+}
+.vp-pause-bar {
+  width: 8rpx;
+  height: 26rpx;
+  background: #ffffff;
+  border-radius: 3rpx;
+}
+.vp-track {
+  flex: 1;
+  height: 8rpx;
+  background: #e5e9f0;
+  border-radius: 4rpx;
+  overflow: hidden;
+}
+.vp-fill {
+  height: 100%;
+  background: #1677ff;
+  border-radius: 4rpx;
+}
+.vp-time {
+  font-size: 24rpx;
+  color: #595959;
+  flex-shrink: 0;
+  min-width: 72rpx;
+  text-align: right;
+}

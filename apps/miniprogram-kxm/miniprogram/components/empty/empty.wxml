@@ -1,0 +1,7 @@
+<view class="empty" style="height: {{height}};">
+  <view class="empty-inner">
+    <view wx:if="{{icon}}" class="empty-icon">{{icon}}</view>
+    <view wx:if="{{title}}" class="empty-title">{{title}}</view>
+    <view wx:if="{{desc}}" class="empty-desc">{{desc}}</view>
+  </view>
+</view>

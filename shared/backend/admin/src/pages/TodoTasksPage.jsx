@@ -1,36 +1,41 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Tag, Button, Modal, Form, DatePicker, Input, Empty, Spin, Space, message, Tooltip, Image } from 'antd';
-import { FlagOutlined, CalendarOutlined, PictureOutlined } from '@ant-design/icons';
-import { ImageUploader, parseImages, toImageUrl, toThumbUrl, IMG_FALLBACK, fmtDateOnly } from '../components/fields.jsx';
-import { crudApi } from '../services/api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Button, Modal, Form, Input, Space, message, DatePicker, Row, Col,
+  Tag, Badge, Card, Empty, Statistic,
+} from 'antd';
+import { CalendarOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons';
+import { crudApi, uploadApi } from '../services/api';
+import {
+  ImageUploader, parseImages, fmtDateOnly, fmtDateTime, DictTag,
+} from '../components/fields.jsx';
+import { taskProgressOf } from '../config/modules.jsx';
+import TaskCard, { TaskImages } from '../components/TaskCard.jsx';
+import PageSkeleton from '../components/PageSkeleton.jsx';
 import dayjs from 'dayjs';
 
-// 科目标签配色（柔和浅色系，不刺眼）
-const SUBJECT_TAG = {
-  语文: { bg: '#f0f5ff', color: '#2f54eb' },
-  数学: { bg: '#f9f0ff', color: '#722ed1' },
-  英语: { bg: '#fff0f6', color: '#c41d7f' },
-  阅读: { bg: '#f6ffed', color: '#389e0d' },
-  作业: { bg: '#fff7e6', color: '#d46b08' },
-  运动: { bg: '#e6fffb', color: '#08979c' },
-};
-const FALLBACK_TAG_COLORS = [
-  { bg: '#f0f5ff', color: '#2f54eb' },
-  { bg: '#f9f0ff', color: '#722ed1' },
-  { bg: '#e6fffb', color: '#08979c' },
-  { bg: '#f6ffed', color: '#389e0d' },
-];
-const subjectTag = (subject) => {
-  if (SUBJECT_TAG[subject]) return SUBJECT_TAG[subject];
-  let h = 0;
-  for (const ch of String(subject || '任务')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return FALLBACK_TAG_COLORS[h % FALLBACK_TAG_COLORS.length];
+// 打卡方式（与任务管理卡片页一致）
+const CHECKIN_TYPE_MAP = {
+  image: { label: '图文打卡', color: 'blue' },
+  voice: { label: '语音打卡', color: 'warning' },
+  video: { label: '视频打卡', color: 'cyan' },
 };
 
-const STATUS_MAP = {
-  todo: { label: '未开始', color: 'default' },
-  doing: { label: '进行中', color: 'processing' },
-};
+/** 读取音频时长（秒），元数据加载失败返回 0 */
+const readAudioDuration = (url) => new Promise((resolve) => {
+  const a = new Audio();
+  a.preload = 'metadata';
+  a.onloadedmetadata = () => resolve(Number.isFinite(a.duration) ? Math.round(a.duration) : 0);
+  a.onerror = () => resolve(0);
+  a.src = url;
+});
+
+/** Blob → base64 dataURL */
+const blobToDataURL = (blob) => new Promise((resolve, reject) => {
+  const fr = new FileReader();
+  fr.onload = () => resolve(fr.result);
+  fr.onerror = () => reject(new Error('读取录音失败'));
+  fr.readAsDataURL(blob);
+});
 
 export default function TodoTasksPage() {
   const [loading, setLoading] = useState(false);
@@ -40,6 +45,26 @@ export default function TodoTasksPage() {
   const [current, setCurrent] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  // 任务状态字典：value -> { label, color }（直接取自字典，前端不另起炉灶）
+  const [statusDict, setStatusDict] = useState({});
+  // 语音打卡（浏览器 MediaRecorder）
+  const [recording, setRecording] = useState(false);
+  const [recorded, setRecorded] = useState(false);
+  const [recBlob, setRecBlob] = useState(null);
+  const [recUrl, setRecUrl] = useState('');
+  const [recDuration, setRecDuration] = useState(0);
+  const recRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const isVoiceTask = !!(current && current.checkin_type === 'voice');
+  const isVideoTask = !!(current && current.checkin_type === 'video');
+
+  const stopMedia = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+  };
 
   const load = useCallback(async (silent) => {
     if (!silent) setLoading(true);
@@ -53,6 +78,32 @@ export default function TodoTasksPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // 任务状态字典（label / color 直接取自字典，供状态绑带展示）
+  useEffect(() => {
+    let alive = true;
+    crudApi.list('dict_items', { page: 1, pageSize: 100, dict_code: 'task_status', item_status: 1 })
+      .then((res) => {
+        if (!alive) return;
+        const list = res.data.list || [];
+        const map = {};
+        list.forEach(it => {
+          map[it.item_value] = { label: it.item_label || it.item_value, color: it.color || '#bfbfbf' };
+        });
+        setStatusDict(map);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const statusOf = (v) => statusDict[v] || { label: v || '-', color: '#bfbfbf' };
+  useEffect(() => {
+    return () => {
+      stopMedia();
+      if (recRef.current && recording) { try { recRef.current.stop(); } catch (_) {} }
+      if (recUrl) URL.revokeObjectURL(recUrl);
+    };
+  }, [recUrl, recording]);
+
   const openCheckin = (task) => {
     setCurrent(task);
     const d = new Date();
@@ -62,19 +113,99 @@ export default function TodoTasksPage() {
       note: '',
       images: '',
     });
+    // 重置录音状态
+    stopMedia();
+    if (recRef.current) { try { recRef.current.stop(); } catch (_) {} }
+    recRef.current = null;
+    setRecording(false);
+    setRecorded(false);
+    setRecBlob(null);
+    if (recUrl) URL.revokeObjectURL(recUrl);
+    setRecUrl('');
+    setRecDuration(0);
     setCheckinOpen(true);
+  };
+
+  const startRecord = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '');
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stopMedia();
+        const blob = new Blob(chunks, { type: rec.mimeType || mime || 'audio/webm' });
+        if (blob.size === 0) {
+          message.error('录音内容为空，请重试');
+          setRecording(false);
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        setRecBlob(blob);
+        setRecUrl(url);
+        const dur = await readAudioDuration(url);
+        setRecDuration(Math.max(1, Math.min(60, dur || 1)));
+        setRecorded(true);
+        setRecording(false);
+      };
+      recRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch (_) {
+      message.error('无法访问麦克风，请授权后重试');
+    }
+  };
+
+  const stopRecord = () => {
+    if (recRef.current && recording) {
+      recRef.current.stop();
+    }
+  };
+
+  const reRecord = () => {
+    if (recUrl) URL.revokeObjectURL(recUrl);
+    setRecorded(false);
+    setRecBlob(null);
+    setRecUrl('');
+    setRecDuration(0);
   };
 
   const submitCheckin = async () => {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await crudApi.taskCheckin({
-        taskId: current.task_id,
-        date: values.date ? values.date.format('YYYY-MM-DD') : '',
-        note: values.note,
-        images: parseImages(values.images).slice(0, 9),
-      });
+      if (isVideoTask) {
+        message.warning('视频打卡请在微信小程序端提交');
+        return;
+      }
+      if (isVoiceTask) {
+        if (!recorded || !recBlob) {
+          message.warning('请先录制语音');
+          return;
+        }
+        const dataUrl = await blobToDataURL(recBlob);
+        const up = await uploadApi.upload('voice', dataUrl);
+        const path = (up.data && up.data.path) || '';
+        if (!path) throw new Error('语音上传失败');
+        await crudApi.taskCheckin({
+          taskId: current.task_id,
+          date: values.date ? values.date.format('YYYY-MM-DD') : '',
+          note: values.note,
+          voiceUrl: path,
+          voiceDuration: recDuration || 1,
+        });
+      } else {
+        await crudApi.taskCheckin({
+          taskId: current.task_id,
+          date: values.date ? values.date.format('YYYY-MM-DD') : '',
+          note: values.note,
+          images: parseImages(values.images).slice(0, 9),
+        });
+      }
       message.success('打卡成功，等待老师审核');
       setCheckinOpen(false);
       load();
@@ -87,122 +218,125 @@ export default function TodoTasksPage() {
 
   const todayStr = dayjs().format('YYYY-MM-DD');
 
+  // 组装卡片参数（author / actions / items / progress），复用 TaskCard 组件：
+  // actions 仅保留「打卡」操作，其余管理按钮不传即不显示
+  const buildCard = (record, progress) => {
+    const desc = record.description;
+    const overdue = record.deadline && String(record.deadline).slice(0, 10) < todayStr;
+    const checkinTypeLabel = (CHECKIN_TYPE_MAP[record.checkin_type] || {}).label || record.checkin_type || '-';
+    const assignees = Array.isArray(record.assignee_names) && record.assignee_names.length > 0
+      ? record.assignee_names.join('、')
+      : (record.assignee_names || '-');
+    const tags = parseImages(record.tags);
+    const name = record._creatorNickname || `#${record.created_by}`;
+    return {
+      author: { name, sub: `#${record.created_by}` },
+      actions: [
+        { key: 'checkin', type: 'primary', icon: <CalendarOutlined />, onClick: () => openCheckin(record), children: '打卡' },
+      ],
+      items: [
+        {
+          key: 'title',
+          label: '任务标题',
+          children: (
+            <div style={{ minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {record.subject && <DictTag code="subject" value={record.subject} />}
+              {overdue && <Tag color="red">已逾期</Tag>}
+              <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.title || '-'}</span>
+            </div>
+          ),
+        },
+        {
+          key: 'desc',
+          label: '任务描述',
+          children: (
+            <div style={{ minHeight: 88, display: 'flex', alignItems: 'center', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {desc || '-'}
+            </div>
+          ),
+        },
+        { key: 'images', label: '任务图片', span: 2, children: <TaskImages images={record.images} /> },
+        {
+          key: 'link',
+          label: '任务链接',
+          span: 2,
+          children: record.task_link ? (
+            <a href={record.task_link} target="_blank" rel="noopener noreferrer">
+              <LinkOutlined style={{ marginRight: 6, color: '#1677ff' }} />{record.task_link}
+            </a>
+          ) : '-',
+        },
+        { key: 'collection', label: '归属合集', children: record.collection_name || '-' },
+        { key: 'checkinType', label: '打卡方式', children: checkinTypeLabel },
+        { key: 'score', label: '任务评分', children: record.score > 0 ? `${record.score}分` : '-' },
+        {
+          key: 'period',
+          label: '任务周期',
+          children: (
+            <span style={overdue ? { color: '#f5222d' } : undefined}>
+              {fmtDateOnly(record.start_date)} ~ {fmtDateOnly(record.deadline)}{overdue ? '（已逾期）' : ''}
+            </span>
+          ),
+        },
+        { key: 'checkinCount', label: '打卡次数', children: `${record.checkin_count || 0} 次` },
+        { key: 'assignee', label: '派发学生', children: assignees },
+        {
+          key: 'tags',
+          label: '任务标签',
+          children: tags.length > 0
+            ? <Space size={4} wrap>{tags.map((t, i) => <Tag key={`tag-${i}`} color="purple">{t}</Tag>)}</Space>
+            : '-',
+        },
+        { key: 'taskId', label: '任务编号', children: record.task_id },
+        { key: 'createdAt', label: '创建时间', children: fmtDateTime(record.created_at) },
+        { key: 'updatedAt', label: '更新时间', children: fmtDateTime(record.updated_at) },
+      ],
+      progress,
+    };
+  };
+
   return (
     <div>
-      {/* ===== 顶部欢迎条（浅蓝清爽风格） ===== */}
-      <Card style={{ borderRadius: 14, border: '1px solid #e8eef7', marginBottom: 16, overflow: 'hidden', boxShadow: '0 4px 16px rgba(31,56,105,0.08)' }} styles={{ body: { padding: 0 } }}>
-        <div style={{ padding: '24px 28px', background: 'linear-gradient(120deg,#f2f7ff 0%,#e8f1ff 100%)', color: '#1f3a5f' }}>
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 12, background: '#fff', border: '1px solid #d6e4ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#2f54eb' }}>
+      {/* ===== 顶部统计 ===== */}
+      <Card style={{ borderRadius: 16, border: 'none', marginBottom: 16, boxShadow: '0 4px 14px rgba(0,0,0,0.06)' }}>
+        <Row gutter={16} align="middle">
+          <Col flex="none">
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg,#1677ff,#69b1ff)', color: '#fff', fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CalendarOutlined />
             </div>
-            <div style={{ minWidth: 200 }}>
-              <div style={{ fontSize: 19, fontWeight: 700 }}>我的待办任务</div>
-              <div style={{ fontSize: 13, color: '#5a7ba8', marginTop: 4 }}>完成学习后记得打卡，坚持就是进步</div>
-            </div>
-            <div style={{ flex: 1 }} />
-            <div style={{ textAlign: 'center', padding: '0 18px', minWidth: 100 }}>
-              <div style={{ fontSize: 34, fontWeight: 700, lineHeight: 1.1, color: '#2f54eb' }}>{count}</div>
-              <div style={{ fontSize: 13, color: '#5a7ba8', marginTop: 4 }}>待完成任务</div>
-            </div>
-          </div>
-        </div>
+          </Col>
+          <Col flex="auto">
+            <div style={{ fontSize: 17, fontWeight: 700 }}>我的待办任务</div>
+            <div style={{ fontSize: 13, color: '#8c8c8c', marginTop: 4 }}>完成学习后记得打卡，坚持就是进步</div>
+          </Col>
+          <Col flex="none">
+            <Statistic title="待完成任务" value={count} suffix="条" valueStyle={{ color: '#1677ff' }} />
+          </Col>
+          <Col flex="none">
+            <Button icon={<ReloadOutlined />} onClick={() => load()} />
+          </Col>
+        </Row>
       </Card>
 
-      {/* ===== 任务卡片 ===== */}
+      {/* ===== 待办任务卡片网格（2 列等宽，Badge.Ribbon 状态绑带，与任务管理卡片页一致） ===== */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 90 }}><Spin size="large" /></div>
+        <PageSkeleton type="cards" twoCol noCover />
       ) : list.length === 0 ? (
-        <Card>
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="太棒了，没有待办任务，可以放松一下啦 🎉" />
+        <Card style={{ borderRadius: 16, border: 'none', boxShadow: '0 4px 14px rgba(0,0,0,0.06)' }}>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="太棒了，没有待办任务，可以放松一下啦" />
         </Card>
       ) : (
         <Row gutter={[16, 16]}>
-          {list.map(t => {
-            const status = STATUS_MAP[t.task_status] || { label: t.task_status, color: 'default' };
-            const overdue = t.deadline && String(t.deadline).slice(0, 10) < todayStr;
-            const tag = subjectTag(t.subject);
-            // 任务图片：默认取第一张作为封面，全铺展示
-            const cover = parseImages(t.images)[0];
+          {list.map(record => {
+            const status = statusOf(record.task_status);
+            const progress = taskProgressOf(record);
             return (
-              <Col xs={24} sm={12} lg={8} xl={6} key={t.task_id}>
-                <Card
-                  hoverable
-                  style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #eef1f5', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}
-                  styles={{ body: { padding: 0 } }}
-                >
-                  {/* 封面图（第一张，全铺；加载失败回退占位图） */}
-                  {cover ? (
-                    <div style={{ position: 'relative', width: '100%', height: 150, overflow: 'hidden', background: '#f5f6f8' }}>
-                      <Image
-                        src={toThumbUrl(cover, 600)}
-                        fallback={IMG_FALLBACK}
-                        alt=""
-                        width="100%"
-                        height={150}
-                        style={{ objectFit: 'cover', display: 'block' }}
-                        preview={false}
-                      />
-                      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 1 }}>
-                        <Tag color={status.color} style={{ margin: 0, fontSize: 12 }}>{status.label}</Tag>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ position: 'relative', width: '100%', height: 150, background: 'linear-gradient(120deg,#f7f9fc 0%,#eef3fa 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <PictureOutlined style={{ fontSize: 36, color: '#c6d2e4' }} />
-                      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 1 }}>
-                        <Tag color={status.color} style={{ margin: 0, fontSize: 12 }}>{status.label}</Tag>
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ padding: '16px 16px 18px' }}>
-                    {/* 标题 + 标签 */}
-                    <div style={{ fontSize: 15, fontWeight: 600, color: '#1f2329', lineHeight: 1.5, marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {t.title || `任务 #${t.task_id}`}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-                      {t.subject && <Tag style={{ background: tag.bg, color: tag.color, borderColor: 'transparent', margin: 0, fontSize: 12 }}>{t.subject}</Tag>}
-                      {t.collection_name && <Tag style={{ background: '#f5f5f5', color: '#595959', borderColor: '#e8e8e8', margin: 0, fontSize: 12 }}>{t.collection_name}</Tag>}
-                    </div>
-
-                    {/* 截止 / 评分 */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <Space size={8}>
-                        <FlagOutlined style={{ color: overdue ? '#f5222d' : '#8c8c8c', fontSize: 13 }} />
-                        <span style={{ color: overdue ? '#f5222d' : '#595959', fontSize: 13 }}>
-                          {t.deadline ? `截止 ${fmtDateOnly(t.deadline)}${overdue ? '（已逾期）' : ''}` : '无截止日期'}
-                        </span>
-                      </Space>
-                      {t.score > 0 && (
-                        <Tooltip title="任务评分">
-                          <Space size={4}><span style={{ color: '#fa8c16', fontWeight: 600, fontSize: 13 }}>{t.score}分</span></Space>
-                        </Tooltip>
-                      )}
-                    </div>
-
-                    {/* 打卡次数（真实计数，不做伪进度条） */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                      <Space size={6}>
-                        <CalendarOutlined style={{ color: '#1677ff', fontSize: 13 }} />
-                        <span style={{ fontSize: 13, color: '#595959' }}>已打卡 <b style={{ color: '#1677ff' }}>{t.checkin_count || 0}</b> 次</span>
-                      </Space>
-                      <span style={{ fontSize: 12, color: '#bfbfbf' }}>开始 {t.start_date ? fmtDateOnly(t.start_date) : '-'}</span>
-                    </div>
-
-                    {/* 打卡按钮 */}
-                    <Button
-                      type="primary"
-                      block
-                      size="large"
-                      style={{ marginTop: 16, borderRadius: 8, height: 42, fontWeight: 500, background: '#1677ff', border: 'none' }}
-                      icon={<CalendarOutlined />}
-                      onClick={() => openCheckin(t)}
-                    >
-                      去打卡
-                    </Button>
-                  </div>
-                </Card>
+              <Col span={12} key={record.task_id}>
+                <Badge.Ribbon text={status.label} color={status.color} rootClassName="kxm-task-ribbon">
+                  <Card style={{ height: '100%', display: 'flex', flexDirection: 'column' }} styles={{ body: { flex: 1, padding: '46px 16px 16px' } }}>
+                    <TaskCard {...buildCard(record, progress)} />
+                  </Card>
+                </Badge.Ribbon>
               </Col>
             );
           })}
@@ -227,9 +361,34 @@ export default function TodoTasksPage() {
           <Form.Item name="note" label="打卡备注">
             <Input.TextArea rows={3} maxLength={200} placeholder="记录本次学习情况..." />
           </Form.Item>
-          <Form.Item name="images" label="打卡图片（最多9张）">
-            <ImageUploader max={9} biz="tasks" />
-          </Form.Item>
+
+          {isVoiceTask ? (
+            <Form.Item label="语音打卡" extra="录制一段语音完成打卡（最长 60 秒）">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                {!recording && !recorded && (
+                  <Button type="primary" onClick={startRecord}>开始录音</Button>
+                )}
+                {recording && (
+                  <Button danger onClick={stopRecord}>录音中… 点击停止</Button>
+                )}
+                {recorded && (
+                  <>
+                    <audio controls src={recUrl} style={{ height: 36, maxWidth: 220 }} />
+                    <span style={{ color: '#595959' }}>已录 {recDuration} 秒</span>
+                    <Button onClick={reRecord}>重新录制</Button>
+                  </>
+                )}
+              </div>
+            </Form.Item>
+          ) : isVideoTask ? (
+            <Form.Item label="视频打卡">
+              <Typography.Text type="warning">视频打卡请在微信小程序端操作：上传 ≤1GB 视频，提交后系统自动压缩存储。</Typography.Text>
+            </Form.Item>
+          ) : (
+            <Form.Item name="images" label="打卡图片（最多9张）">
+              <ImageUploader max={9} biz="tasks" />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </div>

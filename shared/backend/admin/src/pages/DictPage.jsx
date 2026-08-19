@@ -3,6 +3,7 @@ import { Card, Row, Col, Table, Button, Modal, Form, Input, Select, Popconfirm, 
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import { crudApi } from '../services/api';
 import { ColorTag, clearDictMap } from '../components/fields.jsx';
+import PageSkeleton from '../components/PageSkeleton.jsx';
 
 const STATUS_OPTIONS = [
   { value: 1, label: '启用' },
@@ -55,6 +56,9 @@ export default function DictPage() {
   const [editingType, setEditingType] = useState(null);
   const [typeForm] = Form.useForm();
 
+  // 首次加载骨架屏：类型/字典项首次数据未就绪时以骨架屏替代双面板
+  const [firstLoading, setFirstLoading] = useState(true);
+
   const [itemModalOpen, setItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [itemForm] = Form.useForm();
@@ -70,6 +74,7 @@ export default function DictPage() {
     } catch (_) {
     } finally {
       setTypesLoading(false);
+      setFirstLoading(false);
     }
   }, []);
 
@@ -211,6 +216,10 @@ export default function DictPage() {
   ];
 
   return (
+    <>
+      {firstLoading ? (
+        <PageSkeleton type="dict" />
+      ) : (
     <Row gutter={12} style={{ padding: 4, height: 'calc(100vh - 120px)' }}>
       <Col xs={24} md={9} lg={8} style={{ height: '100%' }}>
         <Card
@@ -319,5 +328,7 @@ export default function DictPage() {
         </Form>
       </Modal>
     </Row>
+      )}
+    </>
   );
 }

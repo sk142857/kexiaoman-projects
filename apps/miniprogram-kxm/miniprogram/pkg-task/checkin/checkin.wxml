@@ -11,7 +11,7 @@
       <view class="task-title">{{taskTitle || '任务打卡'}}</view>
       <t-steps class="steps" current="{{step}}" readonly>
         <t-step-item title="打卡内容" />
-        <t-step-item title="打卡图片" />
+        <t-step-item title="{{step1Title}}" />
       </t-steps>
     </view>
   </view>
@@ -21,7 +21,7 @@
     <view class="form">
       <view class="field">
         <view class="label">打卡日期</view>
-        <picker mode="date" value="{{date}}" bindchange="onDate">
+        <picker mode="date" value="{{date}}" start="{{minDate}}" end="{{maxDate}}" bindchange="onDate">
           <view class="picker-box">
             <text>{{date}}</text>
             <text class="arrow">›</text>
@@ -36,17 +36,75 @@
     </view>
   </scroll-view>
 
-  <!-- 步骤二：打卡图片 -->
-  <scroll-view wx:if="{{step === 1}}" scroll-y class="lp-scroll content">
-    <view class="form">
-      <view class="field">
-        <view class="label">打卡图片（最多9张）</view>
-        <view class="img-grid">
-          <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" data-index="{{index}}" bindtap="removeImage" />
-          <view wx:if="{{images.length < 9}}" class="img add" bindtap="addImages">＋</view>
+  <!-- 步骤二：打卡媒体（图文：图片上传；语音：录音；视频：选片上传） -->
+  <scroll-view wx:elif="{{step === 1}}" scroll-y class="lp-scroll content">
+    <!-- 图文打卡 -->
+    <block wx:if="{{checkinType === 'image'}}">
+      <view class="form">
+        <view class="field">
+          <view class="label">打卡图片（最多9张）</view>
+          <view class="img-grid">
+            <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" data-index="{{index}}" bindtap="removeImage" />
+            <view wx:if="{{images.length < 9}}" class="img add" bindtap="addImages">＋</view>
+          </view>
         </view>
       </view>
-    </view>
+    </block>
+
+    <!-- 语音打卡 -->
+    <block wx:elif="{{checkinType === 'voice'}}">
+      <view class="voice-box">
+        <view class="voice-tip">请录制一段语音完成打卡（最长 60 秒）</view>
+        <view class="mic {{voiceState === 'recording' ? 'recording' : ''}}" bindtap="onMicTap">
+          <view wx:if="{{voiceState === 'recording'}}" class="mic-icon recording">
+            <view class="rec-dot"></view>
+            <view class="rec-wave"></view>
+          </view>
+          <view wx:elif="{{voiceState === 'recorded'}}" class="mic-icon done">
+            <view class="done-check">✓</view>
+          </view>
+          <view wx:else class="mic-icon">
+            <view class="mic-body"></view>
+            <view class="mic-arc"></view>
+            <view class="mic-stand"></view>
+          </view>
+        </view>
+
+        <view class="voice-state">
+          <text wx:if="{{voiceState === 'idle'}}">点击麦克风开始录音</text>
+          <text wx:elif="{{voiceState === 'recording'}}">录音中… 点击停止</text>
+          <text wx:else>已录音 {{voiceDuration}} 秒</text>
+        </view>
+        <view wx:if="{{voiceState === 'recording'}}" class="voice-timer">{{recordingMsText}}</view>
+
+        <view wx:if="{{voiceState === 'recorded'}}" class="voice-ops">
+          <t-button class="voice-op" variant="outline" size="small" bindtap="onPlayPreview">试听</t-button>
+          <t-button class="voice-op" variant="outline" size="small" bindtap="reRecord">重新录制</t-button>
+        </view>
+      </view>
+    </block>
+
+    <!-- 视频打卡 -->
+    <block wx:else>
+      <view class="video-box">
+        <view class="video-tip">请选择一段视频完成打卡（不超过 1GB，提交后后端自动压缩）</view>
+        <view wx:if="{{videoState === 'chosen'}}" class="video-preview">
+          <video class="video" src="{{videoTempPath}}" controls objectFit="contain" />
+          <view class="video-meta">
+            <text>时长 {{videoDuration}} 秒</text>
+            <text wx:if="{{videoSizeText}}"> / {{videoSizeText}}</text>
+          </view>
+          <view class="voice-ops">
+            <t-button class="voice-op" variant="outline" size="small" bindtap="onChooseVideo">重新选择</t-button>
+            <t-button class="voice-op" variant="outline" size="small" bindtap="onRemoveVideo">移除视频</t-button>
+          </view>
+        </view>
+        <view wx:else class="video-empty" bindtap="onChooseVideo">
+          <view class="video-plus">＋</view>
+          <view class="video-empty-text">点击选择视频</view>
+        </view>
+      </view>
+    </block>
   </scroll-view>
 
   <!-- 固定底部操作栏 -->

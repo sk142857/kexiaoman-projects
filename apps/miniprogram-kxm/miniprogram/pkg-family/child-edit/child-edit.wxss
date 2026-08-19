@@ -94,6 +94,7 @@
   flex: 1;
   min-width: 0;
   height: 88rpx;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -111,10 +112,13 @@
 }
 .sel-grid--grade {
   flex-wrap: wrap;
+  row-gap: 0;
+  column-gap: 0;
 }
 .sel-grid--grade .sel-card {
-  flex-basis: calc((100% - 40rpx) / 3);
-  flex-grow: 0;
+  flex: 0 0 auto;
+  width: 30%;
+  margin: 0 1.5% 20rpx;
 }
 .sel-name {
   font-size: 30rpx;
@@ -127,20 +131,58 @@
   color: #2b6de0;
 }
 
-/* ==================== 预览 ==================== */
+/* ==================== 班级选择 + 展示（并行展示） ==================== */
+.class-row {
+  display: flex;
+  align-items: center;
+}
+.class-picker {
+  flex-shrink: 0;
+  width: 260rpx;
+  margin-right: 3%;
+}
+.class-picker .picker-box {
+  height: 72rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+}
+.class-picker .arrow {
+  margin-left: 12rpx;
+  font-size: 30rpx;
+}
+/* 展示组件：右侧自适应，随选择实时更新 */
 .preview {
-  margin-top: 24rpx;
-  font-size: 26rpx;
-  color: #8a919f;
+  flex: 1;
+  min-width: 0;
+  height: 72rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   background: #f0f6ff;
   border: 2rpx solid #d6e4ff;
-  border-radius: 14rpx;
-  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  padding: 0 20rpx;
+}
+.preview-label {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #8a919f;
 }
 .preview-strong {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #2b6de0;
   font-weight: 600;
-  font-size: 30rpx;
+  font-size: 28rpx;
+}
+.preview-strong--empty {
+  color: #b0b6c0;
+  font-weight: 400;
 }
 
 /* ==================== 步骤三：确认 ==================== */
@@ -190,12 +232,9 @@
   text-align: center;
 }
 
-/* ==================== 固定底部操作栏 ==================== */
+/* ==================== 底部操作栏（flex 子项贴底，见规范 §3.1，skyline 下不用 fixed） ==================== */
 .footer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex-shrink: 0;
   display: flex;
   padding: 20rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
   background: #ffffff;

@@ -1,6 +1,6 @@
 // pages/identity/identity.js
 // 绑定流程（步骤条 + 底部固定按钮）：选择身份 → 绑定账号 → 完成
-const { lpAuth, clearViewStudent, getToken } = require('../../utils/api');
+const { lpAuth, clearViewStudent, getToken, persistLogin, setActiveStaffId, setIdentities } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
@@ -18,6 +18,7 @@ Page({
     submitting: false,
     errorMsg: '',
     placeholder: '请输入邀请码',
+    riskPrompt: false,   // 共用微信：绑定后形成多身份且家长未设 PIN → 提示开启 PIN
   },
 
   onLoad(options) {
@@ -40,18 +41,23 @@ Page({
   },
 
   onShow() {
-    // 无会话 token（如中途 401 被清）时静默重新登录：已绑定则直接回首页
-    if (!getToken()) {
+    // 无会话 token（如中途 401 被清）时静默重新登录：已绑定则直接回首页。
+    // _loginBusy 防止 onShow 高频触发时并发发起多个登录，避免随之而来的重复 reLaunch/reload
+    if (!getToken() && !this._loginBusy) {
+      this._loginBusy = true;
       lpAuth.login()
         .then((res) => {
-          if (res && res.token) wx.setStorageSync('lp_token', res.token);
+          persistLogin(res);
+          if (res.identities) setIdentities(res.identities);
+          if (res.activeStaffId) setActiveStaffId(res.activeStaffId);
           if (res && res.bound && res.staff) {
             wx.setStorageSync('lp_staff', res.staff);
             wx.setStorageSync('lp_role', res.role || res.staff.role || 'student');
             wx.reLaunch({ url: '/pages/home/home' });
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { this._loginBusy = false; });
     }
   },
 
@@ -105,9 +111,7 @@ Page({
   // 步骤二 → 步骤一
   onPrev() {
     this.setData({ step: 0, focusInput: false, errorMsg: '' });
-  },
-
-  // 步骤二 主操作：家长自动创建 / 其余（含家长绑定已有账号）走邀请码绑定
+  },  // 步骤二 主操作：家长自动创建 / 其余（含家长绑定已有账号）走邀请码绑定
   onPrimary() {
     if (this.data.identity === 'parent' && this.data.parentMode === 'create') {
       this.onParent();
@@ -132,15 +136,25 @@ Page({
 
   // 家长注册成功：保存共享码与后台账号（密码点击查看），跳后台账号页展示
   _onParentReady(res) {
-    wx.setStorageSync('lp_token', res.token);
-    if (res.staff) wx.setStorageSync('lp_staff', res.staff);
-    wx.setStorageSync('lp_role', 'parent');
+    persistLogin(res);
+    if (res.identities) setIdentities(res.identities);
+    if (res.activeStaffId) setActiveStaffId(res.activeStaffId);
+    wx.removeStorageSync('lp_share_code');
     wx.setStorageSync('lp_share_code', res.share_code || '');
+    wx.removeStorageSync('lp_backend');
     if (res.backend) wx.setStorageSync('lp_backend', res.backend);
     trackEvent('button_click', '选择身份-主家长');
     wx.hideLoading();
     this._startGuard();
-    this.setData({ step: 2, submitting: false });
+    // 共用微信：注册家长后若已绑定孩子（多身份）且家长未设 PIN → 完成步提示风险
+    const identities = res.identities || [];
+    const hasParent = identities.some(it => it.role === 'parent');
+    const parentNoPin = identities.some(it => it.role === 'parent' && !it.pin_enabled);
+    this.setData({
+      step: 2,
+      submitting: false,
+      riskPrompt: identities.length > 1 && hasParent && parentNoPin,
+    });
   },
 
   onInput(e) {
@@ -174,13 +188,24 @@ Page({
 
   // 绑定成功：落库存 → 进入完成步
   _onBound(res) {
-    wx.setStorageSync('lp_token', res.token);
-    if (res.staff) wx.setStorageSync('lp_staff', res.staff);
-    wx.setStorageSync('lp_role', res.role || (res.staff && res.staff.role) || 'student');
+    persistLogin(res);
+    if (res.identities) setIdentities(res.identities);
+    if (res.activeStaffId) setActiveStaffId(res.activeStaffId);
     clearViewStudent();
+    // 换绑成功后旧账号的后台凭据与共享码不再有效，立即清除
+    wx.removeStorageSync('lp_backend');
+    wx.removeStorageSync('lp_share_code');
     trackEvent('button_click', '绑定邀请码', { role: res.role || 'student' });
     this._startGuard();
-    this.setData({ step: 2, loading: false });
+    // 共用微信：绑定后形成多身份（含家长）且家长未设 PIN → 完成步提示风险
+    const identities = res.identities || [];
+    const hasParent = identities.some(it => it.role === 'parent');
+    const parentNoPin = identities.some(it => it.role === 'parent' && !it.pin_enabled);
+    this.setData({
+      step: 2,
+      loading: false,
+      riskPrompt: identities.length > 1 && hasParent && parentNoPin,
+    });
   },
 
   // 完成步：家长去创建孩子档案（后台账号可在「我的→设置」随时查看），其余进首页
@@ -213,7 +238,14 @@ Page({
       .catch(() => this.setData({ errorMsg: e.msg || '绑定失败，请重试' }));
   },
 
-  goBack() {
-    if (getCurrentPages().length > 1) wx.navigateBack();
+  goHome() {
+    // 步骤一「首页」：回到首页（换绑场景已绑定可直接访问；未绑定时首页鉴权会引导回身份页）
+    wx.reLaunch({ url: '/pages/home/home' });
+  },
+
+  // 风险提示 → 去设置页开启身份 PIN 保护
+  goPin() {
+    trackEvent('button_click', '绑定完成-开启PIN');
+    wx.navigateTo({ url: '/pkg-mine/settings/settings' });
   },
 });

@@ -5,6 +5,7 @@ import { ProTable } from '@ant-design/pro-components';
 import { crudApi } from '../services/api';
 import { MODULES } from '../config/modules.jsx';
 import DetailDrawer from './DetailDrawer.jsx';
+import PageSkeleton from './PageSkeleton.jsx';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -47,6 +48,8 @@ export default function MonitorDataTable({ biz }) {
   const actionRef = useRef();
   const [form] = Form.useForm();
   const [drawerRecord, setDrawerRecord] = useState(null);
+  // 首次加载骨架屏：数据未就绪时隐藏表格本体并展示骨架屏，就绪后切换
+  const [firstLoading, setFirstLoading] = useState(true);
 
   const cfg = MODULES[biz];
   const rowKey = ROW_KEYS[biz] || cfg.columns[0]?.dataIndex;
@@ -165,11 +168,16 @@ export default function MonitorDataTable({ biz }) {
         </Form.Item>
       </Form>
 
+      {firstLoading && <PageSkeleton type="table" />}
       <ProTable
         actionRef={actionRef}
         rowKey={rowKey}
         columns={tableColumns}
         request={loadData}
+        // 首次加载：隐藏表格本体（仍保持挂载以触发 request），骨架屏占位；加载完成后展示
+        style={firstLoading ? { display: 'none' } : undefined}
+        onLoad={() => setFirstLoading(false)}
+        onRequestError={() => setFirstLoading(false)}
         search={false}
         options={false}
         pagination={{ showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100] }}

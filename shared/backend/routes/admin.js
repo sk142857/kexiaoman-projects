@@ -10,14 +10,14 @@ const jwt = require("jsonwebtoken");
 const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql, formatDate } = require("../utils");
-const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages } = require("../storage");
+const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, VIDEO_MAX_SIZE } = require("../storage");
 const { crudRouter } = require("./adminApi");
 const { nextSeq } = require("../seq");
 const { logStaffEvent } = require("../staffAudit");
 const { logTaskEvent } = require("../taskTimeline");
 const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = require("../apps");
 const { createInvite, inviteById, genUniqueInviteCode } = require("./lpAuth");
-const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems } = require("../learningLib");
+const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
 const { sendReviewNotification } = require("../subscribeLib");
 
@@ -272,6 +272,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "34", name: "待办任务", path: "/module/todo_tasks", icon: "CheckSquareOutlined", type: "leaf" },
     { id: "35", name: "打卡审核", path: "/module/checkin_reviews", icon: "AuditOutlined", type: "leaf" },
     { id: "6", name: "任务管理", path: "/module/tasks", icon: "UnorderedListOutlined", type: "leaf" },
+    { id: "39", name: "任务管理（卡片模式）", path: "/module/card_tasks", icon: "ProfileOutlined", type: "leaf" },
     { id: "7", name: "打卡管理", path: "/module/task_checkins", icon: "CalendarOutlined", type: "leaf" },
     { id: "28", name: "合集管理", path: "/module/task_collections", icon: "FolderOutlined", type: "leaf" },
   ]},
@@ -291,7 +292,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "17", name: "接口链路", path: "/module/traces", icon: "ApiOutlined", type: "leaf" },
     { id: "18", name: "会话画像", path: "/module/sessions", icon: "MobileOutlined", type: "leaf" },
     { id: "21", name: "用户事件", path: "/module/user_events", icon: "ThunderboltOutlined", type: "leaf" },
-    { id: "20", name: "图片上传记录", path: "/module/file_uploads", icon: "PictureOutlined", type: "leaf" },
+    { id: "20", name: "文件上传记录", path: "/module/file_uploads", icon: "PictureOutlined", type: "leaf" },
   ]},
   { id: "22", parent_id: "0", name: "系统设置", path: "/system", icon: "SettingOutlined", sort: 6, type: "group", status: 1, children: [
     { id: "23", name: "管理员管理", path: "/module/staff", icon: "SafetyOutlined", type: "leaf" },
@@ -339,7 +340,7 @@ async function ensureDefaultMenus() {
     if (!rmErr && !(rmRows && rmRows.length > 0)) {
       const all = flatten.map(m => ({ role_code: "admin", menu_id: m.menu_id }));
       // 学生仅学习相关菜单（按路径匹配，避免依赖序列分配的 menu_id 数字）：学习仪表盘 + 学习管理分组及子页
-      const STUDENT_MENU_PATHS = ["/dashboard", "/dashboard/learning", "/learning", "/module/todo_tasks", "/module/tasks", "/module/task_checkins", "/module/task_collections", "/module/lp_students", "/module/lp_children", "/module/lp_family_members"];
+      const STUDENT_MENU_PATHS = ["/dashboard", "/dashboard/learning", "/learning", "/module/todo_tasks", "/module/tasks", "/module/card_tasks", "/module/task_checkins", "/module/task_collections", "/module/lp_students", "/module/lp_children", "/module/lp_family_members"];
       const student = flatten.filter(m => STUDENT_MENU_PATHS.includes(m.menu_path))
         .map(m => ({ role_code: "student", menu_id: m.menu_id }));
       for (const r of [...all, ...student]) {
@@ -367,7 +368,7 @@ async function ensureDefaultDicts() {
       ["subject", "语文", "语文"], ["subject", "数学", "数学"], ["subject", "英语", "英语"],
       ["subject", "阅读", "阅读"], ["subject", "作业", "作业"], ["subject", "运动", "运动"],
       ["gender", "0", "保密"], ["gender", "1", "男"], ["gender", "2", "女"],
-      ["task_status", "todo", "未开始"], ["task_status", "doing", "进行中"], ["task_status", "done", "已完成"],
+      ["task_status", "todo", "待完成"], ["task_status", "doing", "进行中"], ["task_status", "done", "已完成"],
     ];
     for (const [code, value, label] of items) {
       await db.from("dict_items").insert({ item_id: await nextSeq("dict_item_id"), dict_code: code, item_value: value, item_label: label, sort: 1, item_status: 1, created_at: nowSql(), updated_at: nowSql() });
@@ -807,30 +808,61 @@ async function cleanupStaffLpData(staffId) {
  * - 任务类（核心）：作为创建人的任务 / 作为派发人的任务 / 创建的打卡 / 创建的合集
  * - 关系类（提示）：绑定的小程序用户 / 孩子档案 / 家属关系 / 订阅授权
  * 用于：删除确认弹窗提示（deleteStats 接口）+ 后端删除硬拦截（onBeforeDelete）
+ * 附返回前 5 个关联任务（task_id + title），供删除确认弹窗直接展示
  */
 async function countStaffBiz(staffId) {
   const id = String(staffId);
   const num = (r) => (r && !r.error && typeof r.count === "number" ? r.count : 0);
-  const [tc, ta, ck, col, stu, chd, fam, sub] = await Promise.all([
+  const [tc, ck, col, stu, chd, fam, sub, createdRows, assigneeRows] = await Promise.all([
     db.from("tasks").select("task_id", { count: "exact" }).eq("created_by", id).limit(1),
-    db.from("task_assignees").select("task_id", { count: "exact" }).eq("staff_id", id).limit(1),
     db.from("task_checkins").select("checkin_id", { count: "exact" }).eq("created_by", id).limit(1),
     db.from("task_collections").select("collection_id", { count: "exact" }).eq("created_by", id).limit(1),
     db.from("lp_students").select("id", { count: "exact" }).eq("staff_id", id).limit(1),
     db.from("lp_children").select("child_id", { count: "exact" }).or(`parent_staff_id.eq.${id},student_staff_id.eq.${id}`).limit(1),
     db.from("lp_family_members").select("id", { count: "exact" }).or(`owner_staff_id.eq.${id},member_staff_id.eq.${id}`).limit(1),
     db.from("subscribe_grants").select("grant_id", { count: "exact" }).eq("staff_id", id).limit(1),
+    db.from("tasks").select("task_id").eq("created_by", id).limit(5000),
+    db.from("task_assignees").select("task_id").eq("staff_id", id).limit(5000),
   ]);
+  const createdIds = (createdRows && !createdRows.error && Array.isArray(createdRows.data))
+    ? createdRows.data.map(r => Number(r.task_id)).filter(v => v)
+    : [];
+  const assigneeIds = (assigneeRows && !assigneeRows.error && Array.isArray(assigneeRows.data))
+    ? assigneeRows.data.map(r => Number(r.task_id)).filter(v => v)
+    : [];
+  // 派发任务先去孤儿：task_assignees 可能残留已删除任务的记录，直接计数会出现
+  // 「账号名下没有任务却提示存在任务」的假象。因此仅统计/展示仍真实存在的任务。
+  let assignedIds = [];
+  if (assigneeIds.length > 0) {
+    const { data: existRows } = await db.from("tasks")
+      .select("task_id").in("task_id", assigneeIds).limit(assigneeIds.length);
+    if (Array.isArray(existRows)) assignedIds = existRows.map(r => Number(r.task_id)).filter(v => v);
+  }
+  // 任务并集（创建 ∪ 派发），task_count 取真实去重后的数量，避免自建任务被重复统计
+  const unionIds = [...new Set([...createdIds, ...assignedIds])];
+  // 关联任务列表（最近 5 条：task_id + title，供删除确认弹窗展示）
+  let taskList = [];
+  if (unionIds.length > 0) {
+    const top = [...unionIds].sort((a, b) => b - a).slice(0, 5);
+    const { data: titleRows } = await db.from("tasks")
+      .select("task_id, title").in("task_id", top).limit(top.length);
+    if (Array.isArray(titleRows)) {
+      taskList = titleRows
+        .map(t => ({ task_id: t.task_id, title: t.title || "" }))
+        .sort((a, b) => Number(b.task_id) - Number(a.task_id));
+    }
+  }
   return {
     task_created: num(tc),
-    task_assigned: num(ta),
-    task_count: num(tc) + num(ta),
+    task_assigned: assignedIds.length,
+    task_count: unionIds.length,
     checkin_count: num(ck),
     collection_count: num(col),
     bind_count: num(stu),
     child_count: num(chd),
     family_count: num(fam),
     sub_grant_count: num(sub),
+    task_list: taskList,
   };
 }
 
@@ -855,7 +887,7 @@ router.use("/api/staff", adminAuth, crudRouter({
   search: ["staff_username", "staff_nickname"],
   passwordFields: ["staff_password"],
   exclude: ["staff_password"],
-  filters: ["staff_role"],
+  filters: ["staff_role", "staff_status"],
   // 自我保护：禁止删除/禁用/修改自己的账号，避免误操作锁死后台
   protectSelf: true,
   pkGenerator: () => nextSeq("staff_id"),
@@ -867,7 +899,11 @@ router.use("/api/staff", adminAuth, crudRouter({
     if (s.checkin_count > 0) parts.push(`${s.checkin_count} 条打卡`);
     if (s.collection_count > 0) parts.push(`${s.collection_count} 个合集`);
     if (parts.length > 0) {
-      return `该账号名下存在 ${parts.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
+      let msg = `该账号名下存在 ${parts.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
+      if (Array.isArray(s.task_list) && s.task_list.length > 0) {
+        msg += `\n关联任务：${s.task_list.map(t => `任务 ${t.task_id}「${t.title || '无标题'}」`).join('；')}${s.task_count > s.task_list.length ? '（仅展示前 5 个）' : ''}`;
+      }
+      return msg;
     }
     return null;
   },
@@ -936,9 +972,9 @@ router.post("/api/staff/apps", adminAuth, async (req, res) => {
 // 删除已绑定/已作废的学生码、家长码时同步锁定对应账号的小程序访问（与作废语义一致）。
 const INVITE_KIND_OWNER_ROLE = { student: "student", parent: "parent", family: "parent" };
 const INVITE_KIND_ERR = {
-  student: "学生码归属账号必须是有效学生账号",
-  parent: "家长码归属账号必须是有效主家长账号",
-  family: "家属共享码归属账号必须是有效主家长账号",
+  student: "学生码归属账号必须是有效学生账号（角色=学生、状态=启用）",
+  parent: "家长码归属账号必须是有效主家长账号（角色=主家长、状态=启用；若暂无主家长账号，请先在「管理员管理」创建）",
+  family: "家属共享码归属账号必须是有效主家长账号（角色=主家长、状态=启用）",
 };
 const INVITE_KIND_MSG = "邀请码类型无效（student 学生码 / parent 家长码 / family 家属共享码）";
 
@@ -984,12 +1020,15 @@ router.use("/api/lp_invites", adminAuth, crudRouter({
   onBeforeUpdate: async (req, oldRecord, values) => {
     const kind = values.kind !== undefined ? String(values.kind) : (oldRecord && oldRecord.kind);
     if (kind && !(kind in INVITE_KIND_OWNER_ROLE)) return INVITE_KIND_MSG;
-    // 状态白名单：bound 只能由小程序绑定产生，禁止手动改为 bound（原值已是 bound 时允许保留）
+    // 状态白名单：bound 只能由小程序绑定产生，禁止手动改为 bound（原值已是 bound 时允许保留）；
+    // revoked 只能由「作废」接口产生（会同步锁定绑定访问），禁止表单手动作废；已作废为终态不可恢复
     if (values.status !== undefined) {
       const oldStatus = oldRecord && oldRecord.status;
       const newStatus = String(values.status);
       if (!["available", "bound", "revoked"].includes(newStatus)) return "邀请码状态无效";
       if (newStatus === "bound" && oldStatus !== "bound") return "不能手动置为已绑定状态，请走小程序绑定";
+      if (newStatus === "revoked" && oldStatus !== "revoked") return "请使用「作废」操作作废邀请码（将同步处理绑定访问）";
+      if (newStatus === "available" && oldStatus === "revoked") return "已作废的邀请码不可恢复，如需新码请使用「重新生成」";
     }
     // 改了类型或归属账号时，校验归属角色匹配
     if (values.kind !== undefined || values.owner_staff_id !== undefined) {
@@ -1096,10 +1135,12 @@ router.post("/api/lp_invites/regenerate", adminAuth, async (req, res) => {
 });
 
 // ==================== 课小满绑定关系管理（lp_students 统一维护） ====================
-// t_lp_students：小程序用户 openid ↔ 学生/管理员 staff_id 绑定映射（邀请码准入）。
+// t_lp_students：小程序用户 openid ↔ staff 绑定映射（邀请码准入）。
+// 绑定由用户在小程序输码自动完成，后台无需手动新增绑定；
 // 权限：管理员可管理全部绑定；非管理员（学生）仅可查看自己的绑定（只读，不能操作）。
 // 统一维护：列表/详情（含员工与小程序用户画像）、解除绑定、变更绑定（换绑到其他账号）。
-const LP_BIND_STAFF_ROLES = ["student", "admin"];
+// 可被后台「绑定管理」重绑/开通的账号角色：学生/家长/家属/管理员（t_lp_students 覆盖全部 LP 角色）
+const LP_BIND_STAFF_ROLES = ["student", "admin", "parent", "family"];
 
 /** 是否为管理员可管理绑定（非管理员仅本人只读） */
 function canManageBinding(req) {
@@ -1181,7 +1222,7 @@ router.get("/api/lp_students/list", adminAuth, async (req, res) => {
       try {
         const { data, error } = await db.from("staff")
           .select("staff_id")
-          .or(`staff_nickname.ilike.%${safeKw}%,staff_username.ilike.%${safeKw}%`)
+          .or(`staff_nickname.like.%${safeKw}%,staff_username.like.%${safeKw}%`)
           .limit(500);
         if (error) return [];
         return (data || []).map(s => s.staff_id);
@@ -1193,7 +1234,7 @@ router.get("/api/lp_students/list", adminAuth, async (req, res) => {
       let q = bindingScopeQuery(req, start || db.from("lp_students").select());
       if (keyword) {
         const safeKw = String(keyword).replace(/[(),]/g, "").slice(0, 100);
-        const clauses = [`openid.ilike.%${safeKw}%`, `staff_id.ilike.%${safeKw}%`];
+        const clauses = [`openid.like.%${safeKw}%`, `staff_id.like.%${safeKw}%`];
         if (staffIds.length > 0) clauses.push(`staff_id.in.(${staffIds.join(",")})`);
         q = q.or(clauses.join(","));
       }
@@ -1313,45 +1354,7 @@ router.post("/api/lp_students/rebind", adminAuth, async (req, res) => {
   }
 });
 
-// 新增绑定（仅管理员）：手动建立 openid ↔ 学生账号绑定（支持后台直接开通，无需邀请码）
-router.post("/api/lp_students/create", adminAuth, async (req, res) => {
-  try {
-    if (!canManageBinding(req)) return res.json(fail("无权操作", 403));
-    const { openid, staffId, boundStatus } = req.body || {};
-    const oid = String(openid || "").trim();
-    if (!oid) return res.json(fail("缺少 openid"));
-    const targetId = Number(staffId);
-    if (!targetId) return res.json(fail("请选择学生账号"));
-    const { data: stRows, error: sErr } = await db.from("staff")
-      .select("staff_id, staff_role, staff_status").eq("staff_id", targetId).limit(1);
-    if (sErr) throw sErr;
-    const target = stRows && stRows[0];
-    if (!target || !LP_BIND_STAFF_ROLES.includes(target.staff_role) || target.staff_status !== 1) {
-      return res.json(fail("目标账号不存在或不可绑定"));
-    }
-    // 唯一约束：同一 openid 仅一条绑定（uk_app_openid）
-    const { data: ex } = await db.from("lp_students")
-      .select("id").eq("app_id", "miniprogram-kxm").eq("openid", oid).limit(1);
-    if (ex && ex[0]) return res.json(fail("该 openid 已存在绑定关系，请改用「变更绑定」"));
-
-    await db.from("lp_students").insert({
-      staff_id: targetId,
-      app_id: "miniprogram-kxm",
-      openid: oid,
-      bound_status: Number(boundStatus) === 0 ? 0 : 1,
-      bound_at: nowSql(),
-      created_at: nowSql(),
-      updated_at: nowSql(),
-    });
-    logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: "新增绑定", module: "lp_students", apiPath: "/api/lp_students/create", bizId: targetId, extra: { openid: oid, staff_id: targetId, bound_status: Number(boundStatus) === 0 ? 0 : 1 } });
-    res.json(ok(null, "绑定创建成功"));
-  } catch (e) {
-    console.error("[admin] lp_students create error", e);
-    res.json(fail("服务异常", 500));
-  }
-});
-
-// 编辑绑定（仅管理员）：修改 openid ↔ 学生账号绑定（换绑到其他账号 / 切换绑定状态）
+// 编辑绑定（仅管理员）：修改 openid ↔ 账号绑定（换绑到其他账号 / 切换绑定状态）
 router.post("/api/lp_students/update", adminAuth, async (req, res) => {
   try {
     if (!canManageBinding(req)) return res.json(fail("无权操作", 403));
@@ -1428,6 +1431,282 @@ router.use("/api/lp_children", adminAuth, crudRouter({
   },
 }));
 
+// ==================== 家长-孩子绑定/解绑（后台最高级别操作） ====================
+// 说明：管理员可直接在后台对孩子档案做家长绑定/换绑/解绑，跳过小程序端「家长本人名下 + 邀请码」的
+// 业务归属校验（不做权限校验）；但仍做数据逻辑校验（档案/账号存在且合法），并对可能的影响给出风险提示。
+// 风险提示采用「先预览、后执行」两段式：force=0/缺省时仅返回 needConfirm + warnings 不落库；
+// force=1 时确认执行。前端据此先弹风险确认再调用，确保高风险操作有明确提示。
+const LP_PARENT_ROLE = "parent";
+
+/** 按 child_id 读取孩子档案（含逻辑校验：存在且未删除），返回孩子记录或 null */
+async function lpChildForAdmin(req, res, childId) {
+  const id = Number(childId);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.json(fail("孩子档案ID无效"));
+    return null;
+  }
+  const { data, error } = await db.from("lp_children").select().eq("child_id", id).limit(1);
+  if (error) throw error;
+  const child = data && data[0];
+  if (!child || Number(child.child_status) !== 1) {
+    res.json(fail("孩子档案不存在或已删除"));
+    return null;
+  }
+  return child;
+}
+
+/** 读取主家长账号（含逻辑校验：存在、角色=主家长、启用），返回账号记录或 null */
+async function lpParentForAdmin(req, res, parentStaffId) {
+  const id = Number(parentStaffId);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.json(fail("主家长账号无效"));
+    return null;
+  }
+  const { data, error } = await db.from("staff")
+    .select("staff_id, staff_username, staff_nickname, staff_role, staff_status")
+    .eq("staff_id", id).limit(1);
+  if (error) throw error;
+  const parent = data && data[0];
+  if (!parent || parent.staff_role !== LP_PARENT_ROLE || Number(parent.staff_status) !== 1) {
+    res.json(fail("目标账号不是有效的主家长账号（需角色为「主家长」且处于启用状态）"));
+    return null;
+  }
+  return parent;
+}
+
+/** 检查学生账号的「前后台绑定」现状（用于决定是否需要生成邀请码）：
+ *  - hasMiniBinding：已在 t_lp_students 完成 openid ↔ 学生账号绑定（小程序可正常访问）→ 无需邀请码
+ *  - availableInvite：已有可用（available）的学生邀请码 → 直接复用，不生成新码
+ *  - 两者皆无 → 才需要生成新邀请码（供学生在小程序绑定访问）
+ *  注意：家长-孩子绑定（lp_children）与学生前后台绑定（lp_students）是两回事，互不影响。 */
+async function studentBindState(studentId) {
+  const sid = Number(studentId) || 0;
+  const state = { hasMiniBinding: false, availableInvite: null };
+  if (!sid) return state;
+  try {
+    const { data, error } = await db.from("lp_students")
+      .select("id").eq("staff_id", sid).eq("bound_status", 1).limit(1);
+    if (!error && data && data.length > 0) state.hasMiniBinding = true;
+  } catch (_) {}
+  try {
+    const { data, error } = await db.from("lp_invites")
+      .select("invite_id, invite_code, status")
+      .eq("kind", "student").eq("owner_staff_id", sid)
+      .order("invite_id", { ascending: false }).limit(50);
+    if (!error && Array.isArray(data)) {
+      state.availableInvite = data.find(r => r.status === "available") || null;
+    }
+  } catch (_) {}
+  return state;
+}
+
+/** 后台从零绑定：选择已有主家长账号 + 学生账号，创建孩子档案。
+ *  用于「已建好主家长/学生账号、但无法走小程序前端绑定流程」的场景。
+ *  家长-孩子绑定只写 lp_children 归属关系；是否生成学生邀请码按学生现状决定：
+ *  已绑定小程序或已有可用学生邀请码 → 不再生成（避免产生冗余码）。
+ *  两段式：force=1 才实际落库；不落库时仅返回风险提示（needConfirm + warnings）。
+ *  逻辑校验：主家长角色/启用、学生角色/启用、学生账号不重复归属孩子档案。 */
+router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.parent_staff_id) return res.json(fail("请选择主家长账号"));
+    if (!b.student_staff_id) return res.json(fail("请选择学生账号"));
+
+    const parent = await lpParentForAdmin(req, res, b.parent_staff_id);
+    if (!parent) return;
+    const studentId = Number(b.student_staff_id);
+    if (!Number.isInteger(studentId) || studentId <= 0) return res.json(fail("学生账号无效"));
+
+    const { data: sRows, error: sErr } = await db.from("staff")
+      .select("staff_id, staff_username, staff_nickname, staff_role, staff_status")
+      .eq("staff_id", studentId).limit(1);
+    if (sErr) throw sErr;
+    const student = sRows && sRows[0];
+    if (!student || student.staff_role !== "student" || Number(student.staff_status) !== 1) {
+      return res.json(fail("目标账号不是有效的学生账号（需角色为「学生」且处于启用状态）"));
+    }
+
+    // 逻辑校验：一个学生账号只应归属一个未删除的孩子档案，重复绑定会产生重复档案
+    const { data: dupRows, error: dupErr } = await db.from("lp_children")
+      .select("child_id, child_name, parent_staff_id").eq("student_staff_id", studentId).eq("child_status", 1).limit(5);
+    if (dupErr) throw dupErr;
+    const dups = dupRows || [];
+
+    // 学生现状：是否已绑定小程序 / 已有可用学生邀请码（决定是否需要生成新码）
+    const { hasMiniBinding, availableInvite } = await studentBindState(studentId);
+
+    const parentName = parent.staff_nickname || parent.staff_username || `#${parent.staff_id}`;
+    const studentName = student.staff_nickname || student.staff_username || `#${student.staff_id}`;
+    const warnings = [];
+    if (dups.length > 0) {
+      const dupNames = dups.map(d => {
+        const dName = d.child_name || "未命名";
+        if (Number(d.parent_staff_id) === parent.staff_id) return `孩子档案#${d.child_id}「${dName}」（当前主家长即所选家长）`;
+        return `孩子档案#${d.child_id}「${dName}」（归属其他主家长 #${d.parent_staff_id}）`;
+      }).join("、");
+      warnings.push(`该学生账号「${studentName}」当前已存在于 ${dupNames}。再次绑定将产生重复的孩子档案，学生在小程序端可能出现重复显示，请谨慎操作。`);
+    }
+    warnings.push(`将创建孩子档案并绑定主家长「${parentName}」与学生账号「${studentName}」（家长-孩子归属关系）。`);
+    // 邀请码处理说明（家长-孩子绑定与学生前后台绑定相互独立）：
+    if (hasMiniBinding) {
+      warnings.push(`该学生已完成小程序账号绑定，可直接访问小程序，本次无需生成学生邀请码。`);
+    } else if (availableInvite) {
+      warnings.push(`该学生已有可用学生邀请码「${availableInvite.invite_code}」，本次复用不再生成新码。`);
+    } else {
+      warnings.push(`该学生尚未绑定小程序账号且无可用学生邀请码，本次将自动生成学生邀请码供其在「我是学生」中绑定。`);
+    }
+
+    if (String(b.force) !== "1" && String(b.force) !== "true") {
+      return res.json(ok({
+        needConfirm: true,
+        warnings,
+        invitePlan: hasMiniBinding ? "none" : (availableInvite ? "reuse" : "generate"),
+        existingInviteCode: (availableInvite && availableInvite.invite_code) || "",
+        parent: { staff_id: String(parent.staff_id), staff_nickname: parent.staff_nickname, staff_username: parent.staff_username },
+        student: { staff_id: String(student.staff_id), staff_nickname: student.staff_nickname, staff_username: student.staff_username },
+      }, "请确认风险后执行"));
+    }
+
+    // 创建孩子档案（仅家长-孩子归属绑定，不涉及小程序绑定）
+    const childName = String(b.child_name || "").trim().slice(0, 32) || student.staff_nickname || student.staff_username || "未命名孩子";
+    const grade = Number(b.grade);
+    const classNo = Number(b.class_no);
+    const childId = await nextSeq("child_id");
+    await db.from("lp_children").insert({
+      child_id: childId,
+      app_id: String(req.appId || "").slice(0, 32),
+      parent_staff_id: parent.staff_id,
+      student_staff_id: studentId,
+      child_name: childName,
+      gender: Number(b.gender) || 0,
+      birth_date: String(b.birth_date || "").slice(0, 10) || null,
+      school_name: String(b.school_name || "").slice(0, 64),
+      grade: Number.isInteger(grade) && grade >= 1 && grade <= 6 ? grade : 0,
+      class_no: Number.isInteger(classNo) && classNo >= 1 && classNo <= 35 ? classNo : 0,
+      child_status: 1,
+      created_at: nowSql(),
+      updated_at: nowSql(),
+    });
+
+    // 学生邀请码：仅当学生既未绑定小程序、又无可用学生邀请码时才生成（已有则不生成冗余码）
+    let invite = null;
+    if (!hasMiniBinding && !availableInvite) {
+      invite = await createInvite({ kind: "student", ownerStaffId: studentId, childId, createdBy: Number(req.staff.staff_id) || 0 });
+    } else if (!hasMiniBinding && availableInvite) {
+      invite = { invite_id: availableInvite.invite_id, invite_code: availableInvite.invite_code, reused: true };
+    }
+
+    logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: "后台新建家长-孩子绑定", module: "lp_children", apiPath: "/api/lp_children/bind_create", bizId: childId, extra: { child_name: childName, parent_staff_id: parent.staff_id, student_staff_id: studentId, invite_code: invite ? invite.invite_code : "", invite_note: hasMiniBinding ? "已有小程序绑定，未生成" : (availableInvite ? "复用已有可用邀请码" : "已生成") } });
+    const baseMsg = `已创建孩子档案「${childName}」并绑定主家长「${parentName}」`;
+    if (hasMiniBinding) {
+      res.json(ok({ child_id: childId, child_name: childName, invite_code: "", student_nickname: studentName, invite_note: "already_bound" }, `${baseMsg}。该学生已完成小程序绑定，无需邀请码`));
+    } else if (availableInvite) {
+      res.json(ok({ child_id: childId, child_name: childName, invite_code: availableInvite.invite_code, student_nickname: studentName, invite_note: "reused" }, `${baseMsg}。复用已有学生邀请码：${availableInvite.invite_code}`));
+    } else {
+      res.json(ok({ child_id: childId, child_name: childName, invite_code: invite.invite_code, student_nickname: studentName, invite_note: "generated" }, `${baseMsg}。学生邀请码：${invite.invite_code}`));
+    }
+  } catch (e) {
+    console.error("[admin] lp_children bind_create error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+/** 绑定孩子到主家长（换绑视为变更归属）：两段式，force=1 才实际落库 */
+router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
+  try {
+    const { child_id, parent_staff_id, force } = req.body || {};
+    if (!child_id) return res.json(fail("缺少孩子档案ID"));
+    if (!parent_staff_id) return res.json(fail("请选择要绑定的主家长账号"));
+
+    const child = await lpChildForAdmin(req, res, child_id);
+    if (!child) return;
+    const parent = await lpParentForAdmin(req, res, parent_staff_id);
+    if (!parent) return;
+
+    const currentParentId = Number(child.parent_staff_id) || 0;
+    // 幂等：已是同一家长直接返回
+    if (currentParentId === parent.staff_id) {
+      return res.json(ok(null, "该孩子已归属此主家长，无需变更"));
+    }
+
+    const parentName = parent.staff_nickname || parent.staff_username || `#${parent.staff_id}`;
+    // 逻辑校验 + 风险提示：换绑时旧家长失去管理权限，其家属共享同步移除
+    const warnings = [];
+    if (currentParentId > 0) {
+      const { data: oldRows } = await db.from("staff")
+        .select("staff_username, staff_nickname").eq("staff_id", currentParentId).limit(1);
+      const old = oldRows && oldRows[0];
+      const oldName = (old && (old.staff_nickname || old.staff_username)) || `#${currentParentId}`;
+      warnings.push(
+        `该孩子「${child.child_name}」当前归属于主家长「${oldName}」。换绑后家长「${oldName}」将失去该孩子的档案与学习数据管理权限，其名下家属共享的查看权限同步移除。`,
+        `新主家长「${parentName}」绑定后，将在小程序「我的」中看到该孩子并可管理其档案、任务与打卡。`
+      );
+    } else {
+      warnings.push(
+        `该孩子「${child.child_name}」当前未绑定主家长。绑定后「${parentName}」将在小程序「我的」中看到该孩子并可管理其档案、任务与打卡。`
+      );
+    }
+
+    if (String(force) !== "1" && String(force) !== "true") {
+      return res.json(ok({
+        needConfirm: true,
+        warnings,
+        child: { child_id: String(child.child_id), child_name: child.child_name },
+        parent: { staff_id: String(parent.staff_id), staff_nickname: parent.staff_nickname, staff_username: parent.staff_username },
+      }, "请确认风险后执行"));
+    }
+
+    await db.from("lp_children").update({ parent_staff_id: parent.staff_id, updated_at: nowSql() }).eq("child_id", child.child_id);
+    logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "后台绑定家长-孩子", module: "lp_children", apiPath: "/api/lp_children/bind", bizId: child.child_id, extra: { child_name: child.child_name, from_parent: currentParentId || null, to_parent: parent.staff_id, parent_nickname: parentName } });
+    res.json(ok(null, `已绑定，孩子「${child.child_name}」现归属主家长「${parentName}」`));
+  } catch (e) {
+    console.error("[admin] lp_children bind error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+/** 解绑孩子与当前主家长：仅清空家长归属，孩子档案、学生账号与已绑定小程序访问保留。两段式，force=1 才实际落库 */
+router.post("/api/lp_children/unbind", adminAuth, async (req, res) => {
+  try {
+    const { child_id, force } = req.body || {};
+    if (!child_id) return res.json(fail("缺少孩子档案ID"));
+
+    const child = await lpChildForAdmin(req, res, child_id);
+    if (!child) return;
+
+    const currentParentId = Number(child.parent_staff_id) || 0;
+    if (currentParentId === 0) return res.json(fail("该孩子当前未绑定主家长，无需解绑"));
+
+    let parentName = `#${currentParentId}`;
+    const { data: pRows } = await db.from("staff")
+      .select("staff_username, staff_nickname").eq("staff_id", currentParentId).limit(1);
+    const parent = pRows && pRows[0];
+    if (parent) parentName = parent.staff_nickname || parent.staff_username;
+
+    // 风险提示：旧家长及其家属失去查看/管理；孩子数据与访问不受影响
+    const warnings = [
+      `解绑后，主家长「${parentName}」将无法再查看/管理孩子「${child.child_name}」的档案与学习数据，其名下家属共享的查看权限同步移除。`,
+      "孩子档案、学生账号及已绑定的小程序访问均保留，可后续重新绑定到其他主家长。",
+    ];
+
+    if (String(force) !== "1" && String(force) !== "true") {
+      return res.json(ok({
+        needConfirm: true,
+        warnings,
+        child: { child_id: String(child.child_id), child_name: child.child_name },
+        parent: { staff_id: String(currentParentId), staff_nickname: parentName },
+      }, "请确认风险后执行"));
+    }
+
+    await db.from("lp_children").update({ parent_staff_id: 0, updated_at: nowSql() }).eq("child_id", child.child_id);
+    logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "后台解绑家长-孩子", module: "lp_children", apiPath: "/api/lp_children/unbind", bizId: child.child_id, extra: { child_name: child.child_name, from_parent: currentParentId, parent_nickname: parentName } });
+    res.json(ok(null, `已解绑，孩子「${child.child_name}」现无主家长归属`));
+  } catch (e) {
+    console.error("[admin] lp_children unbind error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 // ==================== 课小满家属关系管理（后台，通用 CRUD） ====================
 // 只读：家属关系由主家长在小程序共享；后台仅查看与审计
 router.use("/api/lp_family_members", adminAuth, crudRouter({
@@ -1466,7 +1745,7 @@ router.get("/api/roles/list", adminAuth, async (req, res) => {
     // 网关不支持时回退为拉取 offset+size 行后内存切片实现分页
     const buildBase = () => {
       let q = db.from("roles").select();
-      if (keyword) q = q.or(`role_name.ilike.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%,role_code.ilike.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%`);
+      if (keyword) q = q.or(`role_name.like.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%,role_code.like.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%`);
       return q;
     };
     let paged = [];
@@ -1840,18 +2119,23 @@ router.get("/api/tasks/deleteStats", adminAuth, async (req, res) => {
     if (!taskId) return res.json(fail("缺少任务 ID"));
     const tid = Number(taskId);
     const [ckRes, tkRes] = await Promise.all([
-      db.from("task_checkins").select("checkin_images").eq("task_id", tid).limit(10000),
+      db.from("task_checkins").select("checkin_images, voice_url").eq("task_id", tid).limit(10000),
       db.from("tasks").select("images").eq("task_id", tid).limit(1),
     ]);
     if (ckRes.error) throw ckRes.error;
     if (tkRes.error) throw tkRes.error;
     const checkinList = ckRes.data || [];
     let checkinImageCount = 0;
-    checkinList.forEach(c => { checkinImageCount += parseImgList(c.checkin_images).length; });
+    let checkinVoiceCount = 0;
+    checkinList.forEach(c => {
+      checkinImageCount += parseImgList(c.checkin_images).length;
+      if (c.voice_url) checkinVoiceCount += 1;
+    });
     const taskImageCount = parseImgList((tkRes.data && tkRes.data[0] && tkRes.data[0].images) || "").length;
     res.json(ok({
       checkin_count: checkinList.length,
       checkin_image_count: checkinImageCount,
+      checkin_voice_count: checkinVoiceCount,
       task_image_count: taskImageCount,
       image_count: checkinImageCount + taskImageCount,
     }));
@@ -1928,12 +2212,29 @@ router.get("/api/tasks/timeline", adminAuth, async (req, res) => {
 
 router.use("/api/tasks", adminAuth, crudRouter({
   table: "tasks", pk: "task_id",
-  writable: ["title", "subject", "description", "images", "task_status", "score", "start_date", "deadline", "tags", "collection_id", "task_link"],
+  writable: ["title", "subject", "description", "images", "task_status", "checkin_type", "score", "start_date", "deadline", "tags", "collection_id", "task_link"],
   search: ["title", "subject"],
   filters: ["task_status", "subject", "collection_id"],
+  // 按用户过滤（staff_id，非表字段故不走白名单 filters）：创建人 = 该员工 或 任务派发给该员工
+  // 注意：RDB 查询链是 thenable，async 函数不能直接 return 构建器（会被吞掉提前执行），须返回 { q } 包装
+  extraFilter: async (req, q) => {
+    const sid = String(req.query.staff_id || "").trim();
+    if (!sid) return { q };
+    const [created, assigned] = await Promise.all([
+      db.from("tasks").select("task_id").eq("created_by", sid).order("task_id", { ascending: false }).limit(1000),
+      db.from("task_assignees").select("task_id").eq("staff_id", sid).order("task_id", { ascending: false }).limit(1000),
+    ]);
+    const ids = new Set();
+    (created && !created.error && Array.isArray(created.data) ? created.data : [])
+      .forEach(r => ids.add(Number(r.task_id)));
+    (assigned && !assigned.error && Array.isArray(assigned.data) ? assigned.data : [])
+      .forEach(r => ids.add(Number(r.task_id)));
+    if (ids.size === 0) return { q: q.eq("task_id", -1) };
+    return { q: q.in("task_id", [...ids]) };
+  },
   scopeFn: taskScope,
   readScopeFn: () => null,
-  defaults: (req) => ({ created_by: (req.staff && req.staff.staff_id) || "" }),
+  defaults: (req) => ({ created_by: (req.staff && req.staff.staff_id) || "", progress: 1 }),
   enrich: async (rows) => {
     const list = rows || [];
     if (list.length === 0) return list;
@@ -1945,6 +2246,12 @@ router.use("/api/tasks", adminAuth, crudRouter({
     return list.map((r, i) => ({ ...r, ...(staffed[i] || {}), ...(assigned[i] || {}), ...(collected[i] || {}) }));
   },
   pkGenerator: () => nextSeq("task_id"),
+  // 打卡方式白名单校验：非法值回退图文
+  onBeforeCreate: async (req, values) => {
+    const c = String(values.checkin_type || "image").trim();
+    values.checkin_type = normalizeCheckinType(c);
+    return null;
+  },
   onAfterCreate: async (req, values, id) => {
     const assigneeIds = await syncTaskAssignees(req, id);
     await syncTaskImages(req, id, values, null);
@@ -1957,9 +2264,19 @@ router.use("/api/tasks", adminAuth, crudRouter({
     logTaskUpdate(req, values, id, oldRecord, assigneeIds, oldAssigneeIds);
   },
   // 兜底风控：已完成任务仅可查看，学生禁止修改（管理员不受限）
-  onBeforeUpdate: async (req, oldRecord) => {
+  onBeforeUpdate: async (req, oldRecord, values) => {
     if (req.staff && req.staff.role === "student" && oldRecord.task_status === "done") {
       return "任务已完成，仅可查看，禁止修改";
+    }
+    if (values.checkin_type !== undefined) {
+      const c = String(values.checkin_type || "image").trim();
+      values.checkin_type = normalizeCheckinType(c);
+    }
+    // 状态流转同步进度：已完成=100；进行中(已有打卡)=50；回到待完成=1
+    if (values.task_status !== undefined) {
+      if (values.task_status === "done") values.progress = 100;
+      else if (values.task_status === "doing") values.progress = (oldRecord.checkin_count || 0) > 0 ? 50 : 1;
+      else if (values.task_status === "todo") values.progress = 1;
     }
     return null;
   },
@@ -1973,13 +2290,18 @@ router.use("/api/tasks", adminAuth, crudRouter({
     // 级联删除：删除该任务关联的全部打卡，并物理清理任务附件图片与打卡图片（腾讯云存储 + file_uploads 登记记录）
     try {
       const { data: checkins, error } = await db.from("task_checkins")
-        .select("checkin_id, checkin_images").eq("task_id", id).limit(10000);
+        .select("checkin_id, checkin_images, voice_url, video_url, video_cover").eq("task_id", id).limit(10000);
       if (error) throw error;
       const checkinList = checkins || [];
 
-      // 1) 收集该任务全部图片相对路径（任务附件 + 打卡图片）
+      // 1) 收集该任务全部媒体相对路径（任务附件图片 + 打卡图片 + 打卡语音 + 打卡视频 + 视频封面）
       const paths = [...parseImgList(record.images)];
-      checkinList.forEach(c => paths.push(...parseImgList(c.checkin_images)));
+      checkinList.forEach(c => {
+        paths.push(...parseImgList(c.checkin_images));
+        if (c.voice_url) paths.push(c.voice_url);
+        if (c.video_url) paths.push(c.video_url);
+        if (c.video_cover) paths.push(c.video_cover);
+      });
 
       // 2) 物理删除腾讯云存储对象（成功失败分别统计，失败的文件登记记录保留便于重试）
       const { deleted } = await removeFiles(paths);
@@ -2049,7 +2371,7 @@ router.use("/api/task_collections", adminAuth, crudRouter({
 // 序列管理（任务ID/打卡ID等主键发放配置，仅管理员使用）
 router.use("/api/seqs", adminAuth, crudRouter({
   table: "seqs", pk: "seq_key",
-  writable: ["seq_key", "seq_name", "current_value", "init_value", "step"],
+  writable: ["seq_key", "seq_name", "current_value", "init_value", "step", "batch"],
   search: ["seq_key", "seq_name"],
 }));
 
@@ -2070,12 +2392,12 @@ router.use("/api/apps", adminAuth, crudRouter({
 // 任务打卡：为任务新增一条打卡记录
 router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
   try {
-    const { taskId, date, note, images } = req.body || {};
+    const { taskId, date, note, images, voiceUrl, voiceDuration, videoUrl, videoDuration } = req.body || {};
     if (!taskId) return res.json(fail("缺少任务 ID"));
     const staffId = (req.staff && req.staff.staff_id) || "";
 
     const { data: rows, error } = await db.from("tasks")
-      .select("task_id, title, task_status, checkin_count")
+      .select("task_id, title, task_status, checkin_count, checkin_type")
       .eq("task_id", taskId)
       .limit(1);
     if (error) throw error;
@@ -2087,9 +2409,38 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
     }
     // 学生可对任意可见任务打卡（单一学生场景，管理员创建的任务也允许学生打卡）
 
+    // 打卡方式强约束：以任务发布的 checkin_type 为准
+    const checkinType = normalizeCheckinType(task.checkin_type);
+    const vUrl = String(voiceUrl || "").trim().slice(0, 500);
+    const vDur = Math.floor(Number(voiceDuration) || 0);
+    const vUrl2 = String(videoUrl || "").trim().slice(0, 500);
+    const vDur2 = Math.floor(Number(videoDuration) || 0);
+
+    let imgList = [];
+    if (checkinType === "voice") {
+      // 语音打卡：必须携带已上传的语音文件，禁止图片
+      if (!vUrl || !vUrl.startsWith("kxm/voice/")) return res.json(fail("请先录制语音再打卡"));
+      if (vDur < 1 || vDur > 60) return res.json(fail("语音时长不合法"));
+      if (Array.isArray(images) && images.length > 0) return res.json(fail("语音打卡不支持图片"));
+    } else if (checkinType === "video") {
+      // 视频打卡：必须携带已上传的视频文件（限 1GB），禁止图片
+      if (!vUrl2 || !vUrl2.startsWith("kxm/videos/")) return res.json(fail("请先上传视频再打卡"));
+      if (vDur2 < 1 || vDur2 > 3600) return res.json(fail("视频时长不合法"));
+      if (Array.isArray(images) && images.length > 0) return res.json(fail("视频打卡不支持图片"));
+    } else {
+      imgList = (images || []).slice(0, 9);
+    }
+
     const checkinDate = date || formatDate(new Date());
-    const imgList = (images || []).slice(0, 9);
     const checkinId = await nextSeq("task_checkin_id");
+    // 视频大小复核（登记记录里取；无记录时以路径前缀兜底）
+    let videoSize = 0;
+    if (checkinType === "video") {
+      const { data: vRows } = await db.from("file_uploads").select("file_size").eq("file_path", vUrl2).limit(1);
+      const vRec = vRows && vRows[0];
+      if (vRec && Number(vRec.file_size) > VIDEO_MAX_SIZE) return res.json(fail("视频不能超过 1GB"));
+      videoSize = Number((vRec && vRec.file_size) || 0);
+    }
     const { error: insErr } = await db.from("task_checkins").insert({
       checkin_id: checkinId,
       task_id: taskId,
@@ -2097,14 +2448,38 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
       checkin_note: note || "",
       // 图片存 JSON 数组字符串（如 ["a.jpg"]，无图为 []）
       checkin_images: JSON.stringify(imgList),
+      checkin_type: checkinType,
+      voice_url: checkinType === "voice" ? vUrl : "",
+      voice_duration: checkinType === "voice" ? vDur : 0,
+      video_url: checkinType === "video" ? vUrl2 : "",
+      video_duration: checkinType === "video" ? vDur2 : 0,
+      video_size: checkinType === "video" ? videoSize : 0,
       created_by: staffId,
       created_at: nowSql(),
     });
     if (insErr) throw insErr;
 
-    // 更新任务打卡次数与状态
+    // 视频打卡：后端后台压缩视频节省云存储空间（异步，压缩/抽帧完成后回写 video_url/video_size/video_cover）
+    if (checkinType === "video" && vUrl2) {
+      setTimeout(async () => {
+        try {
+          const r = await compressVideo({ path: vUrl2, duration: vDur2 });
+          const upd = { video_size: Number((r && r.size) || 0) };
+          if (r && r.path && r.path !== vUrl2) upd.video_url = r.path;
+          if (r && r.cover) upd.video_cover = r.cover;
+          if (Object.keys(upd).length > 0) {
+            await db.from("task_checkins").update(upd).eq("checkin_id", checkinId);
+          }
+        } catch (e) {
+          console.error("[admin] 视频后台压缩失败", vUrl2, e.message);
+        }
+      }, 0);
+    }
+
+    // 更新任务打卡次数与状态（打卡即进度提升至 50%）
     const taskValues = {
       checkin_count: (task.checkin_count || 0) + 1,
+      progress: 50,
       updated_at: nowSql(),
     };
     if (task.task_status === "todo") taskValues.task_status = "doing";
@@ -2114,7 +2489,7 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
     logTaskEvent({
       taskId, checkinId, bizType: "task_checkin", eventType: "checkin", eventName: "任务打卡",
       summary: `对任务「${taskTitleOf(task)}」打卡（第 ${(task.checkin_count || 0) + 1} 次）`,
-      payload: { task_title: task.title, checkin_date: checkinDate, note: note || "", images: imgList },
+      payload: { task_title: task.title, checkin_date: checkinDate, note: note || "", images: imgList, checkin_type: checkinType, voice_url: vUrl, voice_duration: vDur, video_url: vUrl2, video_duration: vDur2 },
       staffId,
     });
 
@@ -2130,7 +2505,7 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
 // 新增打卡走任务管理「打卡」接口（本模块禁止新增）；本模块支持修改/删除。
 // 任务状态为已完成（done）时，禁止修改或删除该任务的打卡。
 // 以下自定义路由均须先于通用 CRUD 挂载，保证 create/update/delete 走自定义逻辑。
-const TASK_CHECKIN_WRITABLE = ["checkin_date", "checkin_note", "checkin_images"];
+const TASK_CHECKIN_WRITABLE = ["checkin_date", "checkin_note", "checkin_images", "checkin_type", "voice_url", "voice_duration", "video_url", "video_duration", "video_size"];
 
 // 任务已完成则返回 true（打卡禁止修改/删除）
 async function isTaskDone(taskId) {
@@ -2168,6 +2543,12 @@ router.post("/api/task_checkins/update", adminAuth, async (req, res) => {
       if (req.body[k] !== undefined && req.body[k] !== null) values[k] = req.body[k];
     });
     if (Object.keys(values).length === 0) return res.json(fail("无有效字段"));
+    if (values.checkin_type !== undefined) values.checkin_type = normalizeCheckinType(values.checkin_type);
+    if (values.voice_duration !== undefined) values.voice_duration = Math.min(60, Math.max(0, Math.floor(Number(values.voice_duration) || 0)));
+    if (values.voice_url !== undefined) values.voice_url = String(values.voice_url || "").trim().slice(0, 500);
+    if (values.video_url !== undefined) values.video_url = String(values.video_url || "").trim().slice(0, 500);
+    if (values.video_duration !== undefined) values.video_duration = Math.max(0, Math.floor(Number(values.video_duration) || 0));
+    if (values.video_size !== undefined) values.video_size = Math.max(0, Math.floor(Number(values.video_size) || 0));
     // 图片写入前统一为 JSON 数组字符串（前端已序列化则原样保留，避免双重编码）
     if (req.body.checkin_images !== undefined && req.body.checkin_images !== null) {
       values.checkin_images = Array.isArray(req.body.checkin_images)
@@ -2217,6 +2598,19 @@ router.post("/api/task_checkins/delete", adminAuth, async (req, res) => {
     }
     const { error: delErr } = await db.from("task_checkins").delete().eq("checkin_id", Number(id));
     if (delErr) throw delErr;
+    // 级联清理媒体文件（语音/视频/封面：物理删 COS + 登记记录）
+    const mediaPaths = [];
+    if (rec.voice_url) mediaPaths.push(rec.voice_url);
+    if (rec.video_url) mediaPaths.push(rec.video_url);
+    if (rec.video_cover) mediaPaths.push(rec.video_cover);
+    if (mediaPaths.length > 0) {
+      try {
+        const { deleted } = await removeFiles(mediaPaths);
+        if (deleted.length > 0) {
+          await db.from("file_uploads").delete().in("file_path", deleted);
+        }
+      } catch (_) {}
+    }
     // 扣减任务打卡次数（不小于0）
     const { data: tRows, error: tErr } = await db.from("tasks")
       .select("checkin_count").eq("task_id", rec.task_id).limit(1);
@@ -2256,21 +2650,25 @@ router.use("/api/task_checkins", adminAuth, crudRouter({
     const ids = [...new Set((rows || []).map(r => r.task_id).filter(Boolean))];
     if (ids.length === 0) return rows || [];
     const { data: tasks, error } = await db.from("tasks")
-      .select("task_id, title, task_status").in("task_id", ids).limit(ids.length);
+      .select("task_id, title, task_status, progress").in("task_id", ids).limit(ids.length);
     const taskMap = {};
     if (!error && Array.isArray(tasks)) tasks.forEach(t => { taskMap[t.task_id] = t; });
-    const rowsWithTask = (rows || []).map(r => ({
-      ...r,
-      task_title: (taskMap[r.task_id] || {}).title || "",
-      task_status: (taskMap[r.task_id] || {}).task_status || "",
-    }));
+    const rowsWithTask = (rows || []).map(r => {
+      const t = taskMap[r.task_id] || {};
+      return {
+        ...r,
+        task_title: t.title || "",
+        task_status: t.task_status || "",
+        task_progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+      };
+    });
     return attachStaffInfo(rowsWithTask);
   },
 }));
 
 // ==================== 学习管理：待办任务（学生卡片视图数据源） ====================
-// 学生：展示「派发给我 / 我创建」且未完成（todo/doing）、且我还没有待审核/已通过打卡的任务；
-// 管理员：展示全部未完成任务（便于总览推进进度）。
+// 学生：展示「派发给我 / 我创建」且待完成（todo/doing）、且我还没有待审核/已通过打卡的任务；
+// 管理员：展示全部待完成任务（便于总览推进进度）。
 // 权限：todo_tasks 菜单已对学生/管理员授权；列表仅返回任务基础字段 + 卡片展示所需关联信息。
 /** 学生可见任务 ID 集合：派发给我 + 我创建（与小程序端 myTaskIds 逻辑一致） */
 async function todoTaskIds(staffId) {
@@ -2314,10 +2712,14 @@ router.get("/api/todo_tasks/list", adminAuth, async (req, res) => {
       all = mine;
     }
 
-    // 附加合集名称（卡片展示）
+    // 附加合集名称 / 创建人 / 派发学生（与任务管理卡片页一致）
     if (all.length > 0) {
-      const withCol = await attachCollectionName(all);
-      all = all.map((t, i) => ({ ...t, ...(withCol[i] || {}) }));
+      const [withCol, withStaff, withAsg] = await Promise.all([
+        attachCollectionName(all),
+        attachStaffInfo(all),
+        attachAssignees(all),
+      ]);
+      all = all.map((t, i) => ({ ...t, ...(withCol[i] || {}), ...(withStaff[i] || {}), ...(withAsg[i] || {}) }));
     }
 
     res.json(ok({
@@ -2326,14 +2728,23 @@ router.get("/api/todo_tasks/list", adminAuth, async (req, res) => {
         task_id: t.task_id,
         title: t.title,
         subject: t.subject,
+        tags: parseImgList(t.tags),
+        description: t.description,
+        task_link: t.task_link,
+        images: parseImgList(t.images),
         task_status: t.task_status,
+        progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+        checkin_type: normalizeCheckinType(t.checkin_type),
         score: t.score,
         deadline: t.deadline,
         start_date: t.start_date,
-        checkin_count: t.checkin_count || 0,
+        collection_id: t.collection_id,
         collection_name: t.collection_name || "",
-        images: parseImgList(t.images),
-        description: t.description,
+        checkin_count: t.checkin_count || 0,
+        created_by: t.created_by,
+        _creatorNickname: t._creatorNickname || "",
+        _creatorUsername: t._creatorUsername || "",
+        assignee_names: t.assignee_names || [],
         created_at: t.created_at,
         updated_at: t.updated_at,
       })),
@@ -2357,7 +2768,7 @@ async function attachReviewInfo(rows) {
   const staffIds = [...new Set(list.map(c => Number(c.created_by)).filter(Boolean))];
   const [tasksR, staffMap] = await Promise.all([
     taskIds.length > 0
-      ? db.from("tasks").select("task_id, title, task_status").in("task_id", taskIds).limit(taskIds.length)
+      ? db.from("tasks").select("task_id, title, subject, task_status, progress").in("task_id", taskIds).limit(taskIds.length)
       : Promise.resolve({ data: [], error: null }),
     cachedStaffRows(staffIds),
   ]);
@@ -2367,11 +2778,14 @@ async function attachReviewInfo(rows) {
     .filter(c => taskMap[Number(c.task_id)]) // 任务已删除的打卡不展示
     .map(c => {
       const s = staffMap[String(c.created_by)] || {};
+      const t = taskMap[Number(c.task_id)] || {};
       return {
         checkin_id: c.checkin_id,
         task_id: c.task_id,
-        task_title: (taskMap[Number(c.task_id)] || {}).title || "(任务已删除)",
-        task_status: (taskMap[Number(c.task_id)] || {}).task_status || "",
+        task_title: t.title || "(任务已删除)",
+        task_subject: t.subject || "",
+        task_status: t.task_status || "",
+        task_progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
         student: {
           staff_id: String(c.created_by),
           nickname: s.staff_nickname || s.staff_username || "学生",
@@ -2380,6 +2794,13 @@ async function attachReviewInfo(rows) {
         checkin_date: c.checkin_date,
         checkin_note: c.checkin_note,
         images: parseImgList(c.checkin_images),
+        checkin_type: normalizeCheckinType(c.checkin_type),
+        voice_url: c.voice_url || "",
+        voice_duration: Number(c.voice_duration) || 0,
+        video_url: c.video_url || "",
+        video_duration: Number(c.video_duration) || 0,
+        video_size: Number(c.video_size) || 0,
+        video_cover: c.video_cover || "",
         created_at: c.created_at,
       };
     });
@@ -2403,18 +2824,23 @@ router.get("/api/checkin_reviews/list", adminAuth, async (req, res) => {
 // 审核打卡（通过/驳回），完成后给打卡提交学生发送订阅消息「审核结果通知」
 async function notifyAdminReview(req, checkin, task, result, note) {
   try {
+    // 多身份（共用微信）：该学生所有有效绑定 openid（家长手机 + 孩子手机）都通知
     const { data: stuRows } = await db.from("lp_students")
-      .select("openid").eq("staff_id", checkin.created_by).eq("app_id", req.appId || "miniprogram-kxm").limit(1);
-    await sendReviewNotification({
-      appId: req.appId || "miniprogram-kxm",
-      openid: (stuRows && stuRows[0] && stuRows[0].openid) || "",
-      staffId: checkin.created_by,
-      checkinId: checkin.checkin_id,
-      taskId: checkin.task_id,
-      taskTitle: (task && task.title) || "",
-      result,
-      note,
-    });
+      .select("openid").eq("staff_id", checkin.created_by).eq("app_id", req.appId || "miniprogram-kxm")
+      .eq("bound_status", 1).limit(50);
+    const openids = [...new Set((stuRows || []).map(r => r.openid).filter(Boolean))];
+    for (const openid of openids) {
+      await sendReviewNotification({
+        appId: req.appId || "miniprogram-kxm",
+        openid,
+        staffId: checkin.created_by,
+        checkinId: checkin.checkin_id,
+        taskId: checkin.task_id,
+        taskTitle: (task && task.title) || "",
+        result,
+        note,
+      });
+    }
   } catch (e) {
     console.error("[admin] notify review error", e);
   }
@@ -2451,7 +2877,7 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
         reviewed_at: nowSql(),
       }).eq("checkin_id", cid);
       if (task) {
-        await db.from("tasks").update({ task_status: "done", score: 10, updated_at: nowSql() })
+        await db.from("tasks").update({ task_status: "done", progress: 100, score: 10, updated_at: nowSql() })
           .eq("task_id", task.task_id);
       }
       // 同任务其余待审核打卡自动关闭（该任务已完成，不再重复处理）
@@ -2489,7 +2915,7 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
       }).eq("checkin_id", cid);
       if (task && task.task_status === "done") {
         // 兜底：已完成任务若仍有待审核打卡，驳回时回退为进行中
-        await db.from("tasks").update({ task_status: "doing", updated_at: nowSql() })
+        await db.from("tasks").update({ task_status: "doing", progress: 50, updated_at: nowSql() })
           .eq("task_id", task.task_id);
       }
       logTaskEvent({
@@ -2585,12 +3011,14 @@ router.use("/api/subscribe_sends", adminAuth, crudRouter({
   enrich: attachRecipient,
 }));
 
-// ==================== 后台图片上传（学习模块等使用，base64） ====================
+// ==================== 后台上传（学习模块等使用，base64；支持图片与语音 biz=voice） ====================
 router.post("/api/upload", adminAuth, async (req, res) => {
   try {
     const { biz, file } = req.body || {};
     if (!biz) return res.json(fail("缺少业务类型 biz"));
-    if (!file) return res.json(fail("缺少图片数据"));
+    if (!file) return res.json(fail("缺少文件数据"));
+    // 视频体积大，走小程序 wx.cloud.uploadFile 直传，不接 base64
+    if (String(biz) === "videos") return res.json(fail("视频请通过小程序直传上传"));
     let b64 = String(file);
     let contentType = "image/jpeg";
     const mimeMatch = b64.match(/^data:([^;]+);base64,(.*)$/s);
@@ -2598,15 +3026,18 @@ router.post("/api/upload", adminAuth, async (req, res) => {
       contentType = mimeMatch[1] || contentType;
       b64 = mimeMatch[2];
     }
-    if (/image\/png/i.test(contentType)) contentType = "image/png";
+    const isVoice = String(biz) === "voice";
+    if (isVoice) {
+      if (!/^audio\//i.test(contentType)) contentType = "audio/mpeg";
+    } else if (/image\/png/i.test(contentType)) contentType = "image/png";
     else if (/image\/webp/i.test(contentType)) contentType = "image/webp";
     else contentType = "image/jpeg";
 
     const buffer = Buffer.from(b64, "base64");
-    const fileObj = await uploadImage({ biz, buffer, contentType });
+    const fileObj = await uploadImage({ biz, buffer, contentType, compress: !isVoice });
     // 后台上传归属当前登录员工（staff_id，如 9001）
     await logUpload({ openid: "", biz, file: fileObj, staffId: String((req.staff && req.staff.staff_id) || "") });
-    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "上传图片", module: "upload", apiPath: "/api/upload", extra: { biz } });
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "上传文件", module: "upload", apiPath: "/api/upload", extra: { biz } });
     res.json(ok({ path: fileObj.path, url: fileObj.url }, "上传成功"));
   } catch (e) {
     console.error("[admin] upload error", e);
@@ -2821,7 +3252,7 @@ function buildLearningReminders({
           title: "待办任务",
           desc: remainingCount === 0
             ? "今日任务已全部完成，打个卡收个尾吧"
-            : `还有 ${remainingCount} 个任务未完成${activeCount > 0 ? `，其中 ${activeCount} 个进行中` : ""}${overdueCount > 0 ? `，另有 ${overdueCount} 个已逾期` : ""}`,
+            : `还有 ${remainingCount} 个任务待完成${activeCount > 0 ? `，其中 ${activeCount} 个进行中` : ""}${overdueCount > 0 ? `，另有 ${overdueCount} 个已逾期` : ""}`,
         },
       ],
     });
@@ -2840,7 +3271,7 @@ function buildLearningReminders({
     });
   }
 
-  // —— 临期任务（未来 3 天内到期且未完成，无逾期时提示） ——
+  // —— 临期任务（未来 3 天内到期且待完成，无逾期时提示） ——
   if (dueSoonCount > 0 && !(overdueCount > 0)) {
     reminders.push({
       type: "banner",
@@ -2991,7 +3422,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
 
     // 任务状态分布
     const statusDist = [
-      { name: "未开始", value: todoCount, color: "#bfbfbf" },
+      { name: "待完成", value: todoCount, color: "#bfbfbf" },
       { name: "进行中", value: doingCount, color: "#1677ff" },
       { name: "已完成", value: doneCount, color: "#52c41a" },
     ].filter(x => x.value > 0);
@@ -3095,7 +3526,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       deadline: t.deadline,
     }));
 
-    // 逾期 / 临期任务统计（仅未完成任务，按 deadline 与今天比较）
+    // 逾期 / 临期任务统计（仅待完成任务，按 deadline 与今天比较）
     const todayMs = new Date(`${today}T00:00:00`).getTime();
     const soonMs = todayMs + 3 * 86400000;
     let overdueCount = 0;

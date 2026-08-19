@@ -1,10 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Avatar, message, Statistic, Row, Col } from 'antd';
+import {
+  Button, Modal, Form, Input, Select, message, Row, Col, Tag, Avatar, Badge,
+  Card, Empty, Statistic,
+} from 'antd';
 import { CheckOutlined, CloseOutlined, ReloadOutlined, AuditOutlined } from '@ant-design/icons';
-import { ImageList, fmtDateTime, EmptyText } from '../components/fields.jsx';
+import {
+  AudioPlayer, VideoPlayer, fmtDateTime, DictTag,
+} from '../components/fields.jsx';
+import TaskCard, { TaskImages } from '../components/TaskCard.jsx';
+import PageSkeleton from '../components/PageSkeleton.jsx';
 import { crudApi } from '../services/api';
 
-const STATUS_MAP = { todo: '未开始', doing: '进行中', done: '已完成' };
+// 打卡方式（与任务管理卡片页一致）
+const CHECKIN_TYPE_MAP = {
+  image: { label: '图文打卡', color: 'blue' },
+  voice: { label: '语音打卡', color: 'warning' },
+  video: { label: '视频打卡', color: 'cyan' },
+};
+// 任务状态字典（label / color 直接取自字典）
+const STATUS_MAP = { todo: '待完成', doing: '进行中', done: '已完成' };
 const STATUS_COLOR = { todo: 'default', doing: 'processing', done: 'success' };
 const SCORE_OPTIONS = [0, 3, 5, 7, 9, 10].map(v => ({ value: v, label: `${v}分` }));
 
@@ -71,37 +85,66 @@ export default function CheckinReviewsPage() {
     }
   };
 
-  const columns = [
-    {
-      title: '学生', dataIndex: ['student', 'nickname'], key: 'student', width: 140,
-      render: (_, r) => (
-        <Space size={8}>
-          <Avatar style={{ background: 'linear-gradient(135deg,#7c3aed,#a78bfa)', color: '#fff' }}>
-            {String(r.student.nickname || '生').charAt(0)}
+  const statusOf = (v) => ({ label: STATUS_MAP[v] || v || '-', color: STATUS_COLOR[v] || 'default' });
+
+  // 组装卡片参数（author / actions / items / progress），复用 TaskCard 组件：
+  // actions 仅保留审核按钮（通过/不通过），并在字段区增加用户提交的打卡内容 / 打卡图片 / 语音
+  const buildCard = (record) => {
+    const status = statusOf(record.task_status);
+    const checkinTypeLabel = (CHECKIN_TYPE_MAP[record.checkin_type] || {}).label || record.checkin_type || '-';
+    const progress = Number(record.task_progress) >= 0 ? Number(record.task_progress) : (record.task_status === 'done' ? 100 : record.task_status === 'doing' ? 50 : 1);
+    return {
+      author: {
+        name: record.student.nickname || '学生',
+        sub: `#${record.student.staff_id}`,
+        avatar: (
+          <Avatar size={40} style={{ background: 'linear-gradient(135deg,#7c3aed,#a78bfa)', color: '#fff', fontSize: 17, flexShrink: 0 }}>
+            {String(record.student.nickname || '生').charAt(0)}
           </Avatar>
-          <div>
-            <div style={{ fontWeight: 600 }}>{r.student.nickname || '学生'}</div>
-            <div style={{ fontSize: 12, color: '#999' }}>{r.student.username}</div>
-          </div>
-        </Space>
-      ),
-    },
-    { title: '任务', dataIndex: 'task_title', key: 'task_title', width: 200, ellipsis: true },
-    { title: '任务状态', dataIndex: 'task_status', key: 'task_status', width: 90, render: (v) => <Tag color={STATUS_COLOR[v] || 'default'}>{STATUS_MAP[v] || v || '-'}</Tag> },
-    { title: '打卡日期', dataIndex: 'checkin_date', key: 'checkin_date', width: 110 },
-    { title: '备注', dataIndex: 'checkin_note', key: 'checkin_note', width: 220, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
-    { title: '图片', dataIndex: 'images', key: 'images', width: 170, render: (v) => <ImageList value={v || []} thumb={44} /> },
-    { title: '提交时间', dataIndex: 'created_at', key: 'created_at', width: 150, render: (v) => fmtDateTime(v) },
-    {
-      title: '操作', key: 'op', width: 150, fixed: 'right',
-      render: (_, r) => (
-        <Space size={0}>
-          <Button type="link" size="small" style={{ color: '#52c41a' }} icon={<CheckOutlined />} onClick={() => onApprove(r)}>通过</Button>
-          <Button type="link" size="small" danger icon={<CloseOutlined />} onClick={() => openReject(r)}>驳回</Button>
-        </Space>
-      ),
-    },
-  ];
+        ),
+      },
+      actions: [
+        { key: 'reject', danger: true, icon: <CloseOutlined />, onClick: () => openReject(record), children: '不通过' },
+        { key: 'approve', type: 'primary', icon: <CheckOutlined />, style: { background: '#52c41a', borderColor: '#52c41a' }, onClick: () => onApprove(record), children: '通过' },
+      ],
+      items: [
+        {
+          key: 'task',
+          label: '任务标题',
+          children: (
+            <div style={{ minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {record.task_subject && <DictTag code="subject" value={record.task_subject} />}
+              <Tag color={status.color} style={{ margin: 0 }}>{status.label}</Tag>
+              <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.task_title || '-'}</span>
+            </div>
+          ),
+        },
+        { key: 'date', label: '打卡日期', children: record.checkin_date || '-' },
+        { key: 'type', label: '打卡方式', children: checkinTypeLabel },
+        { key: 'submit', label: '提交时间', children: fmtDateTime(record.created_at) },
+        {
+          key: 'note',
+          label: '打卡内容',
+          span: 2,
+          children: (
+            <div style={{ minHeight: 60, display: 'flex', alignItems: 'center', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {record.checkin_note || '-'}
+            </div>
+          ),
+        },
+        { key: 'images', label: '打卡图片', span: 2, children: <TaskImages images={record.images} /> },
+        ...(record.checkin_type === 'voice' && record.voice_url
+          ? [{ key: 'voice', label: '语音打卡', span: 2, children: <AudioPlayer value={record.voice_url} duration={record.voice_duration} /> }]
+          : []),
+        ...(record.checkin_type === 'video' && record.video_url
+          ? [{ key: 'video', label: '视频打卡', span: 2, children: <VideoPlayer value={record.video_url} duration={record.video_duration} size={record.video_size} poster={record.video_cover} /> }]
+          : []),
+        { key: 'taskId', label: '任务编号', children: record.task_id },
+        { key: 'studentName', label: '提交学生', children: record.student.username || record.student.nickname || '-' },
+      ],
+      progress,
+    };
+  };
 
   return (
     <div>
@@ -126,18 +169,26 @@ export default function CheckinReviewsPage() {
         </Row>
       </Card>
 
-      <Card styles={{ body: { padding: 0 } }}>
-        <Table
-          rowKey="checkin_id"
-          size="middle"
-          loading={loading}
-          columns={columns}
-          dataSource={list}
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-          locale={{ emptyText: '暂无待审核打卡，学生提交打卡后会自动出现在这里' }}
-          scroll={{ x: 1200 }}
-        />
-      </Card>
+      {/* ===== 待审核打卡卡片网格（2 列等宽，Badge.Ribbon 状态绑带，与任务管理卡片页一致） ===== */}
+      {loading ? (
+        <PageSkeleton type="cards" twoCol noCover />
+      ) : list.length === 0 ? (
+        <Card style={{ borderRadius: 16, border: 'none', boxShadow: '0 4px 14px rgba(0,0,0,0.06)' }}>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待审核打卡，学生提交打卡后会自动出现在这里" />
+        </Card>
+      ) : (
+        <Row gutter={[16, 16]}>
+          {list.map(r => (
+            <Col span={12} key={r.checkin_id}>
+              <Badge.Ribbon text="待审核" color="warning" rootClassName="kxm-task-ribbon">
+                <Card style={{ height: '100%', display: 'flex', flexDirection: 'column' }} styles={{ body: { flex: 1, padding: '46px 16px 16px' } }}>
+                  <TaskCard {...buildCard(r)} />
+                </Card>
+              </Badge.Ribbon>
+            </Col>
+          ))}
+        </Row>
+      )}
 
       {/* ===== 驳回弹窗 ===== */}
       <Modal

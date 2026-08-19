@@ -1,5 +1,6 @@
 // pages/home/home.js
 const { lp, getRole, getViewStudent } = require('../../utils/api');
+const { fileUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
@@ -79,7 +80,10 @@ Page({
         })),
         weekCheckinCount: rawDays.reduce((s, d) => s + (Number(d.value) || 0), 0),
         reminders: dash.reminders || [],
-        recentCheckins: dash.recentCheckinList || [],
+        recentCheckins: (dash.recentCheckinList || []).map(c => ({
+          ...c,
+          voiceUrl: c.voice_url ? fileUrl(c.voice_url) : '',
+        })),
         subjectDist: dash.subjectDist || [],
         staff: (profile && profile.staff) || {},
       });

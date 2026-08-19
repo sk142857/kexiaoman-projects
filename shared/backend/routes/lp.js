@@ -13,16 +13,18 @@ const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql, formatDate, genId } = require("../utils");
 const { nextSeq } = require("../seq");
-const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages } = require("../storage");
+const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, VIDEO_MAX_SIZE } = require("../storage");
 const { logTaskEvent } = require("../taskTimeline");
 const { logEvent } = require("../events");
 const { getAppConfig } = require("../apps");
 const { reportTrace } = require("../trace");
 const { sendReviewNotification } = require("../subscribeLib");
+const { listBoundStaffs } = require("./lpAuth");
 const {
   parseImgList, attachAssignees, attachStaffInfo, attachCollectionName, attachCollectionCount,
   syncTaskAssignees, isTaskDone, levelFromXp, streakEndingAt, maxStreakOf, buildLearningReminders,
   invalidateCollectionRows, cachedDictItems, cachedStaffRows,
+  CHECKIN_TYPE_ALLOWED, normalizeCheckinType,
 } = require("../learningLib");
 
 const router = express.Router();
@@ -87,18 +89,22 @@ router.get("/session", async (req, res) => {
 router.get("/profile", async (req, res) => {
   try {
     const { data: rows, error } = await db.from("staff")
-      .select("staff_id, staff_username, staff_nickname, staff_role")
+      .select("staff_id, staff_username, staff_nickname, staff_avatar, staff_role")
       .eq("staff_id", Number(me(req))).limit(1);
     if (error) throw error;
     const staff = rows && rows[0];
     if (!staff) return res.json(fail("账号不存在", 403));
+    // 多身份（共用微信）：返回该 openid 全部有效身份 + PIN 状态，供前端切换
+    const identities = await listBoundStaffs(myOpenid(req));
     res.json(ok({
       app: req.appId || "miniprogram-kxm",
       staff: {
         staff_id: String(staff.staff_id),
         username: staff.staff_username,
         nickname: staff.staff_nickname || "学生",
+        avatar: staff.staff_avatar || "",
       },
+      identities,
     }));
   } catch (e) {
     console.error("[lp] profile error", e);
@@ -106,14 +112,16 @@ router.get("/profile", async (req, res) => {
   }
 });
 
-/** 更新我的昵称（同步 staff_nickname） */
+/** 更新我的资料（同步 staff_nickname / staff_avatar） */
 router.post("/profile", async (req, res) => {
   try {
-    const { nickname } = req.body || {};
+    const { nickname, avatar } = req.body || {};
     const n = String(nickname || "").trim().slice(0, 32);
     if (!n) return res.json(fail("昵称不能为空"));
-    await db.from("staff").update({ staff_nickname: n, updated_at: nowSql() }).eq("staff_id", Number(me(req)));
-    res.json(ok({ nickname: n }, "已更新"));
+    const values = { staff_nickname: n, updated_at: nowSql() };
+    if (avatar !== undefined) values.staff_avatar = String(avatar).trim().slice(0, 500);
+    await db.from("staff").update(values).eq("staff_id", Number(me(req)));
+    res.json(ok({ nickname: n, avatar: String(avatar || "").trim() }, "已更新"));
   } catch (e) {
     console.error("[lp] profile update error", e);
     res.json(fail("服务异常", 500));
@@ -219,7 +227,7 @@ router.get("/tasks", async (req, res) => {
     q = q.in("task_id", ids);
     if (status) q = q.eq("task_status", String(status).slice(0, 16));
     if (collectionId) q = q.eq("collection_id", Number(collectionId));
-    if (keyword) q = q.or(`title.ilike.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%`);
+    if (keyword) q = q.or(`title.like.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%`);
 
     const { data: rows, error } = await q.order("updated_at", { ascending: false }).limit(200);
     if (error) throw error;
@@ -238,6 +246,8 @@ router.get("/tasks", async (req, res) => {
       task_link: t.task_link,
       images: parseImgList(t.images),
       task_status: t.task_status,
+      progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+      checkin_type: normalizeCheckinType(t.checkin_type),
       score: t.score,
       deadline: t.deadline,
       start_date: t.start_date,
@@ -273,8 +283,12 @@ router.get("/tasks/detail", async (req, res) => {
     if (!task) return res.json(fail("任务不存在"));
     const cRows = cRes.data || [];
 
-    const [withCol, withAsg] = await Promise.all([attachCollectionName([task]), attachAssignees([task])]);
-    const merged = { ...(withAsg[0] || {}), ...(withCol[0] || {}) };
+    const [withCol, withAsg, withStaff] = await Promise.all([
+      attachCollectionName([task]),
+      attachAssignees([task]),
+      attachStaffInfo([task]),
+    ]);
+    const merged = { ...(withAsg[0] || {}), ...(withCol[0] || {}), ...(withStaff[0] || {}) };
     res.json(ok({
       task: {
         task_id: task.task_id,
@@ -285,6 +299,8 @@ router.get("/tasks/detail", async (req, res) => {
         task_link: task.task_link,
         images: parseImgList(task.images),
         task_status: task.task_status,
+        progress: Number(task.progress) >= 0 ? Number(task.progress) : (task.task_status === "done" ? 100 : task.task_status === "doing" ? 50 : 1),
+        checkin_type: normalizeCheckinType(task.checkin_type),
         score: task.score,
         deadline: task.deadline,
         start_date: task.start_date,
@@ -294,12 +310,20 @@ router.get("/tasks/detail", async (req, res) => {
         assignee_ids: merged.assignee_ids || [],
         created_by: task.created_by,
         created_at: task.created_at,
+        creator_name: merged._creatorNickname || merged._creatorUsername || "",
       },
       checkins: (cRows || []).map(c => ({
         checkin_id: c.checkin_id,
         checkin_date: c.checkin_date,
         checkin_note: c.checkin_note,
         images: parseImgList(c.checkin_images),
+        checkin_type: normalizeCheckinType(c.checkin_type),
+        voice_url: c.voice_url || "",
+        voice_duration: Number(c.voice_duration) || 0,
+        video_url: c.video_url || "",
+        video_duration: Number(c.video_duration) || 0,
+        video_size: Number(c.video_size) || 0,
+        video_cover: c.video_cover || "",
         review_status: c.review_status || "approved",
         review_score: c.review_score || 0,
         review_note: c.review_note || "",
@@ -319,6 +343,9 @@ router.post("/tasks/create", async (req, res) => {
     const b = req.body || {};
     const title = String(b.title || "").trim().slice(0, 100);
     if (!title) return res.json(fail("任务标题不能为空"));
+    // 打卡方式：非法值回退图文
+    const ctype = String(b.checkin_type || "image").trim();
+    const checkinType = normalizeCheckinType(ctype);
 
     const taskId = await nextSeq("task_id");
     const values = {
@@ -330,6 +357,8 @@ router.post("/tasks/create", async (req, res) => {
       tags: JSON.stringify(Array.isArray(b.tags) ? b.tags.slice(0, 20) : []),
       images: JSON.stringify(Array.isArray(b.images) ? b.images.slice(0, 9) : []),
       task_status: "todo",
+      progress: 1,
+      checkin_type: checkinType,
       score: Number(b.score) || 0,
       deadline: String(b.deadline || "").slice(0, 10),
       start_date: String(b.start_date || "").slice(0, 10),
@@ -416,6 +445,8 @@ router.post("/tasks/copy", async (req, res) => {
       tags: src.tags || "[]",
       images: JSON.stringify(ownedImages),
       task_status: "todo",
+      progress: 1,
+      checkin_type: normalizeCheckinType(src.checkin_type),
       score: 0,
       deadline: src.deadline || "",
       start_date: today,
@@ -478,6 +509,10 @@ router.post("/tasks/update", async (req, res) => {
     if (b.task_link !== undefined) values.task_link = String(b.task_link).slice(0, 500);
     if (b.tags !== undefined) values.tags = JSON.stringify(Array.isArray(b.tags) ? b.tags.slice(0, 20) : []);
     if (b.images !== undefined) values.images = JSON.stringify(Array.isArray(b.images) ? b.images.slice(0, 9) : []);
+    if (b.checkin_type !== undefined) {
+      const ctype = String(b.checkin_type || "image").trim();
+      values.checkin_type = normalizeCheckinType(ctype);
+    }
     if (b.deadline !== undefined) values.deadline = String(b.deadline).slice(0, 10);
     if (b.start_date !== undefined) values.start_date = String(b.start_date).slice(0, 10);
     if (b.collection_id !== undefined) values.collection_id = Number(b.collection_id) || 0;
@@ -521,7 +556,7 @@ router.post("/tasks/update", async (req, res) => {
   }
 });
 
-// ==================== 任务状态流转（未开始→进行中→已完成） ====================
+// ==================== 任务状态流转（待完成→进行中→已完成） ====================
 router.post("/tasks/status", async (req, res) => {
   try {
     const staffId = Number(me(req));
@@ -552,6 +587,7 @@ router.post("/tasks/status", async (req, res) => {
       if ((old.checkin_count || 0) < 1) return res.json(fail("至少打卡一次后才能完成任务"));
       const s = Number(score);
       values.score = Number.isFinite(s) && s >= 0 && s <= 10 ? s : (old.score || 0);
+      values.progress = 100;
     }
     if (isManager(req)) {
       await db.from("tasks").update(values).eq("task_id", tid);
@@ -595,13 +631,17 @@ router.post("/tasks/delete", async (req, res) => {
     // 兜底风控：已完成任务仅可查看，学生禁止删除（家长/家属/管理员不受限）
     if (!isManager(req) && record.task_status === "done") return res.json(fail("任务已完成，仅可查看，禁止删除"));
 
-    // 级联清理：任务附件图 + 打卡图 + 打卡记录 + 派发关联
+    // 级联清理：任务附件图 + 打卡图 + 打卡语音 + 打卡记录 + 派发关联
     try {
       const { data: checkins } = await db.from("task_checkins")
-        .select("checkin_id, checkin_images").eq("task_id", tid).limit(10000);
+        .select("checkin_id, checkin_images, voice_url, video_url").eq("task_id", tid).limit(10000);
       const checkinList = checkins || [];
       const paths = [...parseImgList(record.images)];
-      checkinList.forEach(c => paths.push(...parseImgList(c.checkin_images)));
+      checkinList.forEach(c => {
+        paths.push(...parseImgList(c.checkin_images));
+        if (c.voice_url) paths.push(c.voice_url);
+        if (c.video_url) paths.push(c.video_url);
+      });
       const { deleted } = await removeFiles(paths);
       if (deleted.length > 0) {
         try { await db.from("file_uploads").delete().in("file_path", deleted); } catch (_) {}
@@ -654,6 +694,13 @@ router.get("/checkins", async (req, res) => {
         checkin_date: c.checkin_date,
         checkin_note: c.checkin_note,
         images: parseImgList(c.checkin_images),
+        checkin_type: normalizeCheckinType(c.checkin_type),
+        voice_url: c.voice_url || "",
+        voice_duration: Number(c.voice_duration) || 0,
+        video_url: c.video_url || "",
+        video_duration: Number(c.video_duration) || 0,
+        video_size: Number(c.video_size) || 0,
+        video_cover: c.video_cover || "",
         created_at: c.created_at,
       })),
     }));
@@ -667,7 +714,7 @@ router.get("/checkins", async (req, res) => {
 router.post("/checkins/create", async (req, res) => {
   try {
     const staffId = Number(me(req));
-    const { taskId, date, note, images } = req.body || {};
+    const { taskId, date, note, images, voiceUrl, voiceDuration, videoUrl, videoDuration } = req.body || {};
     const tid = Number(taskId);
     if (!tid) return res.json(fail("缺少任务 ID"));
 
@@ -675,15 +722,44 @@ router.post("/checkins/create", async (req, res) => {
     if (!ids.includes(tid)) return res.json(fail("无权操作该任务", 403));
 
     const { data: rows, error } = await db.from("tasks")
-      .select("task_id, title, task_status, checkin_count").eq("task_id", tid).limit(1);
+      .select("task_id, title, task_status, checkin_count, checkin_type").eq("task_id", tid).limit(1);
     if (error) throw error;
     const task = rows && rows[0];
     if (!task) return res.json(fail("任务不存在"));
     // 兜底风控：已完成任务仅可查看，学生禁止打卡（管理员不受限）
     if (!isAdmin(req) && task.task_status === "done") return res.json(fail("任务已完成，不能打卡"));
 
+    // 打卡方式强约束：以任务发布的 checkin_type 为准
+    const checkinType = normalizeCheckinType(task.checkin_type);
+    const vUrl = String(voiceUrl || "").trim().slice(0, 500);
+    const vDur = Math.floor(Number(voiceDuration) || 0);
+    const vUrl2 = String(videoUrl || "").trim().slice(0, 500);
+    const vDur2 = Math.floor(Number(videoDuration) || 0);
+
+    let imgList = [];
+    if (checkinType === "voice") {
+      // 语音打卡：必须携带已上传的语音文件，禁止图片
+      if (!vUrl || !vUrl.startsWith("kxm/voice/")) return res.json(fail("请先录制语音再打卡"));
+      if (vDur < 1 || vDur > 60) return res.json(fail("语音时长不合法"));
+      if (Array.isArray(images) && images.length > 0) return res.json(fail("语音打卡不支持图片"));
+    } else if (checkinType === "video") {
+      // 视频打卡：必须携带已上传的视频文件（限 1GB），禁止图片
+      if (!vUrl2 || !vUrl2.startsWith("kxm/videos/")) return res.json(fail("请先上传视频再打卡"));
+      if (vDur2 < 1 || vDur2 > 3600) return res.json(fail("视频时长不合法"));
+      if (Array.isArray(images) && images.length > 0) return res.json(fail("视频打卡不支持图片"));
+    } else {
+      imgList = (Array.isArray(images) ? images : []).slice(0, 9);
+    }
+    // 视频大小后端复核（登记记录里取；无登记记录时以路径前缀校验兜底）
+    let videoSize = 0;
+    if (checkinType === "video") {
+      const { data: vRows } = await db.from("file_uploads").select("file_size").eq("file_path", vUrl2).limit(1);
+      const vRec = vRows && vRows[0];
+      if (vRec && Number(vRec.file_size) > VIDEO_MAX_SIZE) return res.json(fail("视频不能超过 1GB"));
+      videoSize = Number((vRec && vRec.file_size) || 0);
+    }
+
     const checkinDate = date || formatDate(new Date());
-    const imgList = (Array.isArray(images) ? images : []).slice(0, 9);
     const checkinId = await nextSeq("task_checkin_id");
     const { error: insErr } = await db.from("task_checkins").insert({
       checkin_id: checkinId,
@@ -691,22 +767,45 @@ router.post("/checkins/create", async (req, res) => {
       checkin_date: String(checkinDate).slice(0, 10),
       checkin_note: String(note || "").slice(0, 500),
       checkin_images: JSON.stringify(imgList),
+      checkin_type: checkinType,
+      voice_url: checkinType === "voice" ? vUrl : "",
+      voice_duration: checkinType === "voice" ? vDur : 0,
+      video_url: checkinType === "video" ? vUrl2 : "",
+      video_duration: checkinType === "video" ? vDur2 : 0,
+      video_size: checkinType === "video" ? videoSize : 0,
       created_by: staffId,
       review_status: "pending",
       created_at: nowSql(),
     });
     if (insErr) throw insErr;
 
+    // 视频打卡：后端后台压缩视频节省云存储空间（异步，压缩/抽帧完成后回写 video_url/video_size/video_cover）
+    if (checkinType === "video" && vUrl2) {
+      setTimeout(async () => {
+        try {
+          const r = await compressVideo({ path: vUrl2, duration: vDur2 });
+          const upd = { video_size: Number((r && r.size) || 0) };
+          if (r && r.path && r.path !== vUrl2) upd.video_url = r.path;
+          if (r && r.cover) upd.video_cover = r.cover;
+          if (Object.keys(upd).length > 0) {
+            await db.from("task_checkins").update(upd).eq("checkin_id", checkinId);
+          }
+        } catch (e) {
+          console.error("[lp] 视频后台压缩失败", vUrl2, e.message);
+        }
+      }, 0);
+    }
+
     if (imgList.length > 0) await bindBizId({ openid: myOpenid(req), paths: imgList, bizId: tid });
 
-    const taskValues = { checkin_count: (task.checkin_count || 0) + 1, updated_at: nowSql() };
+    const taskValues = { checkin_count: (task.checkin_count || 0) + 1, progress: 50, updated_at: nowSql() };
     if (task.task_status === "todo") taskValues.task_status = "doing";
     await db.from("tasks").update(taskValues).eq("task_id", tid);
 
     logTaskEvent({
       taskId: tid, checkinId, bizType: "task_checkin", eventType: "checkin", eventName: "任务打卡",
       summary: `小程序端对任务「${task.title}」打卡（第 ${(task.checkin_count || 0) + 1} 次，待审核）`,
-      payload: { task_title: task.title, checkin_date: checkinDate, note: note || "", images: imgList, review_status: "pending" },
+      payload: { task_title: task.title, checkin_date: checkinDate, note: note || "", images: imgList, checkin_type: checkinType, voice_url: vUrl, voice_duration: vDur, review_status: "pending" },
       staffId,
     });
     logEvent({ appId: req.appId, openid: myOpenid(req), eventType: "create", eventName: "学习打卡", pagePath: "/pages/task-detail/index", bizId: String(tid) });
@@ -733,6 +832,19 @@ router.post("/checkins/delete", async (req, res) => {
     if (!isAdmin(req) && await isTaskDone(rec.task_id)) return res.json(fail("任务已完成，仅可查看，禁止删除打卡"));
 
     await db.from("task_checkins").delete().eq("checkin_id", cid).eq("created_by", staffId);
+    // 级联清理媒体文件（语音/视频/封面：物理删 COS + 登记记录）
+    const mediaPaths = [];
+    if (rec.voice_url) mediaPaths.push(rec.voice_url);
+    if (rec.video_url) mediaPaths.push(rec.video_url);
+    if (rec.video_cover) mediaPaths.push(rec.video_cover);
+    if (mediaPaths.length > 0) {
+      try {
+        const { deleted } = await removeFiles(mediaPaths);
+        if (deleted.length > 0) {
+          await db.from("file_uploads").delete().in("file_path", deleted);
+        }
+      } catch (_) {}
+    }
     const { data: tRows } = await db.from("tasks")
       .select("checkin_count").eq("task_id", rec.task_id).limit(1);
     if (tRows && tRows[0]) {
@@ -764,7 +876,7 @@ router.get("/todos", async (req, res) => {
   }
 });
 
-/** 学生待办：派发给我/我创建，未完成且该学生无待审核/已通过打卡的任务 */
+/** 学生待办：派发给我/我创建，待完成且该学生无待审核/已通过打卡的任务 */
 async function studentTodos(req, res) {
   const staffId = Number(me(req));
   const ids = await myTaskIds(String(staffId));
@@ -799,6 +911,7 @@ async function studentTodos(req, res) {
       title: t.title,
       subject: t.subject,
       task_status: t.task_status,
+      checkin_type: normalizeCheckinType(t.checkin_type),
       deadline: t.deadline,
       checkin_count: t.checkin_count || 0,
       collection_name: t.collection_name || "",
@@ -844,6 +957,13 @@ async function managerTodos(req, res) {
         checkin_date: c.checkin_date,
         checkin_note: c.checkin_note,
         images: parseImgList(c.checkin_images),
+        checkin_type: normalizeCheckinType(c.checkin_type),
+        voice_url: c.voice_url || "",
+        voice_duration: Number(c.voice_duration) || 0,
+        video_url: c.video_url || "",
+        video_duration: Number(c.video_duration) || 0,
+        video_size: Number(c.video_size) || 0,
+        video_cover: c.video_cover || "",
         created_at: c.created_at,
       };
     });
@@ -856,21 +976,26 @@ async function managerTodos(req, res) {
 // 审核完成后通过订阅消息给打卡提交人发送「审核结果通知」（失败不影响审核主流程）
 async function notifyReviewResult(req, checkin, task, result, note) {
   try {
+    // 多身份（共用微信）：该学生所有有效绑定 openid（家长手机 + 孩子手机）都通知
     const { data: stuRows } = await db.from("lp_students")
       .select("openid")
       .eq("staff_id", checkin.created_by)
       .eq("app_id", req.appId || "miniprogram-kxm")
-      .limit(1);
-    await sendReviewNotification({
-      appId: req.appId || "miniprogram-kxm",
-      openid: (stuRows && stuRows[0] && stuRows[0].openid) || "",
-      staffId: checkin.created_by,
-      checkinId: checkin.checkin_id,
-      taskId: checkin.task_id,
-      taskTitle: (task && task.title) || "",
-      result,
-      note,
-    });
+      .eq("bound_status", 1)
+      .limit(50);
+    const openids = [...new Set((stuRows || []).map(r => r.openid).filter(Boolean))];
+    for (const openid of openids) {
+      await sendReviewNotification({
+        appId: req.appId || "miniprogram-kxm",
+        openid,
+        staffId: checkin.created_by,
+        checkinId: checkin.checkin_id,
+        taskId: checkin.task_id,
+        taskTitle: (task && task.title) || "",
+        result,
+        note,
+      });
+    }
   } catch (e) {
     console.error("[lp] notify review error", e);
   }
@@ -1181,6 +1306,8 @@ router.post("/upload", async (req, res) => {
     const bizName = String(biz || "tasks").slice(0, 32);
     if (!Array.isArray(files) || files.length === 0) return res.json(fail("缺少图片文件"));
     if (files.length > 9) return res.json(fail("单次最多上传 9 张"));
+    // 视频体积大走 wx.cloud.uploadFile 直传 + /api/storage/upload 登记，不接 base64
+    if (bizName === "videos") return res.json(fail("视频请通过直传上传"));
 
     const pool = async (items, worker, limit) => {
       const out = new Array(items.length);
@@ -1203,12 +1330,16 @@ router.post("/upload", async (req, res) => {
         contentType = mimeMatch[1] || contentType;
         b64 = mimeMatch[2];
       }
-      if (/image\/png/i.test(contentType)) contentType = "image/png";
+      const isVoice = String(bizName) === "voice";
+      if (isVoice) {
+        // 语音打卡：接受音频 contentType，未知一律 audio/mpeg
+        if (!/^audio\//i.test(contentType)) contentType = "audio/mpeg";
+      } else if (/image\/png/i.test(contentType)) contentType = "image/png";
       else if (/image\/webp/i.test(contentType)) contentType = "image/webp";
       else contentType = "image/jpeg";
 
       const buffer = Buffer.from(b64, "base64");
-      const fileObj = await uploadImage({ biz: bizName, buffer, contentType, fileName: String(f.fileName || "") });
+      const fileObj = await uploadImage({ biz: bizName, buffer, contentType, fileName: String(f.fileName || ""), compress: !isVoice });
       await logUpload({ openid: myOpenid(req), biz: bizName, file: fileObj, staffId: "" });
       return { path: fileObj.path, url: fileObj.url };
     }, 3);
@@ -1277,7 +1408,7 @@ router.get("/dashboard", async (req, res) => {
     tasks.forEach(t => { const s = String(t.subject || "").trim() || "未分类"; subjectMap[s] = (subjectMap[s] || 0) + 1; });
     const subjectDist = Object.entries(subjectMap).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
     const statusDist = [
-      { name: "未开始", value: todoCount, color: "#bfbfbf" },
+      { name: "待完成", value: todoCount, color: "#bfbfbf" },
       { name: "进行中", value: doingCount, color: "#1677ff" },
       { name: "已完成", value: doneCount, color: "#52c41a" },
     ].filter(x => x.value > 0);
@@ -1345,6 +1476,13 @@ router.get("/dashboard", async (req, res) => {
       checkin_date: c.checkin_date,
       note: c.checkin_note,
       has_images: parseImgList(c.checkin_images).length > 0,
+      checkin_type: normalizeCheckinType(c.checkin_type),
+      voice_url: c.voice_url || "",
+      voice_duration: Number(c.voice_duration) || 0,
+      video_url: c.video_url || "",
+      video_duration: Number(c.video_duration) || 0,
+      video_size: Number(c.video_size) || 0,
+      video_cover: c.video_cover || "",
       created_at: c.created_at,
     }));
 

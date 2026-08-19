@@ -1,0 +1,42 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="编辑资料"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="content">
+      <!-- 头像（原生 chooseAvatar 组件，正方形） -->
+      <view class="avatar-card">
+        <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar" hover-class="avatar-btn--active">
+          <image wx:if="{{tempAvatarPath}}" class="avatar-img" src="{{tempAvatarPath}}" mode="aspectFill" />
+          <image wx:elif="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
+          <view wx:else class="avatar-char">{{avatarChar}}</view>
+          <view class="avatar-cam">📷</view>
+        </button>
+        <text class="avatar-tip">点击更换头像</text>
+      </view>
+
+      <!-- 表单 -->
+      <view class="form-card">
+        <view class="field">
+          <text class="label">用户ID</text>
+          <text class="value-box">{{staffId || '--'}}</text>
+        </view>
+        <view class="field">
+          <text class="label">昵称</text>
+          <input class="input" value="{{nickname}}" bindinput="onNick" placeholder="请输入昵称" maxlength="20" placeholder-class="ph" />
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- 固定底部操作栏（flex 子项贴底，见规范 §3.1，skyline 下不用 fixed） -->
+  <view class="footer">
+    <t-button class="btn" theme="primary" block bindtap="onSave" loading="{{saving}}">{{saving ? '保存中...' : '保存'}}</t-button>
+  </view>
+</view>

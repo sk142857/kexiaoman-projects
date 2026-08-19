@@ -59,21 +59,30 @@
 
 | 项 | 说明 |
 |----|------|
-| 登录 | `POST /api/lp/login`（wx.login code → code2session 换 openid，复用 `appAuth` 共享登录） |
-| 绑定 | `POST /api/lp/bind`：输入 6 位大写邀请码，绑定 openid ↔ 学生账号（`t_lp_students`） |
-| 鉴权 | `lpAuth` 中间件校验 LP JWT，**每次请求实时复核邀请码状态，作废即刻锁定** |
+| 登录 | `POST /api/lp/login`（wx.login code → code2session 换 openid，复用 `appAuth` 共享登录；返回 `identities[]` 多身份列表 + 活动身份） |
+| 绑定 | `POST /api/lp/bind`：输入 6 位大写邀请码，绑定 openid ↔ 学生账号（`t_lp_students`）；**多身份追加绑定**（家长/孩子/家属可共存于同一 openid） |
+| 切换 | `POST /api/lp/switch`：切换活动身份（家长↔孩子↔家属）；切到家长/管理员需 PIN（若已设置） |
+| 鉴权 | `lpAuth` 中间件校验 LP JWT（含活动身份 staffId），**每次请求实时复核该绑定状态，作废即刻锁定** |
 | 业务 | `/api/lp/profile · dashboard · tasks · checkins · collections · upload`（操作 `t_lp_*`，学生=staff_id） |
 | 学生身份 | 首次绑定自动建 `role=student` 的 `t_staff` 记录并生成绑定映射，与后台学习模块数据打通 |
 
-**邀请码准入**：邀请码独立维护在 `t_lp_invites`（不再挂 `t_staff`），6 位大写（生成时排除 0/O/1/I），分两类：
+**邀请码准入**：邀请码独立维护在 `t_lp_invites`（不再挂 `t_staff`），6 位大写（生成时排除 0/O/1/I），分三类：
 - `student` 学生码：主家长在孩子档案中生成，绑定孩子学生账号（role=student），仅可绑定一次（未绑定可用）。
+- `parent` 家长码：管理员在后台「邀请码管理」为已注册主家长账号生成（单次使用，绑定即作废），家长小程序「我是家长→绑定已有账号」输入即可绑定，无需自动建号。
 - `family` 家属共享码：主家长生成（单次使用，绑定即作废），绑定后建家属账号（role=family）并写入家属关系。
 
-**身份与角色**：首次静默登录后需选择身份（家长 / 学生 / 家属），绑定后一次性锁定。
-- `parent` 主家长：自动建后台账号（密码点击查看，可重置）+ 生成家属共享码；可维护孩子档案、管理本家庭任务与打卡审核。
+**家长入驻两种模式**：
+- 无码自动建号：小程序「我是家长→创建新账号」自动建后台账号（密码可查看/重置）+ 生成家属共享码；
+- 后台发码只绑定：管理员先建主家长账号并生成家长码，家长输入码绑定，避免「后台一个账号、小程序一个账号」双账号。
+
+**身份与角色**：首次静默登录后需选择身份（家长 / 学生 / 家属），绑定后形成身份；**支持一 openid 多身份（共用微信）**：
+- `parent` 主家长：自动建后台账号（密码点击查看，可重置）+ 生成家属共享码；可维护孩子档案、管理本家庭任务与打卡审核；**可设置身份 PIN 锁**。
 - `family` 家属：输入共享码进入，除孩子档案维护外与主家长相同（可审核，仅查看档案）。
 - `student` 学生：输入学生码绑定，仅本人任务/打卡，无审核权限。
 - `admin` 平台管理员：全量（含系统设置）。
+- **共用微信（家长 + 孩子一台手机）**：同一 openid 可同时绑定家长与孩子身份（`t_lp_students` 唯一键 `(app_id, openid, staff_id)`），
+  「我的」页可切换身份；切到家长身份若已设 PIN 锁则需校验 PIN（`t_staff.pin_hash`，bcrypt，家长自选开启，防止孩子越权切家长模式）。
+- 各有手机场景不变：openid 各自绑定单身份，无切换 UI。
 
 **孩子档案**：主家长在【我的】→【孩子档案】维护（姓名/性别/出生年月/学校/年级班级如 四（6），班级 1-35），并为每个孩子生成学生邀请码。
 **绑定关系**：后台「学习管理 → 绑定管理」集中管理 `t_lp_students`（openid ↔ 账号），支持解除/变更绑定。
@@ -109,6 +118,13 @@
 - 存储桶：`636c-cloud1-d6gddqzrsda16338f-1467751604`；共享存储根路径 `kxm`；按业务分目录，如任务图片 `kxm/tasks/yyyy-mm-dd/{fileId}.jpg`。
 - 图片公开访问域名：`https://636c-cloud1-d6gddqzrsda16338f-1467751604.tcb.qcloud.la/{路径}`（前端/后台拼接完整域名）。
 - ⚠️ 小程序端 `<image>` 展示该域名图片，需在微信公众平台配置 **downloadFile 合法域名**。
+
+## 语音打卡存储
+
+- 语音目录：`kxm/voice/{yyyy-MM-dd}/{fileId}.mp3`（业务类型 `voice`，见 `storage.js` 白名单）。
+- 小程序端录音（`utils/voice.js`，mp3 ≤60s）→ `wx.cloud.uploadFile` 直传云存储 → `/api/storage/upload` 登记 `t_file_uploads`（语音走直传，避免 callContainer 请求体限制）。
+- 打卡提交带 `voiceUrl`（相对路径）+ `voiceDuration`（秒），展示用 `voice-player` 组件（`wx.createInnerAudioContext`）或后台 `<audio>` 播放。
+- 音频播放/下载域名与图片同一域名，已在微信公众平台配置。
 
 ## 环境初始化
 

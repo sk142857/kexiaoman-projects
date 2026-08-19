@@ -2,12 +2,6 @@
   /* 底部有 FAB：safe-bottom(180rpx) + 128rpx 留白 */
   padding: 24rpx 32rpx calc(var(--safe-bottom) + 128rpx);
 }
-.empty {
-  color: #b0b6c0;
-  text-align: center;
-  padding: 120rpx 0;
-  font-size: 28rpx;
-}
 .item {
   background: #ffffff;
   border-radius: 16rpx;
@@ -26,7 +20,7 @@
 .fab {
   position: fixed;
   right: 40rpx;
-  bottom: calc(var(--safe-bottom) + 32rpx);
+  bottom: calc(env(safe-area-inset-bottom) + 40rpx);
   width: 100rpx;
   height: 100rpx;
   border-radius: 50%;

@@ -18,3 +18,14 @@
   word-break: break-all;
   word-wrap: break-word;
 }
+
+/* 任务管理（卡片模式）：Badge.Ribbon 包裹整卡，让卡片填满栅格列 → 同行卡片等高
+   （ant-ribbon-wrapper 为内联定位的 div，rootClassName 落在该包裹元素上） */
+.kxm-task-ribbon {
+  display: flex;
+  height: 100%;
+}
+.kxm-task-ribbon > .ant-card {
+  flex: 1;
+  min-width: 0;
+}

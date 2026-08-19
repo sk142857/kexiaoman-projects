@@ -3,7 +3,7 @@ const { lp, getViewStudent, getRole } = require('../../utils/api');
 const { fileUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
-const STATUS_TEXT = { todo: '未开始', doing: '进行中', done: '已完成' };
+const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成' };
 const REVIEW_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
 const REVIEW_THEME = {
   pending: { color: '#e37318', bg: '#fdf1e4' },
@@ -61,6 +61,9 @@ Page({
           reviewColor: theme.color,
           reviewBg: theme.bg,
           canDelete: !isDone || this.data.isManager,
+          voiceUrl: c.voice_url ? fileUrl(c.voice_url) : '',
+          videoUrl: c.video_url ? fileUrl(c.video_url) : '',
+          videoCover: c.video_cover ? fileUrl(c.video_cover) : '',
         };
       });
       this.setData({
@@ -68,6 +71,7 @@ Page({
         checkins,
         images: ((task && task.images) || []).map(fileUrl),
         isDone,
+        checkinType: (task && task.checkin_type) || 'image',
         // 已完成任务仅可查看：学生隐藏编辑/删除/打卡；家长/家属/管理员不受限
         canManage: this.data.isManager || (own && !isDone),
         canCheckin: !this.data.isManager && !isDone,
@@ -85,6 +89,16 @@ Page({
   preview(e) {
     const url = e.currentTarget.dataset.url;
     wx.previewImage({ urls: this.data.images, current: url });
+  },
+
+  previewCheckin(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const cid = String(e.currentTarget.dataset.cid);
+    const item = this.data.checkins.find(c => String(c.checkin_id) === cid);
+    const urls = (item && item.images) || [];
+    const url = urls[index];
+    if (!url) return;
+    wx.previewImage({ urls, current: url });
   },
 
   onStart() {
@@ -138,21 +152,9 @@ Page({
   },
 
   onCopy() {
-    wx.showModal({
-      title: '复制任务？',
-      content: '将复制任务及其图片，生成一个新的未开始任务，可重新打卡',
-      confirmText: '复制',
-      success: (r) => {
-        if (!r.confirm) return;
-        lp.taskCopy(this.data.id)
-          .then((res) => {
-            trackEvent('button_click', '复制任务', { taskId: this.data.id });
-            wx.showToast({ title: '复制成功', icon: 'success' });
-            setTimeout(() => wx.redirectTo({ url: `/pkg-task/task-detail/task-detail?id=${res.task_id}` }), 600);
-          })
-          .catch((e) => wx.showToast({ title: e.msg || '复制失败', icon: 'none' }));
-      },
-    });
+    // 克隆 = 把源任务内容带入新增任务表单，用户可修改后再创建
+    trackEvent('button_click', '克隆任务', { taskId: this.data.id });
+    wx.navigateTo({ url: `/pkg-task/task-edit/task-edit?id=${this.data.id}&clone=1` });
   },
 
   onDeleteCheckin(e) {

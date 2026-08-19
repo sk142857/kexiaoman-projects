@@ -62,6 +62,10 @@
   border-radius: 8rpx;
   padding: 4rpx 12rpx;
 }
+.todo-tag.voice {
+  color: #d46b08;
+  background: #fff7e6;
+}
 .todo-deadline {
   font-size: 24rpx;
   color: #8a919f;
@@ -157,6 +161,23 @@
   color: #5c6470;
   line-height: 1.6;
   word-break: break-all;
+}
+.review-voice {
+  margin-top: 16rpx;
+}
+.review-video {
+  margin-top: 16rpx;
+}
+.review-video .video {
+  width: 100%;
+  height: 360rpx;
+  border-radius: 12rpx;
+  background: #1f2329;
+}
+.review-video-meta {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #8a919f;
 }
 .review-imgs {
   margin-top: 16rpx;

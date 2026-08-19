@@ -50,6 +50,9 @@ Page({
         return {
           ...it,
           images: (it.images || []).map(fileUrl),
+          voiceUrl: it.voice_url ? fileUrl(it.voice_url) : '',
+          videoUrl: it.video_url ? fileUrl(it.video_url) : '',
+          videoCover: it.video_cover ? fileUrl(it.video_cover) : '',
           studentAvatar: String(nickname).charAt(0) || '生',
           submitTime: String(it.created_at || '').slice(0, 16),
         };

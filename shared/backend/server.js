@@ -42,6 +42,7 @@ app.use("/admin", (req, res, next) => {
     || req.path === "/me"
     || req.path === "/menus"
     || req.path === "/menus/all"
+    || req.path === "/myApps"
     || (req.method === "POST" && req.path.startsWith("/login"));
   if (isApi) return next();
   adminStatic(req, res, (err) => {
@@ -55,10 +56,11 @@ app.use("/admin", (req, res, next) => {
 });
 
 // 宽松 JSON 解析：GET 跳过，避免 callContainer 的 GET+json 触发 400；解析错误返回明确信息
-// limit 20mb：兜底放宽，图片已改为 wx.cloud.uploadFile 直传云存储，请求体仅含路径
+// limit 30mb：图片走 base64 JSON 上传（前端选原图 → 后端压缩），单图上限 20MB，
+// base64 膨胀约 1/3，兜底放宽到 30mb 以覆盖 20MB 原图
 app.use((req, res, next) => {
   if (req.method === 'GET') return next();
-  express.json({ strict: false, limit: '20mb' })(req, res, (err) => {
+  express.json({ strict: false, limit: '30mb' })(req, res, (err) => {
     if (err) {
       console.error('[json] body 解析失败', err.message);
       return res.status(200).json({ code: 400, msg: '请求体解析失败：' + err.message, data: null });

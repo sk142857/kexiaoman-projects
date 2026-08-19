@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Progress, Avatar, Tooltip, Empty, Spin } from 'antd';
+import { Row, Col, Card, Table, Tag, Progress, Avatar, Tooltip, Empty } from 'antd';
 import {
   TrophyOutlined, StarFilled, FireOutlined, CalendarOutlined,
   CheckCircleOutlined, PercentageOutlined, FileTextOutlined, ClockCircleOutlined,
@@ -8,6 +8,7 @@ import {
 import { Area, Pie, Column, Bar } from '@ant-design/charts';
 import { dashboardApi } from '../services/api';
 import { StaffCell } from '../components/fields.jsx';
+import PageSkeleton from '../components/PageSkeleton.jsx';
 
 const COLORS = {
   blue: '#1677ff',
@@ -92,8 +93,8 @@ const badgeGradient = (key) => {
   return GRADIENT_POOL[h % GRADIENT_POOL.length];
 };
 
-const STATUS_COLOR = { todo: '#bfbfbf', doing: '#1677ff', done: '#52c41a', 未开始: '#bfbfbf', 进行中: '#1677ff', 已完成: '#52c41a' };
-const STATUS_LABEL = { todo: '未开始', doing: '进行中', done: '已完成' };
+const STATUS_COLOR = { todo: '#bfbfbf', doing: '#1677ff', done: '#52c41a', 待完成: '#bfbfbf', 进行中: '#1677ff', 已完成: '#52c41a' };
+const STATUS_LABEL = { todo: '待完成', doing: '进行中', done: '已完成' };
 
 // 提醒告警配色：严重=红、警告=橙、提示=蓝、完成=绿
 const ALERT_THEME = {
@@ -126,11 +127,7 @@ export default function LearningDashboard() {
   }, []);
 
   if (loading) {
-    return (
-      <div style={{ width: '100%', padding: 90, textAlign: 'center' }}>
-        <Spin size="large" tip="加载学习成长数据..." />
-      </div>
-    );
+    return <PageSkeleton type="learning" />;
   }
 
   // 兼容后端旧响应/缺失字段：默认值合并，任何字段缺失都回退为 0/false，杜绝渲染 undefined
@@ -166,10 +163,10 @@ export default function LearningDashboard() {
     { title: '累计经验', value: level.xp ?? 0, icon: <StarFilled />, grad: GRADIENTS.purple, sub: level.maxLevel ? '已满级' : `距下一级还差 ${level.xpToNext ?? 0}` },
     { title: '连续打卡', value: `${streak.current ?? 0} 天`, icon: <FireOutlined />, grad: GRADIENTS.orange, sub: `历史最长 ${streak.max ?? 0} 天` },
     { title: '累计打卡', value: stats.totalCheckins ?? 0, icon: <CalendarOutlined />, grad: GRADIENTS.cyan, sub: '总打卡次数' },
-    { title: '今日打卡', value: stats.todayCheckedIn ? '已完成' : '未完成', icon: <CheckCircleOutlined />, grad: stats.todayCheckedIn ? GRADIENTS.green : GRADIENTS.gray, sub: stats.todayCheckins ? `今日 ${stats.todayCheckins ?? 0} 次` : '记得打卡哦' },
+    { title: '今日打卡', value: stats.todayCheckedIn ? '已完成' : '待完成', icon: <CheckCircleOutlined />, grad: stats.todayCheckedIn ? GRADIENTS.green : GRADIENTS.gray, sub: stats.todayCheckins ? `今日 ${stats.todayCheckins ?? 0} 次` : '记得打卡哦' },
     { title: '任务完成率', value: `${stats.completionRate ?? 0}%`, icon: <PercentageOutlined />, grad: GRADIENTS.blue, sub: `${stats.doneCount ?? 0}/${stats.totalTasks ?? 0} 已完成` },
     { title: '进行中任务', value: stats.activeCount ?? 0, icon: <FileTextOutlined />, grad: GRADIENTS.blue, sub: '正在推进' },
-    { title: '待完成任务', value: stats.remainingCount ?? 0, icon: <ClockCircleOutlined />, grad: GRADIENTS.gray, sub: '未开始 + 进行中' },
+    { title: '待完成任务', value: stats.remainingCount ?? 0, icon: <ClockCircleOutlined />, grad: GRADIENTS.gray, sub: '待完成 + 进行中' },
   ];
 
   const trendCfg = {

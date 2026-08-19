@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Drawer, Timeline, Tag, Spin, Empty } from 'antd';
+import { Drawer, Timeline, Tag, Empty } from 'antd';
 import {
   PlusCircleFilled, CheckCircleFilled, CalendarFilled, EditFilled,
   DeleteFilled, EditOutlined, HistoryOutlined,
 } from '@ant-design/icons';
 import { crudApi } from '../services/api';
 import { ImageAvatar, ImageList, parseImages } from './fields.jsx';
+import PageSkeleton from './PageSkeleton.jsx';
 import dayjs from 'dayjs';
 
 // 事件类型 → 醒目节点图标/颜色/标记（创建/完成/打卡等特殊节点用填充图标突出）
@@ -169,13 +170,13 @@ export default function TimelineDrawer({
 
   return (
     <Drawer title={drawerTitle} width={width} open={open} onClose={onClose} destroyOnClose>
-      <Spin spinning={loading}>
-        {!loading && list.length === 0 ? (
-          <Empty description="暂无时间轴记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <Timeline items={items} titleSpan="120px" />
-        )}
-      </Spin>
+      {loading ? (
+        <PageSkeleton type="timeline" />
+      ) : list.length === 0 ? (
+        <Empty description="暂无时间轴记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <Timeline items={items} titleSpan="120px" />
+      )}
     </Drawer>
   );
 }

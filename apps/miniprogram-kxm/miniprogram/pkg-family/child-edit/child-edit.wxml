@@ -68,16 +68,18 @@
 
       <view class="field">
         <text class="label">班级 <text class="req">*</text></text>
-        <picker range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClass">
-          <view class="picker-box {{classIndex >= 0 ? '' : 'ph'}}">
-            <text>{{classIndex >= 0 ? classes[classIndex].label : '请选择班级（1-35）'}}</text>
-            <text class="arrow">›</text>
+        <view class="class-row">
+          <picker class="class-picker" range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClass">
+            <view class="picker-box {{classIndex >= 0 ? '' : 'ph'}}">
+              <text>{{classIndex >= 0 ? classes[classIndex].label : '请选择'}}</text>
+              <text class="arrow">›</text>
+            </view>
+          </picker>
+          <view class="preview">
+            <text class="preview-label">班级展示</text>
+            <text class="preview-strong {{previewText ? '' : 'preview-strong--empty'}}">{{previewText || '未选择'}}</text>
           </view>
-        </picker>
-      </view>
-
-      <view class="preview" wx:if="{{gradeIndex >= 0 && classIndex >= 0}}">
-        班级展示：<text class="preview-strong">{{previewText}}</text>
+        </view>
       </view>
     </view>
   </scroll-view>

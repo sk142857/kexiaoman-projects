@@ -52,14 +52,10 @@
       <view class="sub-section-title">授权记录</view>
       <view class="sub-card sub-grants">
         <!-- 首次加载中 -->
-        <view wx:if="{{loading && !loaded}}" class="sub-empty">
-          <text class="sub-empty-text">正在加载订阅记录…</text>
-        </view>
+        <view wx:if="{{loading && !loaded}}" class="sub-loading">正在加载订阅记录…</view>
         <!-- 无数据 -->
-        <view wx:elif="{{grants.length === 0}}" class="sub-empty">
-          <text class="sub-empty-icon">🔔</text>
-          <text class="sub-empty-title">还没有订阅记录</text>
-          <text class="sub-empty-text">点击上方按钮订阅，即可接收审核结果与任务提醒</text>
+        <view wx:elif="{{grants.length === 0}}">
+          <empty icon="🔔" title="还没有订阅记录" desc="点击上方按钮订阅，即可接收审核结果与任务提醒" />
         </view>
         <!-- 有数据 -->
         <block wx:else>

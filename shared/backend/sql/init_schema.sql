@@ -195,6 +195,8 @@ CREATE TABLE t_staff (
   staff_username VARCHAR(64)  NOT NULL COMMENT '登录账号',
   staff_password VARCHAR(128) NOT NULL COMMENT '密码（bcrypt 哈希）',
   staff_nickname VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '昵称',
+  staff_avatar  VARCHAR(500) NOT NULL DEFAULT '' COMMENT '头像（云存储相对路径）',
+  pin_hash      VARCHAR(100) NOT NULL DEFAULT '' COMMENT '身份切换 PIN（bcrypt，仅 parent/admin 可设，空=未开启）',
   staff_role    VARCHAR(16)  NOT NULL DEFAULT 'admin' COMMENT '角色 admin/student',
   staff_status  TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0禁用',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -349,6 +351,8 @@ CREATE TABLE t_lp_tasks (
   task_link     VARCHAR(500) NOT NULL DEFAULT '' COMMENT '任务链接(可点击跳转)',
   images        VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '图片路径(JSON数组字符串,最多9张)',
   task_status   VARCHAR(16)  NOT NULL DEFAULT 'todo' COMMENT 'todo未开始/doing进行中/done已完成',
+  progress      TINYINT      NOT NULL DEFAULT 1 COMMENT '任务进度(1待开始/50已打卡进行中/100已完成)',
+  checkin_type  VARCHAR(16)  NOT NULL DEFAULT 'image' COMMENT '打卡方式 image图文/voice语音/video视频(预留)',
   score         TINYINT      NOT NULL DEFAULT 10 COMMENT '任务评分(1-10,满分10)',
   deadline      VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '截止日期 yyyy-MM-dd',
   start_date    VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '开始日期 yyyy-MM-dd',
@@ -382,6 +386,13 @@ CREATE TABLE t_lp_task_checkins (
   checkin_date  VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '打卡日期 yyyy-MM-dd',
   checkin_note  VARCHAR(500) NOT NULL DEFAULT '' COMMENT '打卡备注',
   checkin_images VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '图片路径(JSON数组字符串,最多9张)',
+  checkin_type  VARCHAR(16)  NOT NULL DEFAULT 'image' COMMENT '打卡方式(冗余自任务,便于独立展示/审核) image图文/voice语音/video视频',
+  voice_url     VARCHAR(500) NOT NULL DEFAULT '' COMMENT '语音打卡文件(云存储相对路径,非语音为空)',
+  voice_duration INT         NOT NULL DEFAULT 0 COMMENT '语音时长(秒)',
+  video_url     VARCHAR(500) NOT NULL DEFAULT '' COMMENT '视频打卡文件(云存储相对路径,非视频为空;压缩完成后更新为压缩后路径)',
+  video_duration INT         NOT NULL DEFAULT 0 COMMENT '视频时长(秒)',
+  video_size    INT          NOT NULL DEFAULT 0 COMMENT '视频压缩后大小(字节)',
+  video_cover   VARCHAR(500) NOT NULL DEFAULT '' COMMENT '视频封面(云存储相对路径,抽帧完成后回写)',
   created_by    BIGINT       NOT NULL DEFAULT 0 COMMENT '打卡人 staff_id',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '打卡时间',
   review_status VARCHAR(12)  NOT NULL DEFAULT 'pending' COMMENT '审核状态 pending待审核/approved已通过/rejected已驳回',
@@ -436,11 +447,11 @@ CREATE TABLE t_lp_task_collections (
   KEY idx_status (collection_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务合集';
 
--- 课小满小程序用户-学生账号绑定表（邀请码准入）
+-- 课小满小程序用户-账号绑定表（邀请码准入；一 openid 可绑定多个身份：家长/孩子/家属，共用微信）
 DROP TABLE IF EXISTS t_lp_students;
 CREATE TABLE t_lp_students (
   id           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  staff_id     BIGINT       NOT NULL DEFAULT 0 COMMENT '学生 staff_id（t_staff，role=student）',
+  staff_id     BIGINT       NOT NULL DEFAULT 0 COMMENT '绑定账号 staff_id（t_staff：parent/student/family/admin）',
   app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   openid       VARCHAR(64)  NOT NULL COMMENT '小程序用户 openid（去前缀规范值）',
   bound_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '绑定时间',
@@ -448,22 +459,23 @@ CREATE TABLE t_lp_students (
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (id),
-  UNIQUE KEY uk_app_openid (app_id, openid),
+  UNIQUE KEY uk_app_openid_staff (app_id, openid, staff_id),
+  KEY idx_app_openid (app_id, openid),
   KEY idx_staff (staff_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满小程序用户-学生账号绑定';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满小程序用户-账号绑定（一 openid 多身份，共用微信）';
 
--- 课小满邀请码独立表（学生码/家属共享码；邀请码不再挂 t_staff 维护）
+-- 课小满邀请码独立表（学生码 / 家长码 / 家属共享码；邀请码不再挂 t_staff 维护）
 DROP TABLE IF EXISTS t_lp_invites;
 CREATE TABLE t_lp_invites (
   invite_id       BIGINT       NOT NULL COMMENT '主键（序列发放）',
   app_id          VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
   invite_code     VARCHAR(8)   NOT NULL DEFAULT '' COMMENT '6位大写邀请码（生成时排除0/O/1/I）',
-  kind            VARCHAR(16)  NOT NULL DEFAULT 'student' COMMENT 'student学生码 / family家属共享码',
-  owner_staff_id  BIGINT       NOT NULL DEFAULT 0 COMMENT '归属账号：学生码=孩子student账号；家属码=主家长账号',
-  child_id        BIGINT       NOT NULL DEFAULT 0 COMMENT '学生码关联的孩子档案ID（家属码为0）',
+  kind            VARCHAR(16)  NOT NULL DEFAULT 'student' COMMENT 'student学生码 / parent家长码 / family家属共享码',
+  owner_staff_id  BIGINT       NOT NULL DEFAULT 0 COMMENT '归属账号：学生码=孩子student账号；家长码/家属码=主家长账号',
+  child_id        BIGINT       NOT NULL DEFAULT 0 COMMENT '学生码关联的孩子档案ID（家长码/家属码为0）',
   status          VARCHAR(16)  NOT NULL DEFAULT 'available' COMMENT 'available未绑定可用 / bound已绑定 / revoked已作废',
   bound_openid    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '绑定的小程序 openid',
-  bound_staff_id  BIGINT       NOT NULL DEFAULT 0 COMMENT '绑定后建立的家属/学生 staff_id',
+  bound_staff_id  BIGINT       NOT NULL DEFAULT 0 COMMENT '绑定后指向的账号：学生码=学生；家长码=主家长；家属码=新建家属账号',
   bound_at        DATETIME     NULL COMMENT '绑定时间',
   created_by      BIGINT       NOT NULL DEFAULT 0 COMMENT '创建人 staff_id（主家长/管理员）',
   created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -474,7 +486,7 @@ CREATE TABLE t_lp_invites (
   KEY idx_status (status),
   KEY idx_kind (kind),
   KEY idx_child (child_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满邀请码独立表（学生码/家属共享码）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满邀请码独立表（学生码/家长码/家属共享码）';
 
 -- 课小满孩子档案（家长-孩子关系）
 DROP TABLE IF EXISTS t_lp_children;

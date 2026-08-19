@@ -1,5 +1,6 @@
 // pages/mine/mine.js
-const { lp, getRole } = require('../../utils/api');
+const { lp, getRole, getIdentities, setIdentities, getActiveStaffId } = require('../../utils/api');
+const { fileUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
 const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '学生' };
@@ -8,6 +9,7 @@ Page({
   data: {
     nickname: '',
     avatarChar: '学',
+    avatarUrl: '',
     username: '',
     staffId: '',
     appId: 'miniprogram-kxm',
@@ -16,11 +18,10 @@ Page({
     isAdmin: false,
     isParent: false,    // 主家长（可维护孩子档案/共享）
     isManager: false,   // 家长/家属/管理员（可审核）
-    editing: false,
-    saving: false,
     stats: { totalTasks: 0, totalCheckins: 0 },
     level: null,
     streak: { current: 0 },
+    identities: [],       // 共用微信多身份（家长 + 孩子 + 家属）
   },
 
   async onShow() {
@@ -54,15 +55,27 @@ Page({
       const [profile, dash] = await Promise.all([lp.profile(), lp.dashboard()]);
       const s = (profile && profile.staff) || {};
       const nickname = s.nickname || staff.nickname || '同学';
+      // 多身份：从 profile 刷新 identities（含 pin_enabled 状态）
+      let identities = (profile && profile.identities) || getIdentities();
+      if (Array.isArray(identities) && identities.length > 0) {
+        identities = identities.map(it => ({
+          ...it,
+          isCurrent: String(it.staff_id) === String(getActiveStaffId() || this.data.staffId),
+        }));
+        setIdentities(identities);
+      }
+      const activeId = getActiveStaffId();
       this.setData({
         nickname,
         avatarChar: String(nickname).charAt(0) || '学',
+        avatarUrl: fileUrl(s.avatar || ''),
         username: s.username || staff.username || '',
-        staffId: String(s.staff_id || staff.staff_id || ''),
+        staffId: String(s.staff_id || staff.staff_id || activeId || ''),
         appId: (profile && profile.app) || 'miniprogram-kxm',
         stats: (dash && dash.stats) || { totalTasks: 0, totalCheckins: 0 },
         level: (dash && dash.level) || null,
         streak: (dash && dash.streak) || { current: 0 },
+        identities,
       });
       wx.setStorageSync('lp_staff', s);
     } catch (e) {
@@ -73,28 +86,16 @@ Page({
     wx.hideLoading();
   },
 
-  startEdit() { this.setData({ editing: true }); },
-  onNick(e) { this.setData({ nickname: e.detail.value }); },
-  saveNick() {
-    const n = this.data.nickname.trim();
-    if (!n) {
-      wx.showToast({ title: '昵称不能为空', icon: 'none' });
-      return;
-    }
-    this.setData({ saving: true });
-    lp.updateProfile({ nickname: n })
-      .then(() => {
-        const s = wx.getStorageSync('lp_staff') || {};
-        wx.setStorageSync('lp_staff', { ...s, nickname: n });
-        this.setData({ editing: false });
-        wx.showToast({ title: '已更新', icon: 'success' });
-      })
-      .catch((e) => wx.showToast({ title: e.msg, icon: 'none' }))
-      .finally(() => this.setData({ saving: false }));
+  // 去身份切换页（独立一级菜单：切换子菜单 + 提示文案）
+  goIdentitySwitch() {
+    trackEvent('menu_click', '点击身份切换');
+    wx.navigateTo({ url: '/pages/identity-switch/identity-switch' });
   },
-  cancelEdit() {
-    this._load();
-    this.setData({ editing: false });
+
+  // 编辑个人资料（头像 / 昵称）
+  goProfileEdit() {
+    trackEvent('menu_click', '点击编辑资料');
+    wx.navigateTo({ url: '/pkg-mine/profile-edit/profile-edit' });
   },
 
   goBadges() {

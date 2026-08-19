@@ -240,6 +240,9 @@ router.post("/family/children/delete", async (req, res) => {
       .eq("kind", "student").eq("child_id", child.child_id).eq("status", "available");
     if (child.student_staff_id) {
       await db.from("staff").update({ staff_status: 0, updated_at: nowSql() }).eq("staff_id", Number(child.student_staff_id));
+      // 同步锁定该学生名下已绑定的小程序访问（与后台作废语义一致，避免「档案已删、绑定仍显示正常」的残留）
+      await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() })
+        .eq("staff_id", Number(child.student_staff_id)).eq("bound_status", 1);
     }
     res.json(ok(null, "已删除"));
   } catch (e) {
@@ -268,14 +271,15 @@ router.post("/family/children/invite", async (req, res) => {
   }
 });
 
-// 作废学生邀请码（绑定即锁定该码；已绑定用户的访问由 lpAuth 实时复核）
+// 作废学生邀请码（仅作废该孩子仍「待绑定」的码；已绑定码不受影响，
+// 绑定访问由 lpAuth 按 staff/bound_status 实时复核，作废只影响尚未绑定的码）
 router.post("/family/children/invite/revoke", async (req, res) => {
   try {
     if (!isParentOrAdmin(req)) return res.json(fail("仅主家长可管理学生邀请码", 403));
     const child = await childOwned(req, req.body && req.body.child_id);
     if (!child) return res.json(fail("孩子档案不存在或无权操作", 403));
     await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
-      .eq("kind", "student").eq("child_id", child.child_id);
+      .eq("kind", "student").eq("child_id", child.child_id).eq("status", "available");
     res.json(ok(null, "已作废"));
   } catch (e) {
     console.error("[lp] child invite revoke error", e);

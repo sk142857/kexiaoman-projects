@@ -17,6 +17,16 @@ function safeDateDir(date) {
   return formatDate(new Date());
 }
 
+/** 登记文件 content_type 推断：音频/视频按 contentType 透传（mp3/mp4 等），图片按扩展名/png 判断 */
+function inferContentType(contentType, path) {
+  if (/^(audio|video)\//i.test(String(contentType || ""))) return String(contentType);
+  if (/\.mp3$/i.test(String(path || ""))) return "audio/mpeg";
+  if (/\.m4a$/i.test(String(path || ""))) return "audio/mp4";
+  if (/\.mp4$/i.test(String(path || ""))) return "video/mp4";
+  if (/\.(aac|wav|amr|silk)$/i.test(String(path || ""))) return "audio/mpeg";
+  return String(contentType || "").includes("png") ? "image/png" : "image/jpeg";
+}
+
 // ==================== 批量登记已上传图片 ====================
 router.post("/upload", async (req, res) => {
   try {
@@ -39,7 +49,7 @@ router.post("/upload", async (req, res) => {
         url: publicUrl(path),
         cosId: String(img.fileID || ""),
         size: Number(img.size) || 0,
-        contentType: String(img.contentType || "").includes("png") ? "image/png" : "image/jpeg",
+        contentType: inferContentType(String(img.contentType || ""), path),
         fileName: String(img.name || "").slice(0, 255),
       };
       files.push(file);

@@ -8,12 +8,17 @@ import {
 import { Line, Area } from '@ant-design/charts';
 import { dashboardApi } from '../services/api';
 import MonitorDataTable from '../components/MonitorDataTable.jsx';
+import PageSkeleton from '../components/PageSkeleton.jsx';
 
 export default function MonitorDashboard() {
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    dashboardApi.monitor().then(res => setData(res.data)).catch(() => {});
+    dashboardApi.monitor()
+      .then(res => setData(res.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const trace = data?.trace || {};
@@ -90,6 +95,10 @@ export default function MonitorDashboard() {
 
   return (
     <div>
+      {loading && <PageSkeleton type="dashboard" />}
+
+      {!loading && (
+      <>
       <Row gutter={[16, 16]}>
         {statItems.map(it => (
           <Col xs={24} sm={12} xl={6} key={it.title}>
@@ -163,6 +172,8 @@ export default function MonitorDashboard() {
           ]}
         />
       </Card>
+      </>
+      )}
     </div>
   );
 }

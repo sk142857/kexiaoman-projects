@@ -25,10 +25,18 @@
   margin-bottom: 24rpx;
   box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
 }
+.profile-card--active {
+  background: rgba(31, 35, 41, 0.03);
+}
 .profile-avatar {
   width: 112rpx;
   height: 112rpx;
-  border-radius: 50%;
+  border-radius: 24rpx;
+  margin-right: 24rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.profile-avatar--char {
   background: linear-gradient(135deg, #2b6de0, #5a8cff);
   color: #ffffff;
   font-size: 56rpx;
@@ -36,9 +44,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 24rpx;
-  flex-shrink: 0;
-  overflow: hidden;
 }
 .profile-info {
   flex: 1;
@@ -65,25 +70,10 @@
   flex-shrink: 0;
   font-size: 26rpx;
 }
-.profile-input {
-  flex: 1;
-  min-width: 0;
-  height: 64rpx;
-  border: 2rpx solid #d8dce3;
-  border-radius: 10rpx;
-  padding: 0 16rpx;
-  font-size: 30rpx;
-  color: #1f2329;
-}
-.profile-save {
+.profile-arrow {
   flex-shrink: 0;
-  color: #2b6de0;
-  font-size: 28rpx;
-}
-.profile-cancel {
-  flex-shrink: 0;
-  color: #8a919f;
-  font-size: 28rpx;
+  font-size: 32rpx;
+  color: #b0b6c0;
 }
 .profile-meta {
   font-size: 24rpx;
@@ -126,6 +116,7 @@
   border-radius: 20rpx;
   box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
   overflow: hidden;
+  margin-bottom: 24rpx;
 }
 .menu-item {
   display: flex;
@@ -166,8 +157,20 @@
 }
 
 .foot {
-  margin-top: 48rpx;
+  margin-top: 24rpx;
   text-align: center;
   font-size: 24rpx;
   color: #b0b6c0;
+}
+
+.menu-label-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.menu-desc {
+  font-size: 22rpx;
+  color: #8a919f;
 }

@@ -59,11 +59,15 @@ async function runOnce() {
   const startDate = shiftDate(today, -overdueDays);
   const endDate = shiftDate(today, remindDays);
 
-  // 1. 已绑定学生（有 openid）
+  // 1. 已绑定学生（有 openid；多身份共用微信：一个学生可能绑到多个 openid）
   const { data: binds } = await db.from("lp_students")
     .select("staff_id, openid").eq("app_id", APP_ID).eq("bound_status", 1).limit(5000);
   const openidMap = {};
-  (binds || []).forEach(b => { openidMap[String(b.staff_id)] = b.openid || ""; });
+  (binds || []).forEach(b => {
+    const sid = String(b.staff_id);
+    if (!openidMap[sid]) openidMap[sid] = [];
+    if (b.openid) openidMap[sid].push(b.openid);
+  });
   const staffIds = Object.keys(openidMap).map(Number).filter(Boolean);
   if (staffIds.length === 0) return;
 
@@ -111,9 +115,9 @@ async function runOnce() {
   const sentToday = new Set();
   (sentRows || []).forEach(s => sentToday.add(`${String(s.staff_id)}:${String(s.biz_id)}`));
 
-  // 7. 扫描候选并发提醒
+  // 7. 扫描候选并发提醒（一个学生可能绑定多个 openid，逐个发）
   let candidates = 0, sent = 0, skipped = 0;
-  for (const [sidStr, openid] of Object.entries(openidMap)) {
+  for (const [sidStr, openids] of Object.entries(openidMap)) {
     const sid = Number(sidStr);
     const mySet = myTasks[sidStr] || new Set();
     for (const tid of mySet) {
@@ -123,17 +127,19 @@ async function runOnce() {
       if (!dl || dl < startDate || dl > endDate) continue;
       if (todayDone.has(`${sidStr}:${tid}`) || sentToday.has(`${sidStr}:${tid}`)) continue;
       candidates += 1;
-      const res = await sendCheckinRemind({
-        appId: APP_ID,
-        openid,
-        staffId: sid,
-        taskId: tid,
-        taskTitle: t.title,
-        deadline: dl,
-        checkinCount: t.checkin_count || 0,
-        nickname: nickMap[sidStr] || "",
-      });
-      if (res && res.skipped) skipped += 1; else sent += 1;
+      for (const openid of (openids || [])) {
+        const res = await sendCheckinRemind({
+          appId: APP_ID,
+          openid,
+          staffId: sid,
+          taskId: tid,
+          taskTitle: t.title,
+          deadline: dl,
+          checkinCount: t.checkin_count || 0,
+          nickname: nickMap[sidStr] || "",
+        });
+        if (res && res.skipped) skipped += 1; else sent += 1;
+      }
     }
   }
   console.log(`[reminder] ${today} ${hhmm} 窗口 ${w.start}-${w.end} | 候选 ${candidates} 已发送 ${sent} 跳过 ${skipped}`);

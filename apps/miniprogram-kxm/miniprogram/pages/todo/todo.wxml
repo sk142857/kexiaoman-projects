@@ -16,9 +16,7 @@
         <text class="todo-tip-desc">{{isManager ? '学生提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
       </view>
 
-      <view wx:if="{{!loading && list.length === 0}}" class="empty-card">
-        <t-empty description="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" />
-      </view>
+      <empty wx:if="{{!loading && list.length === 0}}" icon="{{isManager ? '📋' : '🎉'}}" title="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" desc="{{isManager ? '孩子的打卡会展示在这里' : '所有任务都完成啦'}}" />
 
       <!-- 学生待办：未打卡任务 -->
       <block wx:if="{{!isManager}}">
@@ -28,6 +26,7 @@
             <view class="todo-title">{{item.title}}</view>
             <view class="todo-meta">
               <text wx:if="{{item.subject}}" class="todo-tag">{{item.subject}}</text>
+              <text wx:if="{{item.checkin_type === 'voice'}}" class="todo-tag voice">语音打卡</text>
               <text wx:if="{{item.deadline}}" class="todo-deadline">截止 {{item.deadline}}</text>
             </view>
             <view class="todo-foot">
@@ -53,14 +52,22 @@
             <text class="review-task-arrow">›</text>
           </view>
           <view wx:if="{{item.checkin_note}}" class="review-note">{{item.checkin_note}}</view>
-          <view wx:if="{{item.images.length}}" class="review-imgs">
+          <view wx:if="{{item.checkin_type === 'video' && item.videoUrl}}" class="review-video">
+            <video class="video" src="{{item.videoUrl}}" controls objectFit="contain" poster="{{item.videoCover}}" />
+            <view wx:if="{{item.video_duration}}" class="checkin-video-meta">时长 {{item.video_duration}} 秒</view>
+          </view>
+          <view wx:elif="{{item.checkin_type === 'voice' && item.voiceUrl}}" class="review-voice">
+            <voice-player src="{{item.voiceUrl}}" duration="{{item.voice_duration}}" />
+          </view>
+          <view wx:elif="{{item.images.length}}" class="review-imgs">
             <image
               wx:for="{{item.images}}"
               wx:key="index"
+              wx:for-item="img"
               class="review-img"
-              src="{{item}}"
+              src="{{img}}"
               mode="aspectFill"
-              data-url="{{item}}"
+              data-url="{{img}}"
               data-cid="{{item.checkin_id}}"
               bindtap="preview"
             />

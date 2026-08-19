@@ -1,15 +1,16 @@
 // 业务模块配置：供通用 CRUD 页面使用
 // columns: 表格列（渲染函数使用 components/fields.js 的丰富组件）
 // detailFields: 详情抽屉字段描述（type 对应 CommonCrud 渲染逻辑）
-import { Tag, Progress, message } from 'antd';
-import { SafetyOutlined, StopOutlined, UnlockOutlined, GiftOutlined, LockOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { Tag, message, Modal } from 'antd';
+import { SafetyOutlined, StopOutlined, UnlockOutlined, LinkOutlined, GiftOutlined, LockOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { crudApi } from '../services/api';
+import TaskProgressBar from '../components/TaskProgressBar.jsx';
 import {
   StatusTag, PlainText, EmptyText, EmojiAvatar, ImageAvatar, Percent, MemBar,
   BoolTag, SplitTags, MaskId, HttpStatusTag, CostText,
-  ImageList, ImageGallery, NineGridImages, TableImages, UserCell, UploaderCell,
-  StaffCell, DictTag, ScoreTag, AssigneeTags, CoverThumb, SizeText, RatioText,
+  ImageList, ImageGallery, NineGridImages, TableImages, TableVideo, isVideoRecord, UserCell, UploaderCell,
+  StaffCell, DictTag, AssigneeTags, CoverThumb, SizeText, RatioText, AudioPlayer, fmtDateOnly,
 } from '../components/fields.jsx';
 
 // ==================== 字典映射 ====================
@@ -20,28 +21,42 @@ const REVIEW_STATUS_MAP = {
   rejected: { label: '已驳回', color: 'error' },
 };
 const TASK_STATUS_MAP = {
-  todo: { label: '未开始', color: 'default' },
+  todo: { label: '待完成', color: 'default' },
   doing: { label: '进行中', color: 'processing' },
   done: { label: '已完成', color: 'success' },
 };
-// 任务状态 → 进度百分比（用于 pro-components 列渲染）
-const TASK_STATUS_PROGRESS = { todo: 0, doing: 50, done: 100 };
-// 任务状态列：状态文字 + 进度百分比 Tag + 进度条（pro-components 风格）
-// accentTodo=true 时「未开始」状态文字与百分比以 #f6685d 醒目提示
+// 打卡方式（图文/语音/视频）
+const CHECKIN_TYPE_MAP = {
+  image: { label: '图文', color: 'blue' },
+  voice: { label: '语音', color: 'warning' },
+  video: { label: '视频', color: 'cyan' },
+};
+const CHECKIN_TYPE_OPTIONS = [
+  { value: 'image', label: '图文打卡（学生提交图片与文字）' },
+  { value: 'voice', label: '语音打卡（学生录制一段语音）' },
+  { value: 'video', label: '视频打卡（学生上传 ≤1GB 视频，提交后自动压缩）' },
+];
+// 任务状态 → 进度百分比兜底（正常由任务独立字段 progress 驱动，见 taskProgressOf）
+const TASK_STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
+/** 任务进度取值：优先独立字段 progress，缺失按状态兜底（待完成默认 1%） */
+export const taskProgressOf = (record) => {
+  const p = Number(record && record.progress);
+  return Number.isFinite(p) && p >= 0 ? p : (TASK_STATUS_PROGRESS[(record && record.task_status)] ?? 1);
+};
+// 任务状态列：状态文字 + 步骤式进度条（AntD steps 样式，按宽度自适应铺满整行，见 TaskProgressBar）
+// accentTodo=true 时「待完成」状态文字以 #f6685d 醒目提示
 const renderTaskStatus = (_, record, accentTodo = false) => {
-  const progress = TASK_STATUS_PROGRESS[record.task_status] ?? 0;
+  const progress = taskProgressOf(record);
   const label = (TASK_STATUS_MAP[record.task_status] || {}).label || record.task_status || '-';
   const todo = record.task_status === 'todo';
-  const tagColor = progress === 100 ? 'success' : progress === 0 ? 'default' : 'processing';
   return (
-    <div style={{ minWidth: 120, maxWidth: 180 }}>
-      <div>
+    <div style={{ minWidth: 130, maxWidth: 200 }}>
+      <div style={{ marginBottom: 2 }}>
         {todo && accentTodo
           ? <span style={{ color: '#f6685d', fontWeight: 600 }}>{label}</span>
-          : label}{' '}
-        <Tag color={todo && accentTodo ? '#f6685d' : tagColor}>{progress}%</Tag>
+          : label}
       </div>
-      <Progress percent={progress} showInfo={false} />
+      <TaskProgressBar percent={progress} strokeWidth={10} />
     </div>
   );
 };
@@ -65,8 +80,8 @@ const INVITE_STATUS_MAP = {
   bound: { label: '已绑定', color: 'success' },
   revoked: { label: '已作废', color: 'error' },
 };
-// 任务评分（满分10分）下拉选项
-const SCORE_OPTIONS = [0, 3, 5, 7, 9, 10].map(v => ({ value: v, label: `${v}分` }));
+// 任务评分（满分10分）：
+// 详情/编辑统一使用 ScoreRate 星级组件（10分→5星，评分/2，大号 + 品牌绿 #2ba471）
 const FILE_STATUS_MAP = {
   active: { label: '正常', color: 'success' },
   removed: { label: '已删除', color: 'default' },
@@ -113,6 +128,8 @@ const BIZ_MAP = {
   avatar: { label: '头像', color: 'blue' },
   events: { label: '事件', color: 'default' },
   tasks: { label: '任务', color: 'purple' },
+  voice: { label: '语音', color: 'warning' },
+  videos: { label: '视频', color: 'cyan' },
 };
 // 后台 staff 操作审计事件类型（staff_events）
 const STAFF_EVENT_TYPE_MAP = {
@@ -446,7 +463,12 @@ export const MODULES = {
       if (stats.checkin_count) biz.push(`${stats.checkin_count} 条打卡`);
       if (stats.collection_count) biz.push(`${stats.collection_count} 个合集`);
       if (biz.length > 0) {
-        return `该账号名下存在 ${biz.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
+        let msg = `该账号名下存在 ${biz.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
+        const tasks = Array.isArray(stats.task_list) ? stats.task_list : [];
+        if (tasks.length > 0) {
+          msg += `\n关联任务：${tasks.map(t => `任务 ${t.task_id}「${t.title || '无标题'}」`).join('；')}${stats.task_count > tasks.length ? '（仅展示前 5 个）' : ''}`;
+        }
+        return msg;
       }
       const extra = [];
       if (stats.bind_count) extra.push(`绑定 ${stats.bind_count} 个小程序用户`);
@@ -509,8 +531,8 @@ export const MODULES = {
     ],
   },
 
-  // 课小满绑定关系管理：小程序用户 openid ↔ 学生/管理员账号（t_lp_students）统一维护
-  // 权限：管理员可查看全部并解除/变更绑定；学生仅可查看自己名下的绑定（只读）
+  // 课小满绑定关系管理：小程序用户 openid ↔ 账号（t_lp_students）统一维护（只读+管理）
+  // 绑定由用户在小程序输码自动完成；后台仅查看、换绑（变更绑定账号/状态）、解除绑定（踢出）
   lp_students: {
     biz: 'lp_students',
     title: '绑定管理',
@@ -528,7 +550,7 @@ export const MODULES = {
     columns: [
       { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
       { title: '学生账号', dataIndex: 'staff_id', key: 'staff_id', width: 160, render: (v, r) => <StaffCell staffId={v} nickname={r.staff_nickname} /> },
-      { title: '角色', dataIndex: 'staff_role', key: 'staff_role', width: 90, render: (v) => <StatusTag value={v} map={{ admin: { label: '管理员', color: 'purple' }, student: { label: '学生', color: 'blue' } }} /> },
+      { title: '角色', dataIndex: 'staff_role', key: 'staff_role', width: 90, render: (v) => <StatusTag value={v} map={STAFF_ROLE_MAP} /> },
       { title: '小程序用户', dataIndex: '_userId', key: '_userId', width: 160, render: (v, r) => <UserCell userId={v || r.openid} nickname={r._userNickname} avatar={r._userAvatar} avatarChar={r._userAvatarChar} /> },
       { title: 'openid', dataIndex: 'openid', key: 'openid', width: 200, render: (v) => <MaskId value={v} maxWidth={190} /> },
       { title: '绑定状态', dataIndex: 'bound_status', key: 'bound_status', width: 90, render: (v) => <StatusTag value={v} map={{ 1: { label: '正常', color: 'success' }, 0: { label: '已锁定', color: 'error' } }} /> },
@@ -539,7 +561,7 @@ export const MODULES = {
       { name: 'staff_id', label: '绑定账号ID' },
       { name: 'staff_username', label: '绑定账号' },
       { name: 'staff_nickname', label: '账号昵称' },
-      { name: 'staff_role', label: '账号角色', type: 'tag', map: { admin: { label: '管理员', color: 'purple' }, student: { label: '学生', color: 'blue' } } },
+      { name: 'staff_role', label: '账号角色', type: 'tag', map: STAFF_ROLE_MAP },
       { name: 'staff_invite_code', label: '绑定邀请码' },
       { name: 'staff_invite_code_status', label: '邀请码状态', type: 'tag', map: INVITE_STATUS_MAP },
       { name: '_userId', label: '小程序用户', type: 'userCell', span: 2 },
@@ -550,57 +572,10 @@ export const MODULES = {
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
     formFields: [],
-    // 统一维护（仅管理员）：新增绑定 / 编辑（换绑或改状态）/ 解除绑定（物理删除）
+    // 统一维护（仅管理员）：编辑（换绑或改状态）/ 解除绑定（物理删除）。
+    // 说明：小程序用户绑定（openid↔staff）由用户在小程序输码自动完成，后台无需手动新增；
+    // 如需为已有 staff 账号开通小程序访问，请在「邀请码管理」为对应账号生成邀请码后提供给用户。
     customActions: [
-      {
-        label: '新增绑定',
-        icon: <PlusOutlined />,
-        color: '#52c41a',
-        show: (r, ctx) => ctx.isAdmin,
-        modal: {
-          title: '新增绑定',
-          width: 560,
-          fields: [
-            {
-              name: 'openid',
-              label: '小程序用户',
-              type: 'select',
-              optionsSource: 'users',
-              optionsParams: { pageSize: 200 },
-              optionsMap: { value: 'openid', label: 'nickname' },
-              showSearch: true,
-              rules: [{ required: true, message: '请选择小程序用户（openid）' }],
-              placeholder: '选择已登录过的小程序用户',
-            },
-            {
-              name: 'staffId',
-              label: '目标学生账号',
-              type: 'select',
-              optionsSource: 'staff',
-              optionsParams: { pageSize: 200, staff_role: 'student' },
-              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
-              showSearch: true,
-              rules: [{ required: true, message: '请选择目标学生账号' }],
-              placeholder: '选择绑定到的学生账号',
-            },
-            {
-              name: 'boundStatus',
-              label: '绑定状态',
-              type: 'select',
-              options: [{ value: 1, label: '正常' }, { value: 0, label: '已锁定' }],
-            },
-          ],
-        },
-        onClick: async (r, ctx, values) => {
-          await crudApi.lpStudentCreate({
-            openid: values.openid,
-            staffId: values.staffId,
-            boundStatus: values.boundStatus !== undefined && values.boundStatus !== null && values.boundStatus !== '' ? values.boundStatus : 1,
-          });
-          message.success('绑定创建成功');
-          if (ctx && ctx.refresh) ctx.refresh();
-        },
-      },
       {
         label: '编辑',
         icon: <EditOutlined />,
@@ -612,13 +587,13 @@ export const MODULES = {
           fields: [
             {
               name: 'staffId',
-              label: '目标学生账号',
+              label: '目标账号',
               type: 'select',
               optionsSource: 'staff',
-              optionsParams: { pageSize: 200, staff_role: 'student' },
+              optionsParams: { pageSize: 200, staff_status: 1 },
               optionsMap: { value: 'staff_id', label: 'staff_nickname' },
               showSearch: true,
-              placeholder: '留空则不更换学生账号',
+              placeholder: '留空则不更换绑定账号',
             },
             {
               name: 'boundStatus',
@@ -669,7 +644,7 @@ export const MODULES = {
     ],
     columns: [
       { title: 'ID', dataIndex: 'child_id', key: 'child_id', width: 80 },
-      { title: '家长', dataIndex: '_parentNickname', key: '_parentNickname', width: 120 },
+      { title: '家长', dataIndex: '_parentNickname', key: '_parentNickname', width: 120, render: (v, r) => (Number(r.parent_staff_id) > 0 ? <PlainText value={v || `#${r.parent_staff_id}`} /> : <Tag>未绑定</Tag>) },
       { title: '家长账号ID', dataIndex: 'parent_staff_id', key: 'parent_staff_id', width: 100 },
       { title: '孩子账号ID', dataIndex: 'student_staff_id', key: 'student_staff_id', width: 100 },
       { title: '姓名', dataIndex: 'child_name', key: 'child_name', width: 100 },
@@ -694,6 +669,182 @@ export const MODULES = {
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
     formFields: [],
+    // 家长-孩子绑定/解绑（最高级别操作）：管理员可直接为任意孩子绑定/换绑/解绑主家长，
+    // 不做小程序端归属权限校验；后端仍做逻辑校验并以「先预览风险、后确认执行」两段式提示
+    customActions: [
+      {
+        label: '绑定家长',
+        icon: <LinkOutlined />,
+        color: '#1677ff',
+        show: (r, ctx) => ctx.isAdmin,
+        modal: {
+          title: '绑定 / 更换主家长',
+          width: 560,
+          fields: [
+            {
+              name: 'parent_staff_id',
+              label: '目标主家长账号',
+              type: 'select',
+              optionsSource: 'staff',
+              optionsParams: { pageSize: 500, staff_role: 'parent', staff_status: 1 },
+              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
+              showSearch: true,
+              placeholder: '选择后请在下一次确认框中核对风险提示',
+              rules: [{ required: true, message: '请选择主家长账号' }],
+            },
+          ],
+        },
+        onClick: async (r, ctx, values) => {
+          // 第一阶段：仅逻辑校验并返回风险提示（不落库）
+          const res = await crudApi.lpChildBind(r.child_id, { parent_staff_id: values.parent_staff_id });
+          const needConfirm = !!(res.data && res.data.needConfirm);
+          const warnings = (res.data && res.data.warnings) || [];
+          const run = async () => {
+            await crudApi.lpChildBind(r.child_id, { parent_staff_id: values.parent_staff_id, force: 1 });
+            message.success('已绑定主家长');
+            if (ctx && ctx.refresh) ctx.refresh();
+          };
+          if (needConfirm && warnings.length > 0) {
+            Modal.confirm({
+              title: '确认绑定家长',
+              content: (
+                <div style={{ color: '#cf1322', whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                  {warnings.join('\n')}
+                </div>
+              ),
+              okText: '确认绑定',
+              okButtonProps: { danger: true },
+              cancelText: '取消',
+              onOk: () => run(),
+            });
+          } else {
+            await run();
+          }
+        },
+      },
+      {
+        label: '解绑',
+        icon: <UnlockOutlined />,
+        color: '#ff4d4f',
+        show: (r, ctx) => ctx.isAdmin && Number(r.parent_staff_id) > 0,
+        onClick: async (r, ctx) => {
+          // 第一阶段：仅逻辑校验并返回风险提示（不落库）
+          const res = await crudApi.lpChildUnbind(r.child_id);
+          const needConfirm = !!(res.data && res.data.needConfirm);
+          const warnings = (res.data && res.data.warnings) || [];
+          const run = async () => {
+            await crudApi.lpChildUnbind(r.child_id, { force: 1 });
+            message.success('已解绑，孩子现无主家长归属');
+            if (ctx && ctx.refresh) ctx.refresh();
+          };
+          if (needConfirm && warnings.length > 0) {
+            Modal.confirm({
+              title: '解绑风险提示',
+              content: (
+                <div style={{ color: '#cf1322', whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                  {warnings.join('\n')}
+                </div>
+              ),
+              okText: '确认解绑',
+              okButtonProps: { danger: true },
+              cancelText: '取消',
+              onOk: () => run(),
+            });
+          } else {
+            await run();
+          }
+        },
+      },
+    ],
+    // 工具栏：从零新建「家长-孩子」绑定（已建好主家长/学生账号但无法走小程序绑定流程时使用）
+    toolbarActions: [
+      {
+        label: '新建绑定',
+        icon: <PlusOutlined />,
+        type: 'primary',
+        modal: {
+          title: '新建家长-孩子绑定',
+          width: 640,
+          fields: [
+            {
+              name: 'parent_staff_id',
+              label: '主家长账号',
+              type: 'select',
+              optionsSource: 'staff',
+              optionsParams: { pageSize: 500, staff_role: 'parent', staff_status: 1 },
+              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
+              showSearch: true,
+              span: 12,
+              rules: [{ required: true, message: '请选择主家长账号' }],
+            },
+            {
+              name: 'student_staff_id',
+              label: '学生账号',
+              type: 'select',
+              optionsSource: 'staff',
+              optionsParams: { pageSize: 500, staff_role: 'student', staff_status: 1 },
+              optionsMap: { value: 'staff_id', label: 'staff_nickname' },
+              showSearch: true,
+              span: 12,
+              rules: [{ required: true, message: '请选择学生账号' }],
+            },
+            { name: 'child_name', label: '孩子姓名（留空取学生昵称）', type: 'text', span: 12, placeholder: '选填' },
+            { name: 'gender', label: '性别', type: 'select', options: [{ value: 0, label: '未知' }, { value: 1, label: '男' }, { value: 2, label: '女' }], span: 12 },
+            { name: 'grade', label: '年级', type: 'select', options: [1, 2, 3, 4, 5, 6].map(g => ({ value: g, label: `${g}年级` })), span: 12, allowClear: true },
+            { name: 'class_no', label: '班级', type: 'select', options: Array.from({ length: 35 }, (_, i) => ({ value: i + 1, label: `${i + 1}班` })), span: 12, allowClear: true },
+            { name: 'school_name', label: '学校名称', type: 'text', span: 12, placeholder: '选填' },
+            { name: 'birth_date', label: '出生年月', type: 'date', span: 12 },
+          ],
+        },
+        onClick: async (_record, ctx, values) => {
+          // 第一阶段：仅逻辑校验并返回风险提示（不落库）
+          const res = await crudApi.lpChildBindCreate(values);
+          const needConfirm = !!(res.data && res.data.needConfirm);
+          const warnings = (res.data && res.data.warnings) || [];
+          const run = async () => {
+            const done = await crudApi.lpChildBindCreate({ ...values, force: 1 });
+            const data = done.data || {};
+            const code = data.invite_code || '';
+            const note = data.invite_note || '';
+            message.success(done?.msg || '已创建绑定');
+            if (code) {
+              Modal.success({
+                title: '绑定成功',
+                content: (
+                  <div style={{ lineHeight: 1.9 }}>
+                    <p>孩子档案与家长绑定已完成。</p>
+                    <p>学生邀请码：<b style={{ fontSize: 18, letterSpacing: 1 }}>{code}</b></p>
+                    <p style={{ color: '#999' }}>
+                      {note === 'reused'
+                        ? '该码为复用已有可用学生码，可发给学生在小程序「我是学生」输入绑定访问。'
+                        : '可发给学生在小程序「身份选择-我是学生」输入该码完成账号访问绑定（仅首次展示）。'}
+                    </p>
+                  </div>
+                ),
+                okText: '知道了',
+              });
+            }
+            if (ctx && ctx.refresh) ctx.refresh();
+          };
+          if (needConfirm && warnings.length > 0) {
+            Modal.confirm({
+              title: '确认创建绑定',
+              content: (
+                <div style={{ color: '#cf1322', whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                  {warnings.join('\n')}
+                </div>
+              ),
+              okText: '确认创建',
+              okButtonProps: { danger: true },
+              cancelText: '取消',
+              onOk: () => run(),
+            });
+          } else {
+            await run();
+          }
+        },
+      },
+    ],
   },
 
   // 课小满家属关系（后台只读：家属关系由主家长在小程序共享，后台仅查看与审计）
@@ -785,13 +936,12 @@ export const MODULES = {
     ],
     formFields: [
       { name: 'kind', label: '类型', type: 'select', options: INVITE_KIND_OPTIONS, rules: [{ required: true, message: '请选择类型' }], tip: '学生码：绑定孩子学生账号；家长码：绑定后台已有主家长账号；家属共享码：单次使用，绑定即作废' },
-      { name: 'owner_staff_id', label: '归属账号', type: 'select', optionsSource: 'staff', optionsParams: { pageSize: 500 }, optionsMap: { value: 'staff_id', label: 'staff_nickname' }, showSearch: true, rules: [{ required: true, message: '请选择归属账号' }], tip: '学生码选择学生账号；家长码、家属共享码选择主家长账号' },
-      { name: 'child_id', label: '关联孩子档案', type: 'select', optionsSource: 'lp_children', optionsParams: { pageSize: 500 }, optionsMap: { value: 'child_id', label: 'child_name' }, showSearch: true, allowClear: true, tip: '学生码可关联孩子档案（选填）；家属共享码无需填写' },
+      { name: 'owner_staff_id', label: '归属账号', type: 'staffByRole', rules: [{ required: true, message: '请选择归属账号' }], tip: '学生码只列学生账号；家长码、家属共享码只列主家长账号（若列表为空，请先在「管理员管理」创建角色为「主家长」的账号）' },
+      { name: 'child_id', label: '关联孩子档案', type: 'select', optionsSource: 'lp_children', optionsParams: { pageSize: 500 }, optionsMap: { value: 'child_id', label: 'child_name' }, showSearch: true, allowClear: true, hideWhenKind: ['parent', 'family'], tip: '学生码可关联孩子档案（选填）；家长码/家属共享码无需填写' },
       { name: 'status', label: '状态', type: 'select', options: [
         { value: 'available', label: '未绑定' },
         { value: 'bound', label: '已绑定' },
-        { value: 'revoked', label: '已作废' },
-      ], tip: '已绑定状态由小程序绑定产生，后台不可手动改为已绑定' },
+      ], tip: '已绑定状态由小程序绑定产生；作废请使用列表「作废」操作（将同步处理绑定访问），已作废不可恢复' },
     ],
     createDefaults: { kind: 'student', status: 'available' },
     // 独立管理操作（仅管理员）：作废锁定访问 / 重新生成恢复访问
@@ -976,14 +1126,14 @@ export const MODULES = {
 
   file_uploads: {
     biz: 'file_uploads',
-    title: '图片上传记录',
+    title: '文件上传记录',
     searchable: ['openid', 'file_path'],
     searchKey: 'openid',
     readonly: true,
     // 日志类：默认只查最近 3 天，过滤栏可切换其他时间范围
     defaultDays: 3,
     // 列宽已收紧至常规屏幕可直接放下，x 仅作为最小宽度（超出才横向滚动）
-    tableScroll: { x: 975 },
+    tableScroll: { x: 1050 },
     // 支持多选批量删除：物理删除腾讯云存储对象 + 登记记录
     allowBatchDelete: true,
     // 操作列额外加宽 20px
@@ -993,6 +1143,8 @@ export const MODULES = {
         { value: 'avatar', label: '头像' },
         { value: 'events', label: '事件' },
         { value: 'tasks', label: '任务' },
+        { value: 'voice', label: '语音' },
+        { value: 'videos', label: '视频' },
       ] },
       { name: 'file_status', label: '文件状态', options: [
         { value: 'active', label: '正常' },
@@ -1004,7 +1156,7 @@ export const MODULES = {
       { title: '上传者', dataIndex: 'staff_id', key: 'staff_id', width: 120, render: (v, r) => <UploaderCell staffId={v} userId={r._userId} nickname={r._userNickname} avatar={r._userAvatar} avatarChar={r._userAvatarChar} /> },
       { title: '业务', dataIndex: 'biz', key: 'biz', width: 70, render: (v) => <StatusTag value={v} map={BIZ_MAP} /> },
       { title: '业务ID', dataIndex: 'biz_id', key: 'biz_id', width: 80, render: (v) => <PlainText value={v} maxWidth={70} /> },
-      { title: '图片', dataIndex: 'file_url', key: 'file_url', width: 100, render: (v) => <TableImages value={v} /> },
+      { title: '媒体', dataIndex: 'file_url', key: 'file_url', width: 100, render: (v, r) => (isVideoRecord(r) ? <TableVideo value={v} /> : <TableImages value={v} />) },
       { title: '原大小', dataIndex: 'file_size_orig', key: 'file_size_orig', width: 75, render: (v, r) => <SizeText value={r.file_size_orig || r.file_size} /> },
       { title: '压缩后', dataIndex: 'file_size_compressed', key: 'file_size_compressed', width: 75, render: (v, r) => <SizeText value={r.file_size_compressed || r.file_size} /> },
       { title: '压缩比', dataIndex: 'file_size_ratio', key: 'file_size_ratio', width: 75, render: (v, r) => <RatioText value={r.file_size_ratio} orig={r.file_size_orig} comp={r.file_size_compressed || r.file_size} /> },
@@ -1019,7 +1171,7 @@ export const MODULES = {
       { name: 'biz', label: '业务类型', type: 'tag', map: BIZ_MAP },
       { name: 'biz_id', label: '业务ID', type: 'text' },
       { name: 'file_name', label: '原始文件名' },
-      { name: 'file_url', label: '图片预览', type: 'images', span: 2 },
+      { name: 'file_url', label: '媒体预览', type: 'media', span: 2 },
       { name: 'file_size_orig', label: '原大小', type: 'size' },
       { name: 'file_size_compressed', label: '压缩后大小', type: 'size' },
       { name: 'file_size_ratio', label: '压缩比', type: 'ratio' },
@@ -1115,7 +1267,7 @@ export const MODULES = {
         { value: 'tasks', label: '任务' },
         { value: 'task_checkins', label: '任务打卡' },
         { value: 'task_collections', label: '合集' },
-        { value: 'file_uploads', label: '图片上传' },
+        { value: 'file_uploads', label: '文件上传' },
         { value: 'user_events', label: '用户事件' },
         { value: 'staff_events', label: '操作审计' },
         { value: 'monitors', label: '服务监控' },
@@ -1165,7 +1317,7 @@ export const MODULES = {
     gridOps: true,
     copyCreate: true,
     copyReset: ['score'],
-    // 复制任务副本重置为未开始，保证可重新打卡
+    // 复制任务副本重置为待完成，保证可重新打卡
     copyResetValues: { task_status: 'todo' },
     // 已完成任务仅可查看：学生禁止编辑/删除/打卡（管理员不受限）
     lockFn: (record, { isAdmin }) => (!isAdmin && record.task_status === 'done')
@@ -1189,7 +1341,7 @@ export const MODULES = {
       const imageCount = stats.image_count || 0;
       return `删除任务「${record.title || ''}」后不可恢复，将一并删除该任务下 ${checkinCount} 条打卡记录及 ${imageCount} 张图片，确定删除吗？`;
     },
-    // 新增任务默认值：状态=未开始，评分=0分，派发人员默认 900001，开始日期=当天，截止日期=当天；
+    // 新增任务默认值：状态=待完成，评分=0分，派发人员默认 900001，开始日期=当天，截止日期=当天；
     // 学生自建任务由 CommonCrud 强制覆盖为派发本人（前后端双重校验）
     createDefaults: () => ({
       task_status: 'todo',
@@ -1199,8 +1351,9 @@ export const MODULES = {
       deadline: dayjs().format('YYYY-MM-DD'),
     }),
     filters: [
+      { name: 'staff_id', label: '按用户', type: 'staffId' },
       { name: 'task_status', label: '任务状态', options: [
-        { value: 'todo', label: '未开始' },
+        { value: 'todo', label: '待完成' },
         { value: 'doing', label: '进行中' },
         { value: 'done', label: '已完成' },
       ] },
@@ -1209,7 +1362,9 @@ export const MODULES = {
     ],
     columns: [
       { title: '任务ID', dataIndex: 'task_id', key: 'task_id', width: 60, render: (v) => <PlainText value={v} maxWidth={55} /> },
-      { title: '任务日期', dataIndex: 'start_date', key: 'start_date', width: 115 },
+      { title: '任务日期', dataIndex: 'start_date', key: 'start_date', width: 200, render: (v, r) => (
+        <span style={{ whiteSpace: 'nowrap' }}>{fmtDateOnly(r.start_date)}{r.deadline ? ` ~ ${fmtDateOnly(r.deadline)}` : ''}</span>
+      ) },
       { title: '创建人', dataIndex: 'created_by', key: 'created_by', width: 140, render: (v, r) => <StaffCell staffId={v} nickname={r._creatorNickname} /> },
       { title: '标题', dataIndex: 'title', key: 'title', width: 230, render: (v, r) => (
         <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1218,7 +1373,7 @@ export const MODULES = {
       ) },
       { title: '描述', dataIndex: 'description', key: 'description', width: 220, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '任务状态', dataIndex: 'task_status', key: 'task_status', listSlot: 'content', width: 170, render: (_, r) => renderTaskStatus(_, r, true) },
-      { title: '任务评分', dataIndex: 'score', key: 'score', width: 85, align: 'center', render: (v) => <ScoreTag value={v} /> },
+      { title: '打卡方式', dataIndex: 'checkin_type', key: 'checkin_type', width: 90, render: (v) => <StatusTag value={v} map={CHECKIN_TYPE_MAP} /> },
       { title: '派发人员', dataIndex: 'assignee_names', key: 'assignee_names', width: 120, render: (v, r) => <AssigneeTags names={r.assignee_names} /> },
       { title: '图片', dataIndex: 'images', key: 'images', width: 110, align: 'center', render: (v) => <TableImages value={v} maxShow={1} /> },
       { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
@@ -1227,7 +1382,8 @@ export const MODULES = {
       { name: 'task_id', label: '任务ID', type: 'text' },
       { name: 'title', label: '任务标题', span: 2 },
       { name: 'task_status', label: '任务状态', type: 'tag', map: TASK_STATUS_MAP },
-      { name: 'score', label: '任务评分', type: 'score' },
+      { name: 'checkin_type', label: '打卡方式', type: 'tag', map: CHECKIN_TYPE_MAP },
+      { name: 'score', label: '任务评分', type: 'scoreRate' },
       { name: 'assignee_names', label: '任务派发', type: 'assignees' },
       { name: 'subject', label: '科目', type: 'dictTag', dict: 'subject' },
       { name: 'collection_name', label: '所属合集' },
@@ -1248,11 +1404,12 @@ export const MODULES = {
       { name: 'subject', label: '科目', type: 'select', span: 12, optionsSource: 'dict_items', optionsParams: { dict_code: 'subject' }, optionsMap: { value: 'item_value', label: 'item_label' }, rules: [{ required: true, message: '请选择科目' }], placeholder: '请选择科目' },
       { name: 'collection_id', label: '所属合集（可选）', type: 'select', span: 12, optionsSource: 'task_collections', optionsParams: { pageSize: 200 }, optionsMap: { value: 'collection_id', label: 'name' }, showSearch: true, allowClear: true, placeholder: '请选择合集（可不选，只能选一个）' },
       { name: 'task_status', label: '任务状态', type: 'select', span: 12, options: [
-        { value: 'todo', label: '未开始' },
+        { value: 'todo', label: '待完成' },
         { value: 'doing', label: '进行中' },
         { value: 'done', label: '已完成' },
       ], placeholder: '请选择任务状态' },
-      { name: 'score', label: '任务评分', type: 'select', span: 12, options: SCORE_OPTIONS, disabledWhenCreate: true, tip: ({ editing }) => (editing ? undefined : '初始固定为 0 分，禁止选择'), placeholder: '请选择任务评分' },
+      { name: 'checkin_type', label: '打卡方式', type: 'select', span: 12, options: CHECKIN_TYPE_OPTIONS, tip: '图文=学生提交图片与文字；语音=学生录制一段语音', placeholder: '请选择打卡方式' },
+      { name: 'score', label: '任务评分', type: 'rate', span: 12, disabledWhenCreate: true, tip: ({ editing }) => (editing ? undefined : '初始固定为 0 分，禁止评分') },
       { name: 'start_date', label: '开始日期', type: 'date', span: 12, placeholder: '请选择开始日期' },
       { name: 'deadline', label: '截止日期', type: 'date', span: 12, placeholder: '请选择截止日期' },
       { name: 'tags', label: '标签（输入后回车添加，可多个）', type: 'tags', span: 12, placeholder: '输入后回车添加标签' },
@@ -1289,6 +1446,8 @@ export const MODULES = {
       { title: '任务ID', dataIndex: 'task_id', key: 'task_id', width: 60, render: (v) => <PlainText value={v} maxWidth={55} /> },
       { title: '任务标题', dataIndex: 'task_title', key: 'task_title', width: 160, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '任务状态', dataIndex: 'task_status', key: 'task_status', listSlot: 'content', width: 170, render: renderTaskStatus },
+      { title: '打卡方式', dataIndex: 'checkin_type', key: 'checkin_type', width: 90, render: (v) => <StatusTag value={v} map={CHECKIN_TYPE_MAP} /> },
+      { title: '语音', dataIndex: 'voice_url', key: 'voice_url', width: 90, render: (v) => (v ? <AudioPlayer value={v} /> : <EmptyText />) },
       { title: '图片', dataIndex: 'checkin_images', key: 'checkin_images', width: 110, align: 'center', render: (v) => <TableImages value={v} maxShow={1} /> },
       { title: '备注', dataIndex: 'checkin_note', key: 'checkin_note', width: 170, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '打卡人', dataIndex: 'created_by', key: 'created_by', width: 140, render: (v, r) => <StaffCell staffId={v} username={r._creatorUsername} nickname={r._creatorNickname} /> },
@@ -1300,6 +1459,9 @@ export const MODULES = {
       { name: 'task_title', label: '任务标题', span: 2 },
       { name: 'task_status', label: '任务状态', type: 'tag', map: TASK_STATUS_MAP },
       { name: 'checkin_date', label: '打卡日期', type: 'dateOnly' },
+      { name: 'checkin_type', label: '打卡方式', type: 'tag', map: CHECKIN_TYPE_MAP },
+      { name: 'voice_url', label: '语音打卡', type: 'audio', durationField: 'voice_duration', span: 2 },
+      { name: 'video_url', label: '视频打卡', type: 'video', durationField: 'video_duration', sizeField: 'video_size', coverField: 'video_cover', span: 2 },
       { name: 'checkin_note', label: '备注', type: 'longText', span: 2 },
       { name: 'checkin_images', label: '打卡图片', type: 'images', span: 2 },
       { name: 'created_by', label: '打卡人', type: 'staffCell' },

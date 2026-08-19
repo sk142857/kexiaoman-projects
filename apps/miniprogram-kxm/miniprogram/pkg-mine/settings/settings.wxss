@@ -33,14 +33,34 @@
 .menu-icon--blue { background: #e6f4ff; }
 .menu-icon--green { background: #e6faf4; }
 .menu-icon--rose { background: #fff1f0; }
+.menu-icon--amber { background: #fff7e6; }
 .menu-label {
   flex: 1;
   font-size: 28rpx;
   color: #1f2329;
 }
+.menu-label-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 0;
+}
+.menu-desc {
+  font-size: 22rpx;
+  color: #8a919f;
+}
 .menu-arrow {
   font-size: 32rpx;
   color: #b0b6c0;
+}
+.identity-status {
+  font-size: 24rpx;
+  color: #8a919f;
+  margin-right: 12rpx;
+}
+.identity-status--on {
+  color: #2b6de0;
 }
 
 .foot {

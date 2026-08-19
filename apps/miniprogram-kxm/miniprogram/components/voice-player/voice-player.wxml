@@ -1,0 +1,10 @@
+<view class="vp" bindtap="toggle">
+  <view class="vp-btn {{playing ? 'is-pause' : ''}}">
+    <view wx:if="{{playing}}" class="vp-pause"><view class="vp-pause-bar"></view><view class="vp-pause-bar"></view></view>
+    <view wx:else class="vp-play"></view>
+  </view>
+  <view class="vp-track">
+    <view class="vp-fill" style="width: {{percent}}%"></view>
+  </view>
+  <view class="vp-time">{{playing ? currentText : durationText}}</view>
+</view>

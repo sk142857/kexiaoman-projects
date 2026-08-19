@@ -40,8 +40,8 @@
       </view>
       <view class="xp-row">
         <text>经验值 {{level.xp}}</text>
-        <text wx:if="{{!level.maxLevel}}">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}}</text>
-        <text wx:else>已满级</text>
+        <text wx:if="{{level && !level.maxLevel}}">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}}</text>
+        <text wx:elif="{{level && level.maxLevel}}">已满级</text>
       </view>
       <view class="streak-row">
         <view class="streak-item">🔥 连击 {{streak.current}} 天</view>
@@ -62,7 +62,7 @@
     <!-- 统计 -->
     <view class="stat-grid">
       <view class="stat-card stat-total"><view class="num">{{stats.totalTasks}}</view><view class="label">任务</view></view>
-      <view class="stat-card stat-todo"><view class="num">{{stats.todoCount}}</view><view class="label">未开始</view></view>
+      <view class="stat-card stat-todo"><view class="num">{{stats.todoCount}}</view><view class="label">待完成</view></view>
       <view class="stat-card stat-doing"><view class="num">{{stats.doingCount}}</view><view class="label">进行中</view></view>
       <view class="stat-card stat-done"><view class="num">{{stats.doneCount}}</view><view class="label">已完成</view></view>
     </view>
@@ -104,13 +104,13 @@
     <!-- 最近打卡 -->
     <view class="section">
       <view class="section-title">最近打卡</view>
-      <view wx:if="{{recentCheckins.length === 0}}" class="empty-card">
-        <t-empty description="还没有打卡记录" />
-      </view>
+      <empty wx:if="{{recentCheckins.length === 0}}" icon="📊" title="还没有打卡记录" desc="完成任务后提交打卡即可展示" />
       <view wx:for="{{recentCheckins}}" wx:key="checkin_id" class="recent" bindtap="goTaskDetail" data-id="{{item.task_id}}">
         <view class="recent-date">{{item.checkin_date}}</view>
         <view class="recent-title">{{item.task_title}}</view>
-        <view class="recent-note">{{item.note || '（无备注）'}}</view>
+        <view wx:if="{{item.checkin_type === 'video'}}" class="recent-note voice-note">视频打卡 · {{item.video_duration}} 秒</view>
+        <view wx:elif="{{item.checkin_type === 'voice'}}" class="recent-note voice-note">语音打卡 · {{item.voice_duration}} 秒</view>
+        <view wx:else class="recent-note">{{item.note || '（无备注）'}}</view>
       </view>
     </view>
   </block>

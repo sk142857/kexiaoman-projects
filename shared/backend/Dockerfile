@@ -13,9 +13,9 @@ RUN npm run build
 # 阶段 2：运行时镜像（只保留运行所需产物，体积最小化）
 FROM node:20-alpine
 
-# 时区设为上海（云托管容器默认 UTC，差 8 小时）
+# 时区设为上海（云托管容器默认 UTC，差 8 小时）+ ffmpeg（视频打卡后端压缩转码）
 ENV TZ Asia/Shanghai
-RUN apk add --no-cache tzdata && cp /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
+RUN apk add --no-cache tzdata ffmpeg && cp /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
 
 WORKDIR /app
 

@@ -1,0 +1,8 @@
+<view class="tp">
+  <view class="tp-steps" style="height: {{height}}rpx;">
+    <view wx:for="{{segments}}" wx:key="index" class="tp-step">
+      <view class="tp-step-fill" style="width: {{item.fill}}%; background: {{item.color}};"></view>
+    </view>
+  </view>
+  <text wx:if="{{showText}}" class="tp-text">{{percentText}}</text>
+</view>

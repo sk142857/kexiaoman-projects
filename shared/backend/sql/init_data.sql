@@ -30,8 +30,9 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (34, 5, '待办任务', '/module/todo_tasks', 'CheckSquareOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (35, 5, '打卡审核', '/module/checkin_reviews', 'AuditOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (6, 5, '任务管理', '/module/tasks', 'UnorderedListOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (39, 5, '任务管理（卡片模式）', '/module/card_tasks', 'ProfileOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 3. 成员管理
   (8, 0, '成员管理', '/members', 'UserOutlined', 3, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (9, 8, '用户管理', '/module/users', 'UserOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -108,7 +109,11 @@ INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (57, 'family', 36, CURRENT_TIMESTAMP),
   (58, 'family', 34, CURRENT_TIMESTAMP),
   (59, 'family', 35, CURRENT_TIMESTAMP),
-  (60, 'admin', 38, CURRENT_TIMESTAMP)
+  (60, 'admin', 38, CURRENT_TIMESTAMP),
+  (61, 'admin', 39, CURRENT_TIMESTAMP),
+  (62, 'student', 39, CURRENT_TIMESTAMP),
+  (63, 'parent', 39, CURRENT_TIMESTAMP),
+  (64, 'family', 39, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_id = VALUES(menu_id);
 
 -- 4. 数据字典
@@ -118,20 +123,20 @@ INSERT INTO t_dict_types (dict_id, dict_code, dict_name, dict_status, created_at
   (3, 'task_status', '任务状态', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE dict_name = VALUES(dict_name);
 
-INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, sort, item_status, created_at, updated_at) VALUES
-  (1,  'subject', '语文', '语文', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (2,  'subject', '数学', '数学', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (3,  'subject', '英语', '英语', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (4,  'subject', '阅读', '阅读', 4, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (5,  'subject', '作业', '作业', 5, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (6,  'subject', '运动', '运动', 6, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (7,  'gender', '0', '保密', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (8,  'gender', '1', '男', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (9,  'gender', '2', '女', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (10, 'task_status', 'todo', '未开始', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (11, 'task_status', 'doing', '进行中', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (12, 'task_status', 'done', '已完成', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  ON DUPLICATE KEY UPDATE item_label = VALUES(item_label);
+INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, color, sort, item_status, created_at, updated_at) VALUES
+  (1,  'subject', '语文', '语文', '', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (2,  'subject', '数学', '数学', '', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (3,  'subject', '英语', '英语', '', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (4,  'subject', '阅读', '阅读', '', 4, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (5,  'subject', '作业', '作业', '', 5, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (6,  'subject', '运动', '运动', '', 6, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (7,  'gender', '0', '保密', '', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (8,  'gender', '1', '男', '', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (9,  'gender', '2', '女', '', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (10, 'task_status', 'todo', '待完成', '#bfbfbf', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (11, 'task_status', 'doing', '进行中', '#1677ff', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (12, 'task_status', 'done', '已完成', '#52c41a', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ON DUPLICATE KEY UPDATE item_label = VALUES(item_label), color = VALUES(color);
 
 -- 5. 序列初始化（current_value = 种子数据最大编号 + 1；batch = 号段大小，日志类 500，其余 200）
 INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, updated_at) VALUES
@@ -145,8 +150,8 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, u
   ('child_id', '孩子档案ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('staff_id', '管理员ID', 9002, 9001, 1, 200, CURRENT_TIMESTAMP),
   ('role_id', '角色ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('menu_id', '菜单ID', 39, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('role_menu_id', '角色菜单ID', 61, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('menu_id', '菜单ID', 40, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('role_menu_id', '角色菜单ID', 65, 1, 1, 200, CURRENT_TIMESTAMP),
   ('dict_type_id', '字典类型ID', 4, 1, 1, 200, CURRENT_TIMESTAMP),
   ('dict_item_id', '字典项ID', 13, 1, 1, 200, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE current_value = GREATEST(current_value, VALUES(current_value));

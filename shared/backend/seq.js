@@ -130,8 +130,9 @@ async function nextSeq(seqKey, batchSize) {
   const seg = await ensureSegment(seqKey, batchSize);
   const v = seg.next;
   seg.next += seg.step;
-  // 号段耗尽：后台异步领取下一段，下次取号直接命中，避免阻塞
-  if (seg.next > seg.end) prefetchSeq(seqKey, seg.batch);
+  // 号段耗尽：后台异步领取下一段，下次取号直接命中，避免阻塞。
+  // 不传 batchSize：让下一段重新读取 t_seqs.batch，后台调整号段大小后能及时生效
+  if (seg.next > seg.end) prefetchSeq(seqKey);
   return v;
 }
 

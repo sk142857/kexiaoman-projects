@@ -18,6 +18,22 @@ function getToken() {
   try { return wx.getStorageSync('lp_token') || ''; } catch (_) { return ''; }
 }
 
+/** 当前活动身份 staff_id（共用微信多身份切换） */
+function getActiveStaffId() {
+  try { return wx.getStorageSync('lp_active_staff_id') || ''; } catch (_) { return ''; }
+}
+function setActiveStaffId(id) {
+  try { wx.setStorageSync('lp_active_staff_id', String(id || '')); } catch (_) {}
+}
+
+/** 当前 openid 已绑定的全部身份（家长 + 孩子 + 家属） */
+function getIdentities() {
+  try { return wx.getStorageSync('lp_identities') || []; } catch (_) { return []; }
+}
+function setIdentities(list) {
+  try { wx.setStorageSync('lp_identities', Array.isArray(list) ? list : []); } catch (_) {}
+}
+
 /** 生成请求链路 UUID（X-Request-Id，接口链路追踪关联键） */
 function genRequestId() {
   const hex = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
@@ -49,6 +65,9 @@ function stopSessionGuard() {
     if (app && typeof app.stopSessionGuard === 'function') app.stopSessionGuard();
   } catch (_) {}
 }
+
+/** 最近一次因 401/403 被踢回身份页的时间（短时冷却，兜底防止异常环境下 reLaunch 死循环） */
+let lastAuthRedirectAt = 0;
 
 /** 当前角色（student / admin） */
 function getRole() {
@@ -98,8 +117,15 @@ function request(path, opts = {}) {
           wx.removeStorageSync('lp_staff');
           wx.removeStorageSync('lp_role');
           wx.removeStorageSync('lp_view_staff_id');
+          wx.removeStorageSync('lp_active_staff_id');
+          wx.removeStorageSync('lp_identities');
+          // 一并清除上一账号的后台登录凭据与共享码，避免同设备换绑后残留
+          wx.removeStorageSync('lp_backend');
+          wx.removeStorageSync('lp_share_code');
           stopSessionGuard();
-          if (redirect) {
+          // 冷却兜底：同一短窗口内多次 401/403 只跳一次，避免（尤其登录失败时）反复重建身份页造成 reload 死循环
+          if (redirect && Date.now() - lastAuthRedirectAt > 3000) {
+            lastAuthRedirectAt = Date.now();
             if (isLocked && body.msg) wx.setStorageSync('lp_lock_msg', body.msg);
             if (isLocked && body.lockInfo) wx.setStorageSync('lp_lock_info', body.lockInfo);
             wx.reLaunch({ url: '/pages/identity/identity' + (isLocked ? '?locked=1' : '') });
@@ -126,13 +152,31 @@ function wxLoginCode() {
 }
 
 // ==================== 认证 API ====================
+/** 登录响应落库存（token/staff/role/identities/activeStaffId），供各绑定/切换流程复用 */
+export function persistLogin(res) {
+  if (!res) return;
+  if (res.token) wx.setStorageSync('lp_token', res.token);
+  if (res.identities) setIdentities(res.identities);
+  if (res.activeStaffId) setActiveStaffId(res.activeStaffId);
+  if (res.staff) wx.setStorageSync('lp_staff', res.staff);
+  if (res.role) wx.setStorageSync('lp_role', res.role || res.staff.role || 'student');
+}
+
 export const lpAuth = {
-  /** 登录：wx.login 换小程序会话 token → { token, bound, locked?, role?, staff? } */
+  /** 登录：wx.login 换小程序会话 token → { token, bound, locked?, role?, staff?, identities?, activeStaffId? }
+   *  redirect=false：登录失败（含 code2session 401）不触发全局「清会话 + reLaunch 身份页」，
+   *  避免在身份页/登录页 onShow 自登录时把自己反复重建（reload 死循环）；路由由各页面自行决定。 */
   login: async () => {
     const code = await wxLoginCode();
-    return request('/api/lp/login', { method: 'POST', data: { code }, auth: false });
+    const activeStaffId = getActiveStaffId();
+    return request('/api/lp/login', {
+      method: 'POST',
+      data: { code, ...(activeStaffId ? { activeStaffId } : {}) },
+      auth: false,
+      redirect: false,
+    });
   },
-  /** 绑定邀请码：{ code, rebind }（openid 取自会话 token）→ { token, role, staff }；rebind=true 表示换绑新邀请码 */
+  /** 绑定邀请码：{ code, rebind }（openid 取自会话 token）→ { token, role, staff, identities, activeStaffId } */
   bind: async (code, rebind) => {
     // 确保已有会话 token（未登录时先登录拿 token）
     if (!getToken()) {
@@ -141,11 +185,11 @@ export const lpAuth = {
         if (res && res.token) wx.setStorageSync('lp_token', res.token);
       } catch (_) {}
     }
-    return request('/api/lp/bind', { method: 'POST', data: { code, rebind: !!rebind } });
+    return request('/api/lp/bind', { method: 'POST', data: { code, rebind: !!rebind }, redirect: false });
   },
   /** 家长注册：身份选择「我是家长」确认后自动建号/自动绑定/发共享码/下发后台账号
    *  data: { nickname?, rebind? }（rebind=true 表示换绑到主家长身份）
-   *  → { token, bound, role, staff, share_code, backend: { username, password } } */
+   *  → { token, bound, role, staff, share_code, backend, identities, activeStaffId } */
   registerParent: async (data = {}) => {
     if (!getToken()) {
       try {
@@ -154,8 +198,20 @@ export const lpAuth = {
       } catch (_) {}
     }
     const opts = data && typeof data === 'object' ? data : { nickname: data };
-    return request('/api/lp/registerParent', { method: 'POST', data: opts });
+    return request('/api/lp/registerParent', { method: 'POST', data: opts, redirect: false });
   },
+  /** 切换身份（共用微信家长↔孩子↔家属）{ staffId, pin? } → { token, role, staff, identities, activeStaffId } */
+  switch: (staffId, pin) => request('/api/lp/switch', {
+    method: 'POST',
+    data: { staffId: String(staffId), ...(pin ? { pin: String(pin) } : {}) },
+    redirect: false,
+  }),
+  /** 身份 PIN 管理：set 设置/修改（4-6 位数字）/ verify 校验 / remove 关闭（需正确 PIN） */
+  pin: (action, pin) => request('/api/lp/pin', {
+    method: 'POST',
+    data: { action, pin: String(pin || '') },
+    redirect: false,
+  }),
   /** 会话心跳：实时复核绑定状态（后台解除邀请码后立即收到 403 → 前端清登录态回绑定页） */
   sessionCheck: () => request('/api/lp/session'),
 };
@@ -189,6 +245,9 @@ export const family = {
 export const lp = {
   profile: () => request('/api/lp/profile'),
   updateProfile: (data) => request('/api/lp/profile', { method: 'POST', data }),
+
+  /** 切换身份（共用微信家长↔孩子↔家属），需 PIN 时后端校验 */
+  switchIdentity: (staffId, pin) => lpAuth.switch(staffId, pin),
 
   dashboard: (asStaffId) => request('/api/lp/dashboard', { data: asStaffId ? { asStaffId } : {} }),
 
@@ -224,6 +283,8 @@ export const lp = {
 
   /** 批量图片上传（base64 JSON，逐张直调后端，避开单次请求体过大） → 相对路径列表 */
   upload: (biz, files) => request('/api/lp/upload', { method: 'POST', data: { biz, files } }),
+
+  /** 语音打卡：录音 + 直传云存储 + 登记走 utils/voice.js（uploadVoice），打卡提交带 voiceUrl/voiceDuration */
 };
 
 // ==================== 数据上报 API ====================
@@ -235,4 +296,4 @@ export const analytics = {
   collectEvent: (payload) => request('/api/lp/collectEvent', { method: 'POST', data: payload, redirect: false }),
 };
 
-export { getToken, getRole, getViewStudent, setViewStudent, clearViewStudent };
+export { getToken, getRole, getViewStudent, setViewStudent, clearViewStudent, getActiveStaffId, setActiveStaffId, getIdentities, setIdentities };

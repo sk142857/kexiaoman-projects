@@ -17,6 +17,9 @@ Page({
     if (app && app.lpReady) {
       try { await app.lpReady; } catch (_) {}
     }
+    // 等待期间可能被 reLaunch 到身份页，页面已失效则直接返回
+    const pages = getCurrentPages();
+    if (!pages.length || pages[pages.length - 1].route !== 'pkg-mine/badges/badges') return;
     trackEvent('page_view', '我的奖章');
     this._load();
   },

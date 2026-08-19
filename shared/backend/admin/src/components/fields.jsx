@@ -481,6 +481,22 @@ export function StarRate({ value, max = 5 }) {
   return <Rate disabled count={max} value={num} style={{ fontSize: 14 }} />;
 }
 
+// ==================== 任务评分（满分10分 → 5星，评分/2，大号 + 品牌绿 #2ba471） ====================
+export function ScoreRate({ value, onChange, disabled = false, size = 28, color = '#2ba471' }) {
+  const num = Number(value);
+  const v = Number.isFinite(num) && num > 0 ? num / 2 : 0;
+  return (
+    <Rate
+      count={5}
+      allowHalf
+      value={v}
+      onChange={(val) => onChange && onChange(val * 2)}
+      disabled={disabled}
+      style={{ fontSize: size, color }}
+    />
+  );
+}
+
 // ==================== 布尔状态 ====================
 export function BoolTag({ value, yes = '是', no = '否' }) {
   const num = Number(value);
@@ -610,6 +626,28 @@ export function CoverThumb({ value, size = 64, text = '暂无图片' }) {
       <Image src={it.thumbUrl} fallback={IMG_FALLBACK} width={size} height={size} style={{ objectFit: 'cover', display: 'block' }} preview={{ mask: false, src: it.url }} />
     </div>
   );
+}
+
+// ==================== 表格视频缩略（小尺寸播放按钮，详情抽屉内再完整播放） ====================
+export function TableVideo({ value, size = 65 }) {
+  const url = toImageUrl(value);
+  if (!url) return <ImagePlaceholder size={size} />;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size, borderRadius: 6, background: '#1f1f1f', color: '#fff', textDecoration: 'none', fontSize: 18 }}
+      title="点击新窗口播放视频"
+    >
+      ▶
+    </a>
+  );
+}
+
+// 记录是否为视频（按 content_type 前缀判断）
+export function isVideoRecord(record) {
+  return /^video\//i.test(String((record && record.content_type) || ''));
 }
 
 // ==================== 图片大图（详情抽屉用，内置预览；无图自动渲染空图片占位符） ====================
@@ -880,6 +918,42 @@ export function AssigneeTags({ names, empty = '未派发' }) {
   );
 }
 
+// ==================== 语音打卡播放器（<audio> 原生控件，云存储相对路径/完整 URL 均可） ====================
+// duration 为可选显示时长（秒），value 为空时渲染空占位
+export function AudioPlayer({ value, duration, style }) {
+  const url = toImageUrl(value);
+  if (!url) return <EmptyText />;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      {Number(duration) > 0 && (
+        <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{duration}秒</Typography.Text>
+      )}
+      <audio controls preload="metadata" src={url} style={{ maxWidth: 240, height: 36, verticalAlign: 'middle', ...style }} />
+    </span>
+  );
+}
+
+// ==================== 视频打卡播放器（<video> 原生控件，云存储相对路径/完整 URL 均可） ====================
+// duration 为可选显示时长（秒），size 为压缩后大小（字节，可选展示节省效果），poster 为封面相对路径/URL
+export function VideoPlayer({ value, duration, size, style, poster }) {
+  const url = toImageUrl(value);
+  if (!url) return <EmptyText />;
+  const posterUrl = poster ? toImageUrl(poster) : '';
+  const sizeText = Number(size) > 0
+    ? (Number(size) >= 1024 * 1024 ? `${(Number(size) / 1024 / 1024).toFixed(1)}MB` : `${Math.round(Number(size) / 1024)}KB`)
+    : '';
+  return (
+    <div style={{ maxWidth: 360, ...style }}>
+      <video controls preload="metadata" src={url} poster={posterUrl || undefined} style={{ width: '100%', maxHeight: 240, borderRadius: 8, background: '#000' }} />
+      {(Number(duration) > 0 || sizeText) && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {[duration > 0 ? `时长 ${duration} 秒` : '', sizeText ? `压缩后 ${sizeText}` : ''].filter(Boolean).join(' · ')}
+        </Typography.Text>
+      )}
+    </div>
+  );
+}
+
 // ==================== 详情字段渲染（按 detailFields 元数据） ====================
 // f: { name, label, type, map, span, max, labels, color, suffix, totalField, ... }
 // ==================== 文件大小（自动 B/KB/MB） ====================
@@ -924,6 +998,9 @@ export function renderDetailValue(f, record) {
     case 'tags': return <SplitTags value={v} />;
     case 'assignees': return <AssigneeTags names={v} />;
     case 'images': return <ImageGallery value={v} />;
+    case 'media': return isVideoRecord(record) ? <VideoPlayer value={v} /> : <ImageGallery value={v} />;
+    case 'audio': return <AudioPlayer value={v} duration={record[f.durationField]} />;
+    case 'video': return <VideoPlayer value={v} duration={record[f.durationField]} size={record[f.sizeField]} poster={record[f.coverField]} />;
     case 'progress': return <Percent value={v} suffix={f.suffix || '%'} />;
     case 'mem': return <MemBar used={v} total={record[f.totalField]} />;
     case 'rate': return <StarRate value={v} max={f.max || 5} />;
@@ -935,6 +1012,7 @@ export function renderDetailValue(f, record) {
     case 'cost': return <CostText value={v} slow={f.slow} />;
     case 'httpStatus': return <HttpStatusTag value={v} />;
     case 'score': return <ScoreTag value={v} />;
+    case 'scoreRate': return <ScoreRate value={v} disabled />;
     case 'size': return <SizeText value={v} />;
     case 'ratio': return <RatioText value={v} orig={record.file_size_orig} comp={record.file_size_compressed || record.file_size} />;
     case 'number': {

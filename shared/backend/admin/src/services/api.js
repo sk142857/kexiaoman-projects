@@ -107,10 +107,15 @@ export const crudApi = {
   // 课小满邀请码独立管理（t_lp_invites，仅管理员）：作废 / 重新生成
   lpInviteRevoke: (id) => api.post('/admin/api/lp_invites/revoke', { id }),
   lpInviteRegenerate: (id) => api.post('/admin/api/lp_invites/regenerate', { id }),
-  // 课小满绑定关系管理（openid ↔ 学生账号）：列表 / 详情 / 新增 / 编辑 / 解除绑定 / 变更绑定
+  // 课小满家长-孩子绑定/解绑（后台最高级别操作：不做归属权限校验，仅逻辑校验 + 风险提示）
+  // 两段式：不带 force 时仅返回风险提示（needConfirm/warnings）；带 force:1 时确认执行
+  lpChildBind: (childId, data) => api.post('/admin/api/lp_children/bind', { child_id: childId, ...data }),
+  lpChildUnbind: (childId, data) => api.post('/admin/api/lp_children/unbind', { child_id: childId, ...data }),
+  // 后台从零绑定：选择已有主家长账号 + 学生账号创建孩子档案并生成学生邀请码（两段式，同 bind/unbind）
+  lpChildBindCreate: (data) => api.post('/admin/api/lp_children/bind_create', data),
+  // 课小满绑定关系管理（openid ↔ 账号，绑定由小程序输码自动完成，后台只读+换绑/解绑）：列表 / 详情 / 编辑 / 解除绑定 / 变更绑定
   lpStudentList: (params) => api.get('/admin/api/lp_students/list', { params }),
   lpStudentDetail: (id) => api.get('/admin/api/lp_students/detail', { params: { id } }),
-  lpStudentCreate: (data) => api.post('/admin/api/lp_students/create', data),
   lpStudentUpdate: (id, data) => api.post('/admin/api/lp_students/update', { id, ...data }),
   lpStudentDelete: (id) => api.post('/admin/api/lp_students/delete', { id }),
   lpStudentUnbind: (id) => api.post('/admin/api/lp_students/unbind', { id }),

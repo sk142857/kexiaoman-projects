@@ -1,5 +1,5 @@
 // app.js
-import { lpAuth, CLOUD_ENV } from './utils/api';
+import { lpAuth, CLOUD_ENV, persistLogin, getActiveStaffId, setActiveStaffId, setIdentities } from './utils/api';
 import { collectSession } from './utils/analytics';
 
 // 会话心跳间隔：后台解除/作废邀请码后，最多在此延迟内把用户踢出登录态
@@ -29,7 +29,16 @@ App({
   async ensureLogin() {
     try {
       const res = await lpAuth.login();
-      if (res && res.token) wx.setStorageSync('lp_token', res.token);
+      if (res && res.token) {
+        persistLogin(res);
+        // 多身份（共用微信）：活动身份跟随上次选择；storage 中有效则保持，否则后端已给默认
+        if (res.identities && res.identities.length > 0) {
+          setIdentities(res.identities);
+          const cur = getActiveStaffId();
+          const stillValid = res.identities.some(s => String(s.staff_id) === cur);
+          if (!stillValid) setActiveStaffId(res.activeStaffId || res.identities[0].staff_id);
+        }
+      }
       if (res && res.bound && res.staff) {
         wx.setStorageSync('lp_staff', res.staff);
         wx.setStorageSync('lp_role', res.role || res.staff.role || 'student');
@@ -83,6 +92,11 @@ App({
     wx.removeStorageSync('lp_staff');
     wx.removeStorageSync('lp_role');
     wx.removeStorageSync('lp_view_staff_id');
+    wx.removeStorageSync('lp_active_staff_id');
+    wx.removeStorageSync('lp_identities');
+    // 一并清除上一账号的后台登录凭据与共享码
+    wx.removeStorageSync('lp_backend');
+    wx.removeStorageSync('lp_share_code');
     this.lpReady = this.ensureLogin();
     this._go('/pages/login/login');
   },

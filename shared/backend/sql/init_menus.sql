@@ -16,7 +16,7 @@
 
 -- 课小满后台管理系统 - 菜单数据（完整覆盖，与 sql/init_data.sql、routes/admin.js DEFAULT_MENU_GROUPS 保持一致）
 -- 一级分组（menu_type=1）：仪表盘 / 学习管理 / 成员管理 / 消息通知 / 系统监控 / 系统设置
--- menu_id 保持 1~38 稳定不变，t_role_menus 关联全部有效；仅调整归属分组 / 排序 / 名称 / 图标
+-- menu_id 保持 1~39 稳定不变，t_role_menus 关联全部有效；仅调整归属分组 / 排序 / 名称 / 图标
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -52,8 +52,9 @@ INSERT INTO `t_menus` VALUES (5, 0, '学习管理', '/learning', 'ReadOutlined',
 INSERT INTO `t_menus` VALUES (34, 5, '待办任务', '/module/todo_tasks', 'CheckSquareOutlined', 1, 2, 1, '2026-08-14 11:28:09', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (35, 5, '打卡审核', '/module/checkin_reviews', 'AuditOutlined', 2, 2, 1, '2026-08-14 11:28:09', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (6, 5, '任务管理', '/module/tasks', 'UnorderedListOutlined', 3, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
-INSERT INTO `t_menus` VALUES (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 4, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
-INSERT INTO `t_menus` VALUES (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 5, 2, 1, '2026-08-12 10:13:18', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (39, 5, '任务管理（卡片模式）', '/module/card_tasks', 'ProfileOutlined', 4, 2, 1, '2026-08-18 10:00:00', '2026-08-18 10:00:00');
+INSERT INTO `t_menus` VALUES (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 6, 2, 1, '2026-08-12 10:13:18', '2026-08-15 12:20:00');
 -- 3. 成员管理
 INSERT INTO `t_menus` VALUES (8, 0, '成员管理', '/members', 'UserOutlined', 3, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (9, 8, '用户管理', '/module/users', 'UserOutlined', 1, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
@@ -71,7 +72,7 @@ INSERT INTO `t_menus` VALUES (16, 15, '服务监控', '/module/monitors', 'Monit
 INSERT INTO `t_menus` VALUES (17, 15, '接口链路', '/module/traces', 'ApiOutlined', 2, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (18, 15, '会话画像', '/module/sessions', 'MobileOutlined', 3, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (21, 15, '用户事件', '/module/user_events', 'ThunderboltOutlined', 4, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
-INSERT INTO `t_menus` VALUES (20, 15, '图片上传记录', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (20, 15, '文件上传记录', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 -- 6. 系统设置
 INSERT INTO `t_menus` VALUES (22, 0, '系统设置', '/system', 'SettingOutlined', 6, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (23, 22, '管理员管理', '/module/staff', 'SafetyOutlined', 1, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');

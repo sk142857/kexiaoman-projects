@@ -65,7 +65,6 @@
         <view class="card-check {{identity === 'family' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
       </view>
     </view>
-    <view wx:if="{{rebind}}" class="back" bindtap="goBack">返回上一页</view>
   </scroll-view>
 
   <!-- 步骤二：绑定信息 -->
@@ -121,13 +120,26 @@
       <view class="done-icon"><t-icon name="check-circle-filled" size="120rpx" /></view>
       <view class="done-title">{{(identity === 'parent' && parentMode === 'create') ? '创建成功' : '绑定成功'}}</view>
       <view class="done-desc">{{identity === 'parent' && parentMode === 'create' ? '家庭账号已创建，请先添加至少一个孩子档案，生成学生邀请码' : identity === 'parent' ? '已绑定主家长账号，可查看与维护孩子档案' : identity === 'family' ? '欢迎加入家庭，随时查看孩子的学习情况' : '欢迎加入课小满，开始你的学习之旅'}}</view>
+
+      <!-- 共用微信风险提示：多身份 + 家长未设 PIN -->
+      <view wx:if="{{riskPrompt}}" class="pin-warn">
+        <view class="pin-warn--title">⚠️ 建议开启身份 PIN 锁</view>
+        <view class="pin-warn--desc">检测到您与孩子共用此微信。未开启 PIN 锁时，孩子可自行切换到「家长」身份，查看家庭信息、后台账号、家属共享等敏感内容。建议开启 PIN 锁保护（仅家长知道密码）。</view>
+      </view>
     </view>
   </scroll-view>
 
   <!-- 固定底部操作栏 -->
   <view wx:if="{{!locked}}" class="footer">
     <block wx:if="{{step === 0}}">
-      <t-button class="btn" theme="primary" block bindtap="onNext" disabled="{{!identity}}">下一步</t-button>
+      <view class="footer-row">
+        <view wx:if="{{rebind}}" class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="goHome">首页</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onNext" disabled="{{!identity}}">下一步</t-button>
+        </view>
+      </view>
     </block>
 
     <block wx:elif="{{step === 1}}">
@@ -149,7 +161,15 @@
     </block>
 
     <block wx:elif="{{step === 2}}">
-      <t-button class="btn" theme="primary" block bindtap="onFinish">{{identity === 'parent' ? '去创建孩子档案' : '进入首页'}}</t-button>
+      <view wx:if="{{riskPrompt}}" class="footer-row">
+        <view class="footer-prev">
+          <t-button class="btn" variant="outline" block bindtap="goPin">开启 PIN 锁</t-button>
+        </view>
+        <view class="footer-main">
+          <t-button class="btn" theme="primary" block bindtap="onFinish">{{identity === 'parent' ? '去创建孩子档案' : '进入首页'}}</t-button>
+        </view>
+      </view>
+      <t-button wx:else class="btn" theme="primary" block bindtap="onFinish">{{identity === 'parent' ? '去创建孩子档案' : '进入首页'}}</t-button>
     </block>
   </view>
 </view>

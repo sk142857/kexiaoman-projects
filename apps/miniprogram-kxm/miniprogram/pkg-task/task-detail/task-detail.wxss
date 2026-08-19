@@ -1,16 +1,6 @@
 .page {
   padding: 24rpx 32rpx 48rpx;
 }
-.empty {
-  color: #b0b6c0;
-  text-align: center;
-  padding: 120rpx 0;
-  font-size: 28rpx;
-}
-.empty.small {
-  padding: 40rpx 0;
-  font-size: 26rpx;
-}
 .card {
   background: #ffffff;
   border-radius: 20rpx;
@@ -45,6 +35,16 @@
   white-space: pre-wrap;
 }
 .tags { margin-top: 16rpx; display: flex; flex-wrap: wrap; }
+.created-info {
+  margin-top: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.created-text {
+  font-size: 24rpx;
+  color: #8a919f;
+}
 .foot {
   margin-top: 20rpx;
   font-size: 24rpx;
@@ -102,6 +102,23 @@
   font-size: 24rpx;
   color: #e37318;
   word-break: break-all;
+}
+.checkin-voice {
+  margin-top: 16rpx;
+}
+.checkin-video {
+  margin-top: 16rpx;
+}
+.checkin-video .video {
+  width: 100%;
+  height: 380rpx;
+  border-radius: 12rpx;
+  background: #1f2329;
+}
+.checkin-video-meta {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #8a919f;
 }
 
 /* 底部操作栏多按钮：不用 flex gap（Skyline 对自定义组件 host 不生效）、不用相邻兄弟选择器（需 8.0.49+）、不用 t-button 标签选择器（样式隔离），全部用页面内显式类 */

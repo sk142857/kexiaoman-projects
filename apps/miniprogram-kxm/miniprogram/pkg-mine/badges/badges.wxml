@@ -30,8 +30,8 @@
                 </view>
                 <view class="hero-progress-text">{{level.progress}}%</view>
               </view>
-              <view wx:if="{{!level.maxLevel}}" class="hero-next">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}} XP</view>
-              <view wx:else class="hero-next">已满级，尊享荣耀</view>
+              <view wx:if="{{level && !level.maxLevel}}" class="hero-next">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}} XP</view>
+              <view wx:elif="{{level && level.maxLevel}}" class="hero-next">已满级，尊享荣耀</view>
             </view>
           </view>
           <view class="hero-chip">🔥 连击 {{streak.current}} 天</view>

@@ -11,20 +11,17 @@
     <view class="mine-main">
 
       <!-- 用户卡 -->
-      <view class="profile-card">
-        <view class="profile-avatar">{{avatarChar}}</view>
+      <view class="profile-card" bindtap="goProfileEdit" hover-class="profile-card--active">
+        <image wx:if="{{avatarUrl}}" class="profile-avatar" src="{{avatarUrl}}" mode="aspectFill" />
+        <view wx:else class="profile-avatar profile-avatar--char">{{avatarChar}}</view>
         <view class="profile-info">
-          <view wx:if="{{!editing}}" class="profile-name-row">
+          <view class="profile-name-row">
             <text class="profile-name">{{nickname}}</text>
-            <text class="profile-edit" bindtap="startEdit">✏️</text>
-          </view>
-          <view wx:else class="profile-name-row">
-            <input class="profile-input" value="{{nickname}}" bindinput="onNick" placeholder="请输入昵称" maxlength="20" />
-            <text class="profile-save" bindtap="saveNick" wx:if="{{!saving}}">保存</text>
-            <text class="profile-cancel" bindtap="cancelEdit">取消</text>
+            <text class="profile-edit">✏️</text>
           </view>
           <text class="profile-meta">{{appId}} · ID {{staffId || '--'}} · {{roleText}}</text>
         </view>
+        <text class="profile-arrow">›</text>
       </view>
 
       <!-- 数据统计四宫格 -->
@@ -47,8 +44,17 @@
         </view>
       </view>
 
-      <!-- 功能菜单列表 -->
+      <!-- 功能菜单列表（身份切换与普通菜单放同一列表） -->
       <view class="menu-card">
+        <!-- 身份切换：多身份共用微信时显示，子菜单与提示文案在身份切换页 -->
+        <view wx:if="{{identities.length > 1}}" class="menu-item" bindtap="goIdentitySwitch">
+          <view class="menu-icon menu-icon--blue">🔄</view>
+          <view class="menu-label-col">
+            <text class="menu-label">身份切换</text>
+            <text class="menu-desc">当前：{{roleText}} · 共 {{identities.length}} 个身份</text>
+          </view>
+          <text class="menu-arrow">›</text>
+        </view>
         <!-- 孩子档案：家长/家属可查看，家长可维护 -->
         <view wx:if="{{isManager}}" class="menu-item" bindtap="goChildren">
           <view class="menu-icon menu-icon--green">👶</view>
@@ -67,7 +73,7 @@
         </view>
         <view class="menu-item" bindtap="goSettings">
           <view class="menu-icon menu-icon--gray">⚙️</view>
-          <text class="menu-label">设置</text>
+          <text class="menu-label">个人设置</text>
           <text class="menu-arrow">›</text>
         </view>
       </view>

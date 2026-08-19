@@ -1,0 +1,74 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="身份切换"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+
+      <!-- 提示文案 -->
+      <view class="tip-card">
+        <view class="tip-title">💡 一个微信，多身份随时切换</view>
+        <view class="tip-desc">本机同时绑定了家长 / 学生 / 家属等身份，点击下方身份即可切换，切换后将以对应身份进入首页，无需重复登录。</view>
+        <view wx:if="{{parentNoPin}}" class="tip-warn">⚠️ 主家长尚未开启 PIN 锁，孩子可直接切换到「家长」身份查看家庭信息、后台账号等敏感内容，建议先开启下方身份保护。</view>
+      </view>
+
+      <!-- 切换子菜单 -->
+      <view class="menu-card">
+        <view
+          wx:for="{{identities}}"
+          wx:key="staff_id"
+          class="menu-item"
+          data-staff-id="{{item.staff_id}}"
+          bindtap="onSwitchIdentity"
+        >
+          <view class="menu-icon menu-icon--{{item.role === 'parent' ? 'blue' : (item.role === 'family' ? 'purple' : 'green')}}">
+            {{item.role === 'parent' ? '👨' : (item.role === 'family' ? '👪' : '👧')}}
+          </view>
+          <view class="menu-label-col">
+            <text class="menu-label">{{item.nickname || item.username}}</text>
+            <view class="identity-meta">
+              <text class="role-tag role-tag--{{item.role}}">{{roleText(item.role)}}</text>
+              <text wx:if="{{item.pin_enabled && (item.role === 'parent' || item.role === 'admin')}}" class="pin-tag">🔒 PIN 已开启</text>
+            </view>
+          </view>
+          <text wx:if="{{item.isCurrent}}" class="identity-tag">当前</text>
+          <text class="menu-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 身份保护：PIN 锁设置（家长/管理员） -->
+      <view wx:if="{{isParent}}" class="menu-card">
+        <view class="menu-item" bindtap="onPin">
+          <view class="menu-icon menu-icon--amber">🛡️</view>
+          <view class="menu-label-col">
+            <text class="menu-label">身份保护（PIN 锁）</text>
+            <text class="menu-desc">孩子切换家长身份需输入 PIN</text>
+          </view>
+          <text class="identity-status {{pinEnabled ? 'identity-status--on' : ''}}">{{pinEnabled ? '已开启' : '未开启'}}</text>
+          <text class="menu-arrow">›</text>
+        </view>
+      </view>
+
+      <view class="foot">课小满 · 邀请码准入制</view>
+    </view>
+  </scroll-view>
+
+  <!-- 固定底部操作栏 -->
+  <view class="footer">
+    <view wx:if="{{parentNoPin}}" class="footer-row">
+      <view class="footer-prev">
+        <t-button class="btn" variant="outline" block bindtap="onPin">开启 PIN 锁</t-button>
+      </view>
+      <view class="footer-main">
+        <t-button class="btn" theme="primary" block bindtap="goHome">进入首页</t-button>
+      </view>
+    </view>
+    <t-button wx:else class="btn" theme="primary" block bindtap="goHome">进入首页</t-button>
+  </view>
+</view>

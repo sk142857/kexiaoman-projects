@@ -9,9 +9,18 @@
  *
  * AI-SKIP: 请勿删除 package.json 中的 "ws" 依赖（rdb() WebSocket 需要）。
  */
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const sharp = require("sharp");
 const { app } = require("./db");
 const { genId, nowSql } = require("./utils");
+
+const execFileP = promisify(execFile);
 
 // 存储桶名称（环境内置 COS 桶）
 const STORAGE_BUCKET = "636c-cloud1-d6gddqzrsda16338f-1467751604";
@@ -20,10 +29,29 @@ const STORAGE_DOMAIN = "https://636c-cloud1-d6gddqzrsda16338f-1467751604.tcb.qcl
 // 所有图片根路径
 const STORAGE_ROOT = "kxm";
 // 允许的业务类型（防任意路径上传）
-const BIZ_WHITELIST = ["avatar", "events", "tasks"];
+const BIZ_WHITELIST = ["avatar", "events", "tasks", "voice", "videos"];
+// 视频大小上限：1GB
+const VIDEO_MAX_SIZE = 1024 * 1024 * 1024;
+// 视频压缩参数：最长边不超过该值（720p 档），CRF 越低越清晰体积越大
+const VIDEO_MAX_EDGE = 1280;
+const VIDEO_CRF = 28;
+// 视频封面抽帧参数：最长边不超过该值（缩略图足够），q:v 越低越清晰
+const VIDEO_COVER_MAX_EDGE = 640;
+const VIDEO_COVER_QUALITY = 3;
 // 图片压缩默认参数：长边超过该值才缩放；质量用于 jpeg 输出
 const DEFAULT_MAX_EDGE = 1080;
 const DEFAULT_QUALITY = 80;
+// 音频扩展名映射（语音打卡等；mp3 全端可播，m4a/webm 为浏览器录音兜底）
+const AUDIO_EXT_MAP = {
+  mpeg: "mp3", mp3: "mp3", "x-m4a": "m4a", m4a: "m4a", mp4: "m4a",
+  aac: "aac", wav: "wav", "x-wav": "wav", amr: "amr", silk: "silk", webm: "webm",
+};
+
+/** 按音频 contentType 解析扩展名（未知一律 mp3 兜底） */
+function audioExt(contentType) {
+  const sub = String(contentType || "").split("/")[1] || "";
+  return AUDIO_EXT_MAP[sub.toLowerCase()] || "mp3";
+}
 
 /**
  * 内存压缩图片（原图不落盘，只存压缩产物）
@@ -91,19 +119,26 @@ function ratioText(file = {}) {
  */
 async function uploadImage({ biz, date, buffer, contentType = "image/jpeg", fileName = "", compress = true, maxEdge, quality }) {
   if (!isBizAllowed(biz)) throw new Error("非法的业务类型");
-  if (!buffer || buffer.length === 0) throw new Error("图片内容为空");
-  if (buffer.length > 5 * 1024 * 1024) throw new Error("单张图片不能超过 5MB");
+  if (!buffer || buffer.length === 0) throw new Error("文件内容为空");
+  // 音频（语音）与图片分别限制体积：语音 60s mp3 约 200-400KB，放宽到 10MB
+  // 图片走「前端选原图 → 后端压缩」，原图常达数 MB（base64 再膨胀 1/3），上限放宽到 20MB
+  const isAudio = /^audio\//i.test(contentType);
+  if (isAudio) {
+    if (buffer.length > 10 * 1024 * 1024) throw new Error("单个音频不能超过 10MB");
+  } else if (buffer.length > 20 * 1024 * 1024) {
+    throw new Error("单张图片不能超过 20MB");
+  }
 
   // 原图大小（压缩前），用于记录压缩对比
   const origSize = buffer.length;
-  if (compress) {
+  if (compress && !isAudio) {
     const result = await compressImage(buffer, { maxEdge, quality, contentType });
     buffer = result.buffer;
     contentType = result.contentType;
   }
   const compressedSize = buffer.length;
 
-  const ext = /png/i.test(contentType) ? "png" : "jpg";
+  const ext = isAudio ? audioExt(contentType) : (/png/i.test(contentType) ? "png" : "jpg");
   const dateDir = date || new Date().toISOString().slice(0, 10);
   const fileId = genId();
   // 相对路径（域名拼接用）
@@ -125,6 +160,190 @@ async function uploadImage({ biz, date, buffer, contentType = "image/jpeg", file
     compressedSize,
     contentType,
   };
+}
+
+// ==================== 视频压缩（ffmpeg 转码，节省云存储空间） ====================
+let FFMPEG_OK = null; // 首次探测结果缓存：null 未探测 / true 可用 / false 不可用
+
+function ffmpegBin() { return process.env.FFMPEG_PATH || "ffmpeg"; }
+function ffprobeBin() { return process.env.FFPROBE_PATH || "ffprobe"; }
+
+/** 探测 ffmpeg/ffprobe 是否可用（本地无 ffmpeg 时跳过压缩，保证开发/降级可用） */
+async function ffmpegReady() {
+  if (FFMPEG_OK !== null) return FFMPEG_OK;
+  try {
+    await execFileP(ffmpegBin(), ["-version"], { timeout: 15000 });
+    await execFileP(ffprobeBin(), ["-version"], { timeout: 15000 });
+    FFMPEG_OK = true;
+  } catch (e) {
+    console.error("[storage] ffmpeg 不可用，视频压缩跳过（不影响上传）", e.message);
+    FFMPEG_OK = false;
+  }
+  return FFMPEG_OK;
+}
+
+/** 流式下载 URL 到本地临时文件（不整块进内存，1GB 视频也可处理） */
+async function downloadToTemp(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`下载视频失败 HTTP ${resp.status}`);
+  const tmp = path.join(os.tmpdir(), `kxm_vid_${genId()}_src`);
+  await pipeline(Readable.fromWeb(resp.body), fs.createWriteStream(tmp));
+  return tmp;
+}
+
+/** 读取视频时长（秒，ffprobe；失败返回 0） */
+async function probeVideoDuration(filePath) {
+  try {
+    const { stdout } = await execFileP(ffprobeBin(), [
+      "-v", "error", "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1", filePath,
+    ], { timeout: 60000, maxBuffer: 1024 * 1024 });
+    const d = Number((stdout || "").trim());
+    return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
+  } catch (e) {
+    console.error("[storage] ffprobe 读时长失败", e.message);
+    return 0;
+  }
+}
+
+/**
+ * ffmpeg 转码压缩视频：
+ * - 最长边压到 720p 档（1280），不放大；H.264 CRF28 + AAC 96k
+ * - 恒定的偶数宽高（libx264 要求）、faststart 便于在线播放
+ * - 单线程跑（容器 0.25 核，多线程无收益）
+ */
+async function transcodeVideo(srcPath, dstPath) {
+  await execFileP(ffmpegBin(), [
+    "-y", "-i", srcPath,
+    "-vf", "scale=1280:1280:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", String(VIDEO_CRF),
+    "-c:a", "aac", "-b:a", "96k",
+    "-movflags", "+faststart",
+    "-threads", "1",
+    dstPath,
+  ], { timeout: 15 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+}
+
+/** 原样上传一段视频到云存储（不限制体积上限，不走图片压缩） */
+async function uploadRawVideo(buffer) {
+  const dateDir = new Date().toISOString().slice(0, 10);
+  const fileId = genId();
+  const relPath = `${STORAGE_ROOT}/videos/${dateDir}/${fileId}.mp4`;
+  const storage = app.storage.from();
+  const { data, error } = await storage.upload(relPath, buffer, { contentType: "video/mp4" });
+  if (error) throw error;
+  const cosId = (data && (data.id || data.fileID)) || "";
+  return { path: relPath, cosId, fileId };
+}
+
+/**
+ * ffmpeg 抽一帧生成视频封面（JPG，最长边压缩到 640）
+ * 优先取 1 秒处，超短片（<2s）取首帧，失败则整体降级（不阻断视频压缩主流程）
+ */
+async function extractVideoCover(srcPath, dstPath) {
+  const run = (seek) => execFileP(ffmpegBin(), [
+    "-y", "-ss", String(seek), "-i", srcPath,
+    "-vframes", "1",
+    "-vf", `scale=${VIDEO_COVER_MAX_EDGE}:${VIDEO_COVER_MAX_EDGE}:force_original_aspect_ratio=decrease`,
+    "-q:v", String(VIDEO_COVER_QUALITY),
+    dstPath,
+  ], { timeout: 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+  try {
+    await run(1);
+  } catch (_) {
+    await run(0);
+  }
+}
+
+/** 上传视频封面到云存储 kxm/covers/{date}/{id}.jpg */
+async function uploadCover(buffer) {
+  const dateDir = new Date().toISOString().slice(0, 10);
+  const fileId = genId();
+  const relPath = `${STORAGE_ROOT}/covers/${dateDir}/${fileId}.jpg`;
+  const storage = app.storage.from();
+  const { data, error } = await storage.upload(relPath, buffer, { contentType: "image/jpeg" });
+  if (error) throw error;
+  const cosId = (data && (data.id || data.fileID)) || "";
+  return { path: relPath, url: publicUrl(relPath), cosId, fileId };
+}
+
+/**
+ * 视频压缩（后台异步，fire-and-forget，失败降级保留原文件）：
+ * 下载 → ffmpeg 抽帧封面 → 转码 → 上传压缩版 → 体积确有下降则删除原文件并更新 file_uploads 登记
+ * @param {object} opts { path: 云存储相对路径 kxm/videos/..., duration?: 客户端上报时长兜底 }
+ * @returns {Promise<{ path, url, size, duration, cover }>} 最终生效的路径（压缩后或原路径）与封面路径（可能为空）
+ */
+async function compressVideo({ path: relPath, duration } = {}) {
+  const src = String(relPath || "").replace(/^\/+/, "");
+  if (!src.startsWith(`${STORAGE_ROOT}/videos/`)) throw new Error("非法视频路径");
+  const url = publicUrl(src);
+  let down = null;
+  let out = null;
+  let coverOut = null;
+  let coverPath = "";
+  try {
+    // ffmpeg 不可用直接降级返回原路径（保证打卡流程可用，无封面）
+    if (!(await ffmpegReady())) {
+      return { path: src, url, size: 0, duration: Math.max(0, Math.floor(Number(duration) || 0)), cover: "" };
+    }
+    down = await downloadToTemp(url);
+    out = path.join(os.tmpdir(), `kxm_vid_${genId()}.mp4`);
+    // 抽帧生成封面（失败仅打日志，不阻断视频压缩）
+    coverOut = path.join(os.tmpdir(), `kxm_cover_${genId()}.jpg`);
+    try {
+      await extractVideoCover(down, coverOut);
+      const cbuf = await fs.promises.readFile(coverOut);
+      const cover = await uploadCover(cbuf);
+      coverPath = cover.path;
+    } catch (e2) {
+      console.error("[storage] 视频封面抽帧失败", src, e2.message);
+    }
+    try {
+      let dur = await probeVideoDuration(down);
+      if (!dur) dur = Math.max(0, Math.floor(Number(duration) || 0));
+      // 视频过小（<30MB）说明本身已小，跳过转码省 CPU
+      const stat = await fs.promises.stat(down);
+      if (stat.size < 30 * 1024 * 1024) {
+        console.log("[storage] 视频已较小，跳过压缩", src, stat.size);
+        return { path: src, url, size: stat.size, duration: dur, cover: coverPath };
+      }
+      await transcodeVideo(down, out);
+      const outStat = await fs.promises.stat(out);
+      const buffer = await fs.promises.readFile(out);
+      // 压缩后不小于原文件：保留原文件（转码无收益）
+      if (outStat.size >= stat.size) {
+        console.log("[storage] 压缩无收益，保留原文件", src, stat.size, outStat.size);
+        return { path: src, url, size: stat.size, duration: dur, cover: coverPath };
+      }
+      const uploaded = await uploadRawVideo(buffer);
+      const newUrl = publicUrl(uploaded.path);
+      const ratio = stat.size > 0 ? Number(((1 - outStat.size / stat.size) * 100).toFixed(1)) : 0;
+      // 更新 file_uploads 登记：路径指向压缩版，保留原文件大小做压缩比展示
+      const { db } = require("./db");
+      await db.from("file_uploads")
+        .update({
+          file_path: uploaded.path,
+          file_url: newUrl,
+          file_cos_id: uploaded.cosId,
+          file_size: outStat.size,
+          file_size_compressed: outStat.size,
+          file_size_ratio: ratio,
+          content_type: "video/mp4",
+        })
+        .eq("file_path", src);
+      // 删除原文件（物理删 COS，登记记录改为压缩版后原记录已随 update 失效，无需再删）
+      try {
+        await removeFiles([src]);
+      } catch (_) {}
+      console.log(`[storage] 视频压缩完成 ${src} → ${uploaded.path}（${(outStat.size / 1024 / 1024).toFixed(1)}MB，节省 ${ratio}%）`);
+      return { path: uploaded.path, url: newUrl, size: outStat.size, duration: dur, cover: coverPath };
+    } finally {
+      for (const f of [down, out, coverOut]) { if (f) { try { await fs.promises.unlink(f); } catch (_) {} } }
+    }
+  } catch (e) {
+    console.error("[storage] 视频压缩失败，保留原文件", src, e.message);
+    return { path: src, url, size: 0, duration: Math.max(0, Math.floor(Number(duration) || 0)), cover: coverPath };
+  }
 }
 
 /**
@@ -314,7 +533,7 @@ async function removeFiles(paths = []) {
 }
 
 module.exports = {
-  STORAGE_BUCKET, STORAGE_DOMAIN, STORAGE_ROOT, BIZ_WHITELIST,
+  STORAGE_BUCKET, STORAGE_DOMAIN, STORAGE_ROOT, BIZ_WHITELIST, VIDEO_MAX_SIZE,
   publicUrl, isBizAllowed, uploadImage, logUpload, bindBizId, markRemoved, removeFiles,
-  dupSharedImages,
+  dupSharedImages, compressVideo,
 };

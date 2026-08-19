@@ -23,6 +23,9 @@ Page({
     if (app && app.lpReady) {
       try { await app.lpReady; } catch (_) {}
     }
+    // 等待期间可能被 reLaunch 到身份页，页面已失效则直接返回
+    const pages = getCurrentPages();
+    if (!pages.length || pages[pages.length - 1].route !== 'pkg-mine/subscribe/subscribe') return;
     trackEvent('page_view', '订阅消息');
     this._load();
   },

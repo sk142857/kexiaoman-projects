@@ -48,6 +48,11 @@ function crudRouter(opts) {
     onBeforeUpdate = null, onBeforeDelete = null,
     // 新增前钩子：async (req, values) => string|null，可改写 values（如自动生成编码/补齐字段），返回错误信息则拦截
     onBeforeCreate = null,
+    // 列表额外过滤钩子：async (req, q) => { q }，在白名单等值过滤后追加业务过滤条件
+    // （如按关联表过滤：任务按创建人/派发人 staff_id），列表与总数共用。
+    // 注意：RDB 查询构建器是 thenable，async 函数不能直接返回构建器（会被吞掉提前执行查询），
+    // 必须返回 { q } 包装对象；未命中过滤时同样返回 { q } 原样透传
+    extraFilter = null,
   } = opts;
   const router = express.Router();
 
@@ -131,14 +136,16 @@ function crudRouter(opts) {
 
       // 过滤条件构建（关键字模糊 + 白名单等值 + 时间范围 + 数据隔离），供列表与总数复用
       // 注意：RDB 查询链必须先 .select() 后才能调用 .eq/.or/.gte/.lte 等；
-      // 因此 count 查询单独用 select(pk, { count }) 作为链首调用，避免二次 select 丢失 count 选项
+      // 因此 count 查询单独用 select(pk, { count }) 作为链首调用，避免二次 select 丢失 count 选项。
+      // 重要：RDB 查询链是 thenable，async 函数 return 构建器会被吞掉直接执行查询、拿到原始结果，
+      // 所以本函数必须保持同步返回构建器；业务额外过滤 extraFilter 经 applyExtra 的 { q } 包装规避。
       const applyFilters = (q) => {
         if (appField && req.appId) q = q.eq(appField, req.appId);
         if (scope) q = q.eq(scope.field, scope.value);
         if (keyword && search.length > 0) {
           // 多字段 OR 模糊匹配；过滤 or() 注入危险字符
           const safeKw = String(keyword).replace(/[(),]/g, "").slice(0, 100);
-          q = q.or(search.map(f => `${f}.ilike.%${safeKw}%`).join(","));
+          q = q.or(search.map(f => `${f}.like.%${safeKw}%`).join(","));
         }
         // 等值过滤（仅白名单字段）
         for (const f of filters) {
@@ -153,17 +160,25 @@ function crudRouter(opts) {
         return q;
       };
 
+      // 业务额外过滤（如按关联表 staff_id 过滤任务）：extraFilter 为异步钩子，须返回 { q } 包装的构建器，
+      // 由本函数统一提取，避免 async 吞掉 thenable 导致查询提前执行或链式方法丢失
+      const applyExtra = async (q) => {
+        if (!extraFilter) return { q };
+        const r = await extraFilter(req, q);
+        return (r && r.q) ? r : { q };
+      };
+
       // 排序字段白名单：仅允许 pk（忽略客户端传入的其他排序字段，防 SQL 注入）
       // 优先用 PostgREST range(offset, offset+size-1) 服务端分页（offset/limit，无 2000 行硬上限）；
       // 网关不支持时回退为拉取 offset+size 行后内存切片实现分页（沿用旧逻辑，确保功能不倒退）
       const sortField = orderField || pk;
       const fetchPage = async () => {
-        const rangeRes = await applyFilters(db.from(table).select())
+        const rangeRes = await (await applyExtra(applyFilters(db.from(table).select()))).q
           .order(sortField, { ascending: order !== "desc" })
           .range(offset, offset + size - 1);
         if (!rangeRes.error) return rangeRes.data || [];
         const fetchLimit = Math.min(offset + size, 2000);
-        const { data: rows, error } = await applyFilters(db.from(table).select())
+        const { data: rows, error } = await (await applyExtra(applyFilters(db.from(table).select()))).q
           .order(sortField, { ascending: order !== "desc" })
           .limit(fetchLimit);
         if (error) throw error;
@@ -173,9 +188,9 @@ function crudRouter(opts) {
       // 异常或网关不返回 Content-Range 时回退为拉取全量主键计数，保证分页总条数准确
       const fetchTotal = async () => {
         try {
-          const { count, error: cErr } = await applyFilters(db.from(table).select(pk, { count: "exact" })).limit(1);
+          const { count, error: cErr } = await (await applyExtra(applyFilters(db.from(table).select(pk, { count: "exact" })))).q.limit(1);
           if (!cErr && typeof count === "number" && count >= 0) return count;
-          const { data: all, error: allErr } = await applyFilters(db.from(table).select(pk)).limit(10000);
+          const { data: all, error: allErr } = await (await applyExtra(applyFilters(db.from(table).select(pk)))).q.limit(10000);
           if (!allErr && Array.isArray(all)) return all.length;
           return -1;
         } catch (_) {

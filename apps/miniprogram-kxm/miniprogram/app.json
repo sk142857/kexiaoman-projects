@@ -5,7 +5,8 @@
     "pages/todo/todo",
     "pages/tasks/tasks",
     "pages/mine/mine",
-    "pages/identity/identity"
+    "pages/identity/identity",
+    "pages/identity-switch/identity-switch"
   ],
   "subpackages": [
     {
@@ -34,7 +35,8 @@
         "backend-account/backend-account",
         "subscribe/subscribe",
         "badges/badges",
-        "collections/collections"
+        "collections/collections",
+        "profile-edit/profile-edit"
       ]
     }
   ],
@@ -43,8 +45,7 @@
     "pages/home/home": { "network": "all", "packages": ["pkg-task"] },
     "pages/tasks/tasks": { "network": "all", "packages": ["pkg-task"] },
     "pages/todo/todo": { "network": "all", "packages": ["pkg-task"] },
-    "pages/mine/mine": { "network": "all", "packages": ["pkg-mine", "pkg-family"] },
-    "pages/identity/identity": { "network": "all", "packages": ["pkg-family"] }
+    "pages/mine/mine": { "network": "all", "packages": ["pkg-mine", "pkg-family"] }
   },
   "window": {
     "backgroundColor": "#F5F7FA",
@@ -74,5 +75,10 @@
     ]
   },
   "sitemapLocation": "sitemap.json",
+  "usingComponents": {
+    "empty": "/components/empty/empty",
+    "voice-player": "/components/voice-player/voice-player",
+    "task-progress": "/components/task-progress/task-progress"
+  },
   "lazyCodeLoading": "requiredComponents"
 }

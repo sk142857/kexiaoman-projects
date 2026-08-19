@@ -4,17 +4,17 @@ const { trackEvent } = require('../../utils/tracker');
 
 const STATUS_TABS = [
   { value: '', label: '全部' },
-  { value: 'todo', label: '未开始' },
+  { value: 'todo', label: '待完成' },
   { value: 'doing', label: '进行中' },
   { value: 'done', label: '已完成' },
 ];
 
 const STATUS_THEME = {
-  todo: { text: '未开始', color: '#f6685d', bg: '#fdeeed', border: '#fbc6c1' },
+  todo: { text: '待完成', color: '#f6685d', bg: '#fdeeed', border: '#fbc6c1' },
   doing: { text: '进行中', color: '#e37318', bg: '#fdf1e4', border: '#f6cda8' },
   done: { text: '已完成', color: '#16a87a', bg: '#e6faf4', border: '#b3eedd' },
 };
-const STATUS_PROGRESS = { todo: 0, doing: 50, done: 100 };
+const STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
 
 Page({
   data: {
@@ -54,7 +54,8 @@ Page({
           const theme = STATUS_THEME[t.task_status] || STATUS_THEME.todo;
           return {
             ...t,
-            progress: STATUS_PROGRESS[t.task_status] || 0,
+            // 进度为独立字段（后端维护），缺失时按状态兜底（待完成默认 1%）
+            progress: t.progress >= 0 ? Number(t.progress) : (STATUS_PROGRESS[t.task_status] || 1),
             statusText: theme.text,
             statusColor: theme.color,
             statusBg: theme.bg,

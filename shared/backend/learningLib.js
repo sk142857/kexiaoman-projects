@@ -90,6 +90,16 @@ function invalidateDictItems(dictCodes) {
   [...new Set((dictCodes || []).map(String).filter(Boolean))].forEach(code => cache.delete(`dict:${code}`));
 }
 
+// ==================== 打卡方式 ====================
+// 任务发布指定打卡方式：image 图文 / voice 语音 / video 视频（1GB 内，后端 ffmpeg 压缩）
+const CHECKIN_TYPE_MAP = { image: "图文", voice: "语音", video: "视频" };
+const CHECKIN_TYPE_ALLOWED = ["image", "voice", "video"];
+/** 规范化打卡方式：空/非法回退 image */
+function normalizeCheckinType(v) {
+  const s = String(v || "image").trim();
+  return CHECKIN_TYPE_ALLOWED.includes(s) ? s : "image";
+}
+
 // ==================== 图片字段解析 ====================
 /** 图片字段解析：兼容 JSON 数组字符串 / 逗号分隔 / 数组，返回相对路径数组 */
 function parseImgList(value) {
@@ -301,7 +311,7 @@ function buildLearningReminders({
       cards: [
         { key: "checkin", title: "今日打卡", desc: todayCheckins === 0 ? "今日还没打卡，完成任务后记得打卡，+10 经验" : `今日已打卡 ${todayCheckins} 次，再打卡还能继续累积经验` },
         { key: "streak", title: "保持连击", desc: currentStreak > 0 ? `已连续打卡 ${currentStreak} 天，今天打卡即可保持连击不断` : "从今天开始建立连击，打卡即可开启连击之旅" },
-        { key: "task", title: "待办任务", desc: remainingCount === 0 ? "今日任务已全部完成，打个卡收个尾吧" : `还有 ${remainingCount} 个任务未完成${activeCount > 0 ? `，其中 ${activeCount} 个进行中` : ""}${overdueCount > 0 ? `，另有 ${overdueCount} 个已逾期` : ""}` },
+        { key: "task", title: "待办任务", desc: remainingCount === 0 ? "今日任务已全部完成，打个卡收个尾吧" : `还有 ${remainingCount} 个任务待完成${activeCount > 0 ? `，其中 ${activeCount} 个进行中` : ""}${overdueCount > 0 ? `，另有 ${overdueCount} 个已逾期` : ""}` },
       ],
     });
   }
@@ -337,6 +347,9 @@ function buildLearningReminders({
 }
 
 module.exports = {
+  CHECKIN_TYPE_MAP,
+  CHECKIN_TYPE_ALLOWED,
+  normalizeCheckinType,
   parseImgList,
   attachAssignees,
   attachStaffInfo,

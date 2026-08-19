@@ -10,9 +10,7 @@
   </view>
   <scroll-view scroll-y class="lp-scroll">
     <view class="page">
-  <view wx:if="{{list.length === 0}}" class="empty-card">
-    <t-empty description="还没有合集，点击下方 + 新建" />
-  </view>
+  <empty wx:if="{{list.length === 0}}" icon="📁" title="还没有合集" desc="点击下方 + 新建" />
 
   <view wx:else class="list">
     <view wx:for="{{list}}" wx:key="collection_id" class="item">

@@ -18,9 +18,7 @@
       <view class="gen-btn" bindtap="onGenerate">＋ 生成家属共享码</view>
 
       <view class="section-title">共享记录</view>
-      <view wx:if="{{!loading && list.length === 0}}" class="empty-card">
-        <t-empty description="暂无共享记录" />
-      </view>
+      <empty wx:if="{{!loading && list.length === 0}}" icon="🔑" title="暂无共享记录" desc="点击上方按钮生成家属共享码" />
 
       <view wx:for="{{list}}" wx:key="invite_id" class="share-card">
         <view class="share-top">

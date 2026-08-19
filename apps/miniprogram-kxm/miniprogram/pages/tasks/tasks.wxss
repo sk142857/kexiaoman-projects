@@ -2,12 +2,6 @@
   /* tabBar 页面统一：safe-bottom(180rpx) + 128rpx（底部有 FAB，需更大留白） */
   padding: 24rpx 32rpx calc(var(--safe-bottom) + 128rpx);
 }
-.empty {
-  color: #b0b6c0;
-  text-align: center;
-  padding: 120rpx 0;
-  font-size: 28rpx;
-}
 .tabs {
   display: flex;
   background: #ffffff;
@@ -82,23 +76,20 @@
   color: #5c6470;
   background: #f5f7fa;
 }
+.meta-tag.voice {
+  color: #d46b08;
+  background: #fff7e6;
+}
+.meta-tag.video {
+  color: #08979c;
+  background: #e6fffb;
+}
 .deadline {
   font-size: 24rpx;
   color: #8a919f;
 }
 .task-progress {
   margin-top: 18rpx;
-}
-.progress-track {
-  height: 12rpx;
-  border-radius: 6rpx;
-  background: #f0f1f3;
-  overflow: hidden;
-}
-.progress-fill {
-  height: 100%;
-  border-radius: 6rpx;
-  transition: width 0.3s ease;
 }
 .task-foot {
   margin-top: 16rpx;

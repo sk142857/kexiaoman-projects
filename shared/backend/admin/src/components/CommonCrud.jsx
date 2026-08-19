@@ -5,8 +5,42 @@ import { ProTable } from '@ant-design/pro-components';
 import { crudApi, menuApi } from '../services/api';
 import DetailDrawer from './DetailDrawer.jsx';
 import TimelineDrawer from './TimelineDrawer.jsx';
-import { ImageUploader, CoverThumb, parseImages, imagesToJson, ColorTag, fmtDateTime, AssigneeSelect } from './fields.jsx';
+import PageSkeleton from './PageSkeleton.jsx';
+import { ImageUploader, CoverThumb, parseImages, imagesToJson, ColorTag, fmtDateTime, AssigneeSelect, ScoreRate } from './fields.jsx';
 import dayjs from 'dayjs';
+
+// 邀请码归属账号联动下拉：按表单 kind 值加载对应角色的员工列表（学生码→学生；家长码/家属共享码→主家长）
+// 避免后台创建家长码时选中非主家长账号而报「归属账号必须是有效主家长账号」
+const StaffByRoleSelect = ({ value, onChange, placeholder = '请选择归属账号' }) => {
+  const form = Form.useFormInstance();
+  const kind = Form.useWatch('kind', form);
+  const [options, setOptions] = useState([]);
+  useEffect(() => {
+    const role = kind === 'student' ? 'student' : 'parent';
+    let mounted = true;
+    crudApi.list('staff', { page: 1, pageSize: 500, staff_role: role })
+      .then((res) => {
+        if (!mounted) return;
+        setOptions((res.data.list || []).map(s => ({
+          value: s.staff_id,
+          label: s.staff_nickname || s.staff_username || String(s.staff_id),
+        })));
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [kind]);
+  return (
+    <Select
+      showSearch
+      allowClear
+      placeholder={placeholder}
+      value={value}
+      onChange={onChange}
+      options={options}
+      filterOption={(input, option) => String(option?.label ?? option?.value ?? '').toLowerCase().includes(String(input || '').toLowerCase())}
+    />
+  );
+};
 
 /**
  * 通用 CRUD 页面（ProTable 版）
@@ -54,6 +88,9 @@ export default function CommonCrud({
   // 自定义操作列按钮：[{ label, icon, color, show:(record,ctx)=>bool, confirm:'确认文案', onClick:(record)=>Promise }]
   // 用于模块级特殊操作（如生成/作废课小满邀请码）
   customActions = null,
+  // 工具栏自定义按钮（如新建绑定）：[{ label, icon, color, type, modal:{title,width,fields}, onClick:(ctx, values)=>Promise }]
+  // 用于不依赖具体行数据的模块级操作（如课小满「新建家长-孩子绑定」）
+  toolbarActions = null,
 }) {
   const actionRef = useRef();
   const keywordRef = useRef('');
@@ -73,12 +110,16 @@ export default function CommonCrud({
   const [checkinTask, setCheckinTask] = useState(null);
   const [checkinForm] = Form.useForm();
   const [form] = Form.useForm();
+  // 表单 kind 值（联动字段显隐/下拉角色过滤用）：hideWhenKind 字段在对应 kind 下隐藏
+  const watchKind = Form.useWatch('kind', form);
   // 自定义操作弹窗（customActions 中带 modal 配置的操作）：{ action, record }
   const [customModal, setCustomModal] = useState(null);
   const [customForm] = Form.useForm();
   const [menuTreeData, setMenuTreeData] = useState([]);
   const [menuChecked, setMenuChecked] = useState([]);
   const [menuHalfChecked, setMenuHalfChecked] = useState([]);
+  // 首次加载骨架屏：数据未就绪时隐藏表格本体并展示骨架屏，就绪后切换（onLoad/onRequestError 均会解除）
+  const [firstLoading, setFirstLoading] = useState(true);
   const [dynamicOptions, setDynamicOptions] = useState({});  // source -> options[]
   // 合集相关：筛选下拉选项 + 合集弹窗列表
   const [collectionOptions, setCollectionOptions] = useState([]);
@@ -87,6 +128,9 @@ export default function CommonCrud({
   const [pickerList, setPickerList] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState([]);
+  // 按用户过滤（staffId 类型）：员工下拉选项 + 手输 staff_id
+  const [staffFilterOptions, setStaffFilterOptions] = useState([]);
+  const [staffIdInput, setStaffIdInput] = useState('');
 
   // 当前登录人信息（含 role / staff_id），用于按创建人控制编辑/删除按钮显隐
   let currentStaff = {};
@@ -172,6 +216,24 @@ export default function CommonCrud({
     if (collectionPicker) loadCollectionOptions('');
   }, [collectionPicker, loadCollectionOptions]);
 
+  // 按用户过滤（staffId）：仅当模块配置了该筛选时加载全部员工下拉选项
+  const hasStaffFilter = filters.some(f => f.type === 'staffId');
+  useEffect(() => {
+    if (!hasStaffFilter) return;
+    let alive = true;
+    crudApi.list('staff', { page: 1, pageSize: 500 })
+      .then((res) => {
+        if (!alive) return;
+        setStaffFilterOptions((res.data.list || []).map(s => ({
+          value: s.staff_id,
+          label: s.staff_nickname || s.staff_username || String(s.staff_id),
+          searchText: `${s.staff_nickname || ''} ${s.staff_username || ''} ${s.staff_id || ''}`,
+        })));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [hasStaffFilter]);
+
   const currentCollectionName = (collectionOptions.find(c => String(c.collection_id) === String(filterValues.collection_id)) || {}).name || '';
 
   // 防御：若行内字段值混入 React 元素（如 Typography 内部节点），取其文本子节点，避免被序列化到界面
@@ -219,6 +281,7 @@ export default function CommonCrud({
   const onFilterReset = () => {
     filterRef.current = {};
     setFilterValues({});
+    setStaffIdInput('');
     // 日志类模块重置时恢复默认最近 N 天；普通模块清空时间范围（查全部）
     timeRangeRef.current = defaultDays
       ? [dayjs().subtract(defaultDays - 1, 'day').startOf('day'), dayjs().endOf('day')]
@@ -445,9 +508,16 @@ export default function CommonCrud({
     }
   };
 
-  // ==================== 自定义操作弹窗（customActions modal 配置） ====================
+  // ==================== 自定义操作弹窗（customActions / toolbarActions 的 modal 配置） ====================
   // 弹窗表单字段复用 renderField（select/date/number/tags/images 等），
-  // 确认后以 (record, ctx, values) 调用 action.onClick
+  // 行级操作确认后以 (record, ctx, values) 调用 onClick；工具栏操作 record 为 null，以 (null, ctx, values) 调用
+  // 统一入口：重置表单 + 预加载动态下拉（optionsSource）后打开弹窗
+  const openCustomModal = (action, record) => {
+    customForm.resetFields();
+    (action.modal.fields || []).filter(f => f.optionsSource).forEach(f => loadOptions(f.optionsSource, f.optionsParams));
+    setCustomModal({ action, record });
+  };
+
   const onSubmitCustomModal = async () => {
     const { action, record } = customModal || {};
     if (!action) return;
@@ -539,9 +609,7 @@ export default function CommonCrud({
                 icon={act.icon}
                 onClick={() => {
                   if (act.modal) {
-                    customForm.resetFields();
-                    (act.modal.fields || []).filter(f => f.optionsSource).forEach(f => loadOptions(f.optionsSource, f.optionsParams));
-                    setCustomModal({ action: act, record });
+                    openCustomModal(act, record);
                     return;
                   }
                   const run = () => act.onClick(record, { refresh: () => actionRef.current && actionRef.current.reload() });
@@ -616,7 +684,31 @@ export default function CommonCrud({
   };
 
   const filterSelects = filters.map((f) => (
-    f.type === 'collection' ? (
+    f.type === 'staffId' ? (
+      <span key={f.name} style={{ display: 'inline-flex', marginRight: 8 }}>
+        <Select
+          placeholder="选择用户"
+          allowClear
+          showSearch
+          style={{ width: 170 }}
+          value={filterValues[f.name]}
+          options={staffFilterOptions}
+          filterOption={(input, option) => String(option?.searchText ?? option?.label ?? '').toLowerCase().includes(String(input || '').toLowerCase())}
+          onChange={(v) => onFilterChange(f.name, v)}
+        />
+        <Input
+          placeholder="或输入staff_id"
+          allowClear
+          style={{ width: 132 }}
+          value={staffIdInput}
+          onChange={(e) => setStaffIdInput(e.target.value)}
+          onPressEnter={() => {
+            const v = String(staffIdInput || '').trim();
+            onFilterChange(f.name, v ? v : undefined);
+          }}
+        />
+      </span>
+    ) : f.type === 'collection' ? (
       <Select
         key={f.name}
         placeholder={f.label}
@@ -664,6 +756,9 @@ export default function CommonCrud({
       if (f.type === 'select') return base ? `请选择${base}` : '请选择';
       return base ? `请输入${base}` : '请输入';
     };
+    if (f.type === 'staffByRole') {
+      return <StaffByRoleSelect placeholder={autoPlaceholder()} />;
+    }
     if (f.type === 'select') {
       const options = f.options || (f.optionsSource ? buildSourceOptions(f) : []);
       return (
@@ -679,6 +774,7 @@ export default function CommonCrud({
       );
     }
     if (f.type === 'textarea') return <Input.TextArea rows={3} placeholder={autoPlaceholder()} />;
+    if (f.type === 'rate') return <ScoreRate disabled={(f.disabledWhenCreate && !editing) || (typeof f.disabled === 'function' ? f.disabled() : f.disabled)} />;
     if (f.type === 'number') return <Input type="number" placeholder={autoPlaceholder()} />;
     if (f.type === 'password') return <Input.Password placeholder={f.placeholder || '请输入密码'} autoComplete="new-password" />;
     if (f.type === 'date') return <DatePicker style={{ width: '100%' }} placeholder={autoPlaceholder()} />;
@@ -725,12 +821,17 @@ export default function CommonCrud({
 
   return (
     <>
+      {firstLoading && <PageSkeleton type="table" />}
       <ProTable
         actionRef={actionRef}
         rowKey={rowKey}
         headerTitle={title}
         columns={tableColumns}
         request={loadData}
+        // 首次加载：隐藏表格本体（仍保持挂载以触发 request），骨架屏占位；加载完成后展示
+        style={firstLoading ? { display: 'none' } : undefined}
+        onLoad={() => setFirstLoading(false)}
+        onRequestError={() => setFirstLoading(false)}
         search={false}
         options={false}
         rowSelection={allowBatchDelete ? {
@@ -776,6 +877,31 @@ export default function CommonCrud({
           collectionPicker && (
             <Button key="picker" icon={<FolderOutlined />} onClick={openPicker}>合集</Button>
           ),
+          (toolbarActions || []).map((act, i) => (
+            <Button
+              key={`tb-${i}`}
+              type={act.type || 'default'}
+              icon={act.icon}
+              style={act.color && act.type !== 'primary' ? { color: act.color } : undefined}
+              onClick={() => {
+                if (act.modal) {
+                  openCustomModal(act, null);
+                  return;
+                }
+                const run = () => act.onClick({ refresh: () => actionRef.current && actionRef.current.reload() });
+                if (act.confirm) {
+                  Modal.confirm({
+                    title: act.confirm,
+                    okText: '确定',
+                    cancelText: '取消',
+                    onOk: () => run(),
+                  });
+                } else {
+                  run();
+                }
+              }}
+            >{act.label}</Button>
+          )),
           allowBatchDelete && selectedKeys.length > 0 && (
             <Button key="batchDelete" danger icon={<DeleteOutlined />} onClick={() => openConfirm('batchDelete', null)}>
               批量删除（{selectedKeys.length}）
@@ -815,7 +941,7 @@ export default function CommonCrud({
             </Row>
           ) : (
             <Row gutter={16}>
-              {formFields.map(renderFormField)}
+              {formFields.map(f => (f.hideWhenKind && f.hideWhenKind.includes(watchKind) ? null : renderFormField(f)))}
             </Row>
           )}
         </Form>
@@ -853,7 +979,7 @@ export default function CommonCrud({
         okButtonProps={{ danger: confirmState?.type === 'delete' || confirmState?.type === 'batchDelete' || confirmState?.type === 'reject' }}
         confirmLoading={submitting}
       >
-        <p>
+        <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
           {confirmState?.type === 'delete' && (confirmState.tip || '删除后不可恢复，确定删除该记录吗？')}
           {confirmState?.type === 'batchDelete' && `将从腾讯云存储物理删除选中的 ${selectedKeys.length} 个文件及其登记记录，删除后不可恢复，确定删除吗？`}
           {confirmState?.type === 'approve' && '确认审核通过该记录吗？'}
