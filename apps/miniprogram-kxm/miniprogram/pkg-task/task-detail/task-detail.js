@@ -74,11 +74,18 @@ Page({
       const checkins = (res.checkins || []).map(c => {
         const st = c.review_status || 'approved';
         const theme = REVIEW_THEME[st] || REVIEW_THEME.approved;
-        const totalImages = (c.images || []).length;
+        // 未审核通过（待审核/已驳回）内容脱敏：正文 ****、图片/语音/视频占位，防止未审核信息被截图传播
+        const masked = st === 'pending' || st === 'rejected';
+        const totalImages = masked ? 0 : (c.images || []).length;
         const dateParts = splitDate(c.checkin_date);
         return {
           ...c,
-          images: (c.images || []).slice(0, 4).map(fileUrl),
+          masked,
+          maskText: st === 'rejected' ? '该打卡未通过审核，内容暂不展示' : '该打卡正在审核中，内容暂不展示',
+          checkin_note: masked ? '****' : (c.checkin_note || ''),
+          // 列表展示用预览图缩略（省流量），lightbox 用原图
+          images: masked ? [] : (c.images || []).slice(0, 4).map(p => previewUrl(p)),
+          fullImages: masked ? [] : (c.images || []).slice(0, 4).map(fileUrl),
           totalImages,
           dateDay: dateParts.day,
           dateMonth: dateParts.month,
@@ -86,7 +93,7 @@ Page({
           submitTime: fmtFull(c.created_at),
           submitter_avatar: fileUrl(c.submitter_avatar || ''),
           submitter_initial: String(c.submitter_name || '').slice(0, 1),
-          scoreText: Number(c.review_score) > 0 ? `${c.review_score} 分` : '',
+          scoreText: masked ? '' : (Number(c.review_score) > 0 ? `${c.review_score} 分` : ''),
           mediaText: c.checkin_type === 'voice' ? '语音打卡' : (c.checkin_type === 'video' ? '视频打卡' : '图文打卡'),
           sourceText: SOURCE_TEXT[c.source] || (c.source === 'web' ? 'Web后台' : '小程序'),
           reviewText: REVIEW_TEXT[st] || '已通过',
@@ -94,9 +101,9 @@ Page({
           reviewColor: theme.color,
           reviewBg: theme.bg,
           canDelete: !isDone || this.data.isManager,
-          voiceUrl: c.voice_url ? fileUrl(c.voice_url) : '',
-          videoUrl: c.video_url ? fileUrl(c.video_url) : '',
-          videoCover: c.video_cover ? fileUrl(c.video_cover) : '',
+          voiceUrl: masked ? '' : (c.voice_url ? fileUrl(c.voice_url) : ''),
+          videoUrl: masked ? '' : (c.video_url ? fileUrl(c.video_url) : ''),
+          videoCover: masked ? '' : (c.video_cover ? fileUrl(c.video_cover) : ''),
         };
       });
       this.setData({
@@ -134,7 +141,7 @@ Page({
     const index = Number(e.currentTarget.dataset.index);
     const cid = String(e.currentTarget.dataset.cid);
     const item = this.data.checkins.find(c => String(c.checkin_id) === cid);
-    const urls = ((item && item.images) || []).map(previewUrl);
+    const urls = ((item && item.fullImages) || []).map(previewUrl);
     const url = urls[index];
     if (!url) return;
     wx.previewImage({ urls, current: url });

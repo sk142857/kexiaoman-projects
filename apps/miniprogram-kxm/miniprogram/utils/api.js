@@ -40,9 +40,13 @@ function genRequestId() {
   return `${hex()}${hex()}-${hex()}-${hex()}-${hex()}-${hex()}${hex()}${hex()}`;
 }
 
-/** 异步上报前端耗时（fire-and-forget，不阻塞回调；失败静默） */
+/** 前端耗时上报采样（性能优化：避免每个业务请求都多一次 callContainer，按比例抽样） */
+let costReportCount = 0;
+const COST_REPORT_SAMPLE = 20; // 每 20 个请求抽样上报 1 个
 function reportClientCost(requestId, clientCostMs) {
   try {
+    costReportCount += 1;
+    if (costReportCount % COST_REPORT_SAMPLE !== 0) return;
     wx.cloud.callContainer({
       config: { env: CLOUD_ENV },
       path: '/api/lp/reportTrace',
@@ -84,9 +88,11 @@ const COLD_START_PATTERNS = [
 ];
 
 function isColdStartError(statusCode, err) {
-  const raw = (err && (err.errMsg || err.message || JSON.stringify(err))) || '';
+  const raw = (err && (err.errMsg || err.message || err.msg || JSON.stringify(err))) || '';
   const text = `${statusCode || ''} ${raw}`;
   if (statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504) return true;
+  // 网关返回 404 + SERVICE_VERSION_NOT_FOUND：云托管服务版本未就绪/未上线，等价于冷启动不可用
+  if (statusCode === 404 && /service[\s-_]*version[\s-_]*not[\s-_]*found/i.test(raw)) return true;
   return COLD_START_PATTERNS.some((p) => p.test(text));
 }
 
@@ -187,13 +193,13 @@ function request(path, opts = {}) {
         success: (res) => {
           reportClientCost(requestId, Date.now() - startAt);
           const status = (res && res.statusCode) || 0;
-          // 网关/容器层 5xx：实例冷启动未就绪，等待后自动重连
-          if (isColdStartError(status, null)) {
+          const body = (res && res.data) || {};
+          // 网关/容器层 5xx 或 404 SERVICE_VERSION_NOT_FOUND：实例冷启动/版本未就绪，等待后自动重连
+          if (isColdStartError(status, body)) {
             if (triesLeft > 0) { scheduleRetry(triesLeft, () => attempt(triesLeft - 1)); return; }
             giveUp();
             return;
           }
-          const body = (res && res.data) || {};
           if (body.code === 0) {
             resolve(body.data);
           } else if (body.code === 401 || body.code === 403) {

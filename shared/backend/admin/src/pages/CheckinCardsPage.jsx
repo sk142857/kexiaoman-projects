@@ -171,8 +171,16 @@ export default function CheckinCardsPage() {
         },
         { key: 'review', label: '审核状态', children: <Tag color={review.color} style={{ margin: 0 }}>{review.label}</Tag> },
         { key: 'date', label: '打卡日期', children: record.checkin_date || '-' },
-        { key: 'type', label: '打卡方式', children: checkinTypeLabel },
-        { key: 'source', label: '打卡来源', children: (() => { const c = TASK_SOURCE_MAP[record.source] || {}; return record.source ? <Tag color={c.color}>{c.label || record.source}</Tag> : '-'; })() },
+        {
+          key: 'type',
+          label: '打卡方式',
+          children: (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {(() => { const c = TASK_SOURCE_MAP[record.source] || {}; return record.source ? <Tag color={c.color} style={{ margin: 0 }}>{c.label || record.source}</Tag> : null; })()}
+              <span>{checkinTypeLabel}</span>
+            </div>
+          ),
+        },
         // 按打卡模式展示对应媒体：图文打卡显图片、语音打卡显语音、视频打卡显视频，互不混显
         ...(record.checkin_type === 'image'
           ? [{ key: 'images', label: '打卡图片', span: 2, children: <TaskImages images={record.checkin_images} /> }]

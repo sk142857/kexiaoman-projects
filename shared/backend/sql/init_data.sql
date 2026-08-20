@@ -63,7 +63,7 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_path = VALUES(menu_path), parent_id = VALUES(parent_id);
 
 -- 3. 角色-菜单（按 menu_id 关联，分组调整后关联保持不变）
---    管理员：全部菜单；学生：学习仪表盘 + 学习管理（待办/任务/打卡/合集）+ 成员管理·绑定管理；
+--    管理员：全部菜单；学生：学习仪表盘 + 学习管理（待办/任务/卡片任务/合集，不含打卡管理/绑定管理等敏感数据）；
 --    主家长/家属：学习仪表盘 + 学习管理（待办/任务/打卡/合集/审核）+ 成员管理·孩子档案
 INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (1,  'admin', 1,  CURRENT_TIMESTAMP), (3,  'admin', 3,  CURRENT_TIMESTAMP),
@@ -83,11 +83,9 @@ INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (31, 'admin', 31, CURRENT_TIMESTAMP),
   (32, 'student', 5,  CURRENT_TIMESTAMP),
   (33, 'student', 6,  CURRENT_TIMESTAMP),
-  (34, 'student', 7,  CURRENT_TIMESTAMP),
   (35, 'student', 28, CURRENT_TIMESTAMP),
   (36, 'student', 1,  CURRENT_TIMESTAMP),
   (37, 'student', 4,  CURRENT_TIMESTAMP),
-  (38, 'student', 31, CURRENT_TIMESTAMP),
   (39, 'admin', 32, CURRENT_TIMESTAMP),
   (40, 'admin', 33, CURRENT_TIMESTAMP),
   (41, 'admin', 34, CURRENT_TIMESTAMP),
@@ -144,6 +142,7 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, u
   ('task_checkin_id', '任务打卡ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('collection_id', '合集ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('task_timeline_event_id', '任务时间轴事件ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
+  ('point_log_id', '积分流水ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
   ('subscribe_grant_id', '订阅授权ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('subscribe_send_id', '订阅发送ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
   ('invite_id', '邀请码ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),

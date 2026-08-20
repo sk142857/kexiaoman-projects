@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Progress, Avatar, Tooltip, Empty } from 'antd';
+import { Row, Col, Card, Table, Tag, Progress, Avatar, Tooltip, Empty, Select } from 'antd';
 import {
   TrophyOutlined, StarFilled, FireOutlined, CalendarOutlined,
   CheckCircleOutlined, PercentageOutlined, FileTextOutlined, ClockCircleOutlined,
-  ThunderboltOutlined, RocketOutlined, WarningOutlined,
+  ThunderboltOutlined, RocketOutlined, WarningOutlined, UserSwitchOutlined,
 } from '@ant-design/icons';
 import { Area, Pie, Column, Bar } from '@ant-design/charts';
 import { dashboardApi } from '../services/api';
@@ -118,13 +118,39 @@ const REMINDER_ICON = {
 export default function LearningDashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
+  const [students, setStudents] = useState([]);
+  // '' = 全部（仅管理员）；家长/家属默认第一个孩子，只能切名下孩子
+  const [viewStudentId, setViewStudentId] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    dashboardApi.learning()
-      .then(res => setData(res.data))
+    let role = '';
+    try { role = (JSON.parse(localStorage.getItem('admin_user') || '{}').role) || ''; } catch (_) {}
+    setIsAdmin(role === 'admin');
+    const saved = localStorage.getItem('lp_admin_view_student') || '';
+    dashboardApi.learning(saved ? { studentId: saved } : {})
+      .then(res => {
+        setData(res.data);
+        setStudents(res.data.students || []);
+        setViewStudentId(res.data.viewStudentId || '');
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const onSwitchStudent = (val) => {
+    const v = String(val || '');
+    localStorage.setItem('lp_admin_view_student', v);
+    setLoading(true);
+    dashboardApi.learning(v ? { studentId: v } : {})
+      .then(res => {
+        setData(res.data);
+        setStudents(res.data.students || []);
+        setViewStudentId(res.data.viewStudentId || '');
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
 
   if (loading) {
     return <PageSkeleton type="learning" />;
@@ -153,6 +179,7 @@ export default function LearningDashboard() {
   const recentTaskList = data?.recentTaskList || [];
   const reminders = data?.reminders || [];
   const student = data?.student || {};
+  const pointLogs = data?.pointLogs || [];
 
   const nickname = student.nickname || student.username || '学习小达人';
   const avatarChar = String(nickname).charAt(0).toUpperCase();
@@ -232,7 +259,20 @@ export default function LearningDashboard() {
               {avatarChar}
             </Avatar>
             <div style={{ minWidth: 190 }}>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{nickname}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{nickname}</div>
+                <Select
+                  value={viewStudentId || (isAdmin ? '' : undefined)}
+                  onChange={onSwitchStudent}
+                  size="small"
+                  style={{ minWidth: 150, maxWidth: 220 }}
+                  options={[
+                    ...(isAdmin ? [{ value: '', label: '全部学生' }] : []),
+                    ...(students || []).map(s => ({ value: s.staff_id, label: s.nickname })),
+                  ]}
+                  prefix={<UserSwitchOutlined />}
+                />
+              </div>
               <div style={{ opacity: 0.82, fontSize: 13 }}>{student.username || '欢迎回到学习空间'}</div>
               <div style={{ marginTop: 6 }}>
                 <Tag style={{ background: 'rgba(255,255,255,0.16)', color: '#fff', borderColor: 'rgba(255,255,255,0.4)' }}>🏅 成就 {unlockedCount} 枚</Tag>
@@ -333,7 +373,7 @@ export default function LearningDashboard() {
         <Row gutter={[12, 12]}>
           {badges.map(b => (
             <Col xs={12} sm={8} md={6} lg={4} key={b.key}>
-              <Tooltip title={b.unlocked ? b.desc : `未解锁 · ${b.desc}`}>
+              <Tooltip title={b.unlocked ? `${b.desc}${b.unlocked_at ? ` · ${b.unlocked_at.slice(0, 10)} 解锁` : ''}` : `未解锁 · ${b.desc}`}>
                 <div
                   style={{
                     padding: '14px 10px',
@@ -401,6 +441,33 @@ export default function LearningDashboard() {
           </Card>
         </Col>
       </Row>
+
+      {/* ===== 积分明细（积分账本可审计：每次加减分记录原因与时间） ===== */}
+      {viewStudentId ? (
+        <Card
+          title={<span><StarFilled style={{ color: COLORS.gold }} /> 积分明细 <Tag color="gold">当前余额 {level.xp ?? 0}</Tag></span>}
+          extra={<Tag color="blue">打卡审核通过 +10 · 完成任务 +30 · 删除/回退扣分</Tag>}
+          style={{ marginTop: 16 }}
+        >
+          <Table
+            rowKey="log_id"
+            size="small"
+            pagination={false}
+            dataSource={pointLogs}
+            locale={{ emptyText: '暂无积分流水' }}
+            columns={[
+              { title: '时间', dataIndex: 'created_at', width: 160 },
+              { title: '变动', dataIndex: 'points', width: 90, render: (v) => (
+                <span style={{ fontWeight: 700, color: v > 0 ? COLORS.green : (v < 0 ? COLORS.red : '#8c8c8c') }}>
+                  {v > 0 ? `+${v}` : v}
+                </span>
+              ) },
+              { title: '原因', dataIndex: 'reason_label', width: 120, render: (v, r) => <Tag color={r.points > 0 ? 'green' : (r.points < 0 ? 'red' : 'default')}>{v}</Tag> },
+              { title: '说明', dataIndex: 'note', ellipsis: true },
+            ]}
+          />
+        </Card>
+      ) : null}
     </div>
   );
 }

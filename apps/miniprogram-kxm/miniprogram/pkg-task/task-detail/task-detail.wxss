@@ -246,6 +246,17 @@
   word-break: break-all;
 }
 
+.ck-masked {
+  margin-top: 20rpx;
+  padding: 20rpx 24rpx;
+  background: #fafbfc;
+  border: 1rpx dashed #e0e3e8;
+  border-radius: 16rpx;
+  font-size: 26rpx;
+  color: #8a919c;
+  line-height: 1.6;
+}
+
 .ck-review {
   margin-top: 20rpx;
   display: flex;
@@ -327,15 +338,6 @@
   font-size: 24rpx;
   color: #f6685d;
   padding: 4rpx 8rpx;
-}
-.ck-source {
-  font-size: 22rpx;
-  color: #8a919f;
-  background: #f2f3f5;
-  border-radius: 6rpx;
-  padding: 4rpx 12rpx;
-  margin-right: 8rpx;
-  flex-shrink: 0;
 }
 
 /* 底部操作栏多按钮：不用 flex gap（Skyline 对自定义组件 host 不生效）、不用相邻兄弟选择器（需 8.0.49+）、不用 t-button 标签选择器（样式隔离），全部用页面内显式类 */

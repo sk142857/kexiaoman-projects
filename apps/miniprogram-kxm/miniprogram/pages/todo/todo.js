@@ -4,7 +4,7 @@
 // - 家长/家属/管理员：展示本家庭待审核打卡，快速「通过 / 驳回」，处理后立即从待办移除
 const { lp, getRole, setViewStudent } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
-const { fileUrl } = require('../../utils/image');
+const { fileUrl, previewUrl } = require('../../utils/image');
 
 const MANAGER_ROLES = ['admin', 'parent', 'family'];
 // 来源：web（Web后台）/ miniprogram（小程序）
@@ -51,7 +51,9 @@ Page({
         const nickname = (it.student && it.student.nickname) || '';
         return {
           ...it,
-          images: (it.images || []).map(fileUrl),
+          // 列表展示用预览图缩略（省流量），lightbox 用原图
+          images: (it.images || []).map(p => previewUrl(p)),
+          previewImages: (it.images || []).map(fileUrl),
           voiceUrl: it.voice_url ? fileUrl(it.voice_url) : '',
           videoUrl: it.video_url ? fileUrl(it.video_url) : '',
           videoCover: it.video_cover ? fileUrl(it.video_cover) : '',
@@ -86,7 +88,8 @@ Page({
     const url = e.currentTarget.dataset.url;
     const cid = e.currentTarget.dataset.cid;
     const item = this.data.list.find(x => Number(x.checkin_id) === Number(cid));
-    wx.previewImage({ urls: (item && item.images.length) ? item.images : [url], current: url });
+    const urls = (item && item.previewImages && item.previewImages.length) ? item.previewImages : [url];
+    wx.previewImage({ urls, current: url });
   },
 
   onApprove(e) {
@@ -126,6 +129,7 @@ Page({
   },
 
   async _review(cid, action, score, note) {
+    if (this.data.submitting) return;
     this.setData({ submitting: true });
     try {
       await lp.todosReview({

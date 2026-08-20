@@ -12,7 +12,7 @@ Page({
     nextBadge: null,
   },
 
-  async onLoad() {
+  async onShow() {
     const app = getApp();
     if (app && app.lpReady) {
       try { await app.lpReady; } catch (_) {}
@@ -28,7 +28,11 @@ Page({
     wx.showLoading({ title: '加载中', mask: true });
     try {
       const dash = await lp.dashboard();
-      const badges = dash.badges || [];
+      const badges = (dash.badges || []).map((b) => ({
+        ...b,
+        // 解锁时间截取到日期（WXML 不支持 slice）
+        unlocked_date: b.unlocked_at ? String(b.unlocked_at).slice(0, 10) : '',
+      }));
       this.setData({
         level: dash.level || null,
         streak: dash.streak || null,

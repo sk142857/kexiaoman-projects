@@ -65,7 +65,7 @@
             <view class="medal-circle">{{item.icon}}</view>
             <view class="medal-name">{{item.name}}</view>
             <view class="medal-desc">{{item.desc}}</view>
-            <view wx:if="{{item.unlocked}}" class="medal-status">✓ 已解锁</view>
+            <view wx:if="{{item.unlocked}}" class="medal-status">✓ {{item.unlocked_date ? item.unlocked_date + ' 解锁' : '已解锁'}}</view>
             <view wx:else class="medal-bar">
               <view class="medal-bar-inner" style="width: {{item.progress * 100}}%"></view>
             </view>

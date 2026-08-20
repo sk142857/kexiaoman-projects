@@ -10,6 +10,11 @@
 const CLOUD_ENV = 'cloud1-d6gddqzrsda16338f';
 const CLOUD_SERVICE = 'kxm-service';
 
+/** 会话 token（/api/storage/upload 身份确认必需，后端不再信任 X-WX-OPENID 头） */
+function getToken() {
+  try { return wx.getStorageSync('lp_token') || ''; } catch (_) { return ''; }
+}
+
 let recorder = null;
 /** 惰性单例录音器 */
 function getRecorder() {
@@ -78,7 +83,7 @@ function uploadVoice(tempFilePath, durationMs) {
             biz: 'voice',
             images: [{ path: cloudPath, fileID, size: 0, contentType: 'audio/mpeg' }],
           },
-          header: { 'X-WX-SERVICE': CLOUD_SERVICE },
+          header: { 'X-WX-SERVICE': CLOUD_SERVICE, 'X-LP-Token': getToken() },
           success: (regRes) => {
             const body = (regRes && regRes.data) || {};
             if (body.code === 0) {

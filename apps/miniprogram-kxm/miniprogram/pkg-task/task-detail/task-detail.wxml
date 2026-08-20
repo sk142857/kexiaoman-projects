@@ -40,7 +40,7 @@
         <t-tag wx:for="{{task.tags}}" wx:key="index" class="tag-gap" size="small" variant="outline" theme="default">#{{item}}</t-tag>
       </view>
       <view wx:if="{{images.length}}" class="imgs">
-        <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" bindtap="preview" data-url="{{item}}" />
+        <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" lazy-load bindtap="preview" data-url="{{item}}" />
       </view>
       <view wx:if="{{creatorName && createdTime}}" class="created-info">
         <image wx:if="{{creatorAvatar}}" class="creator-avatar" src="{{creatorAvatar}}" mode="aspectFill" />
@@ -81,6 +81,8 @@
           </view>
         </view>
 
+        <view wx:if="{{item.masked}}" class="ck-masked">🔒 {{item.maskText}}</view>
+
         <view wx:if="{{item.checkin_type === 'video' && item.videoUrl}}" class="ck-media">
           <video class="video" src="{{item.videoUrl}}" controls objectFit="contain" poster="{{item.videoCover}}" />
           <view wx:if="{{item.video_duration}}" class="ck-media-meta">{{item.mediaText}} · 时长 {{item.video_duration}} 秒</view>
@@ -92,7 +94,7 @@
         <view wx:elif="{{item.images.length}}" class="ck-media">
           <view class="ck-imgs">
             <view wx:for="{{item.images}}" wx:for-item="img" wx:for-index="i" wx:key="index" class="ck-img-wrap">
-              <image class="ck-img" src="{{img}}" mode="aspectFill" data-index="{{i}}" data-cid="{{item.checkin_id}}" bindtap="previewCheckin" />
+              <image class="ck-img" src="{{img}}" mode="aspectFill" lazy-load data-index="{{i}}" data-cid="{{item.checkin_id}}" bindtap="previewCheckin" />
               <view wx:if="{{i === 3 && item.totalImages > 4}}" class="ck-img-more">+{{item.totalImages - 4}}</view>
             </view>
           </view>
@@ -112,10 +114,9 @@
           <view class="ck-submitter">
             <image wx:if="{{item.submitter_avatar}}" class="ck-submitter-avatar" src="{{item.submitter_avatar}}" mode="aspectFill" />
             <view wx:else class="ck-submitter-avatar ck-submitter-avatar--char">{{item.submitter_initial}}</view>
-            <text class="ck-time">{{item.submitter_name}} 于 {{item.submitTime}} 提交</text>
+            <text class="ck-time">{{item.submitter_name}} 于 {{item.submitTime}}{{item.sourceText ? ' ' + item.sourceText + '提交' : ' 提交'}}</text>
           </view>
           <view class="ck-actions">
-            <text wx:if="{{item.sourceText}}" class="ck-source">{{item.sourceText}}提交</text>
             <text wx:if="{{item.canDelete}}" class="ck-del" bindtap="onDeleteCheckin" data-id="{{item.checkin_id}}">删除</text>
           </view>
         </view>

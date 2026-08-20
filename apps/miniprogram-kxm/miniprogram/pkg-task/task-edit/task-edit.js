@@ -38,9 +38,9 @@ Page({
     checkinType: 'image',
     checkinTypeIndex: 0,
     checkinTypeOptions: [
-      { value: 'image', label: '图文打卡', desc: '学生提交图片与文字' },
-      { value: 'voice', label: '语音打卡', desc: '学生录制一段语音' },
-      { value: 'video', label: '视频打卡', desc: '学生上传一段视频（≤1GB，自动压缩）' },
+      { value: 'image', label: '图文打卡', desc: '孩子提交图片与文字' },
+      { value: 'voice', label: '语音打卡', desc: '孩子录制一段语音' },
+      { value: 'video', label: '视频打卡', desc: '孩子上传一段视频（≤1GB，自动压缩）' },
     ],
     collections: [],
     collectionIndex: -1,
@@ -309,6 +309,7 @@ Page({
   },
 
   onSubmit() {
+    if (this.data.submitting) return;
     this._syncImages();
     const { title, subject, deadline, startDate, tags, description, images } = this.data;
     // 完整性核验：家长/家属派发任务前必须已有孩子档案
@@ -325,7 +326,7 @@ Page({
       return;
     }
     if (this.data.isManager && this.data.assigneeIds.length === 0) {
-      wx.showToast({ title: '请选择派发学生', icon: 'none' });
+      wx.showToast({ title: '请选择派发孩子', icon: 'none' });
       return;
     }
     const collectionId = this.data.collectionIndex >= 0 ? this.data.collections[this.data.collectionIndex].collection_id : 0;

@@ -14,6 +14,11 @@ const CLOUD_SERVICE = 'kxm-service';
 // 视频大小上限：1GB（与后端 storage.js VIDEO_MAX_SIZE 一致）
 const MAX_SIZE = 1024 * 1024 * 1024;
 
+/** 会话 token（/api/storage/upload 身份确认必需，后端不再信任 X-WX-OPENID 头） */
+function getToken() {
+  try { return wx.getStorageSync('lp_token') || ''; } catch (_) { return ''; }
+}
+
 /** 日期目录 yyyy-MM-dd */
 function todayDir() {
   const d = new Date();
@@ -88,7 +93,7 @@ function uploadVideo(tempFilePath, duration, size) {
               name: cloudPath.split('/').pop(),
             }],
           },
-          header: { 'X-WX-SERVICE': CLOUD_SERVICE },
+          header: { 'X-WX-SERVICE': CLOUD_SERVICE, 'X-LP-Token': getToken() },
           success: (regRes) => {
             const body = (regRes && regRes.data) || {};
             if (body.code === 0) {

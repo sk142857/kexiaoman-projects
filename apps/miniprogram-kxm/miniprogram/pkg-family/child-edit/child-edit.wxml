@@ -94,7 +94,7 @@
         <view class="sum-row"><text class="sum-key">学校</text><text class="sum-val">{{form.school_name || '—'}}</text></view>
         <view class="sum-row"><text class="sum-key">班级</text><text class="sum-val">{{previewText || '—'}}</text></view>
       </view>
-      <view class="done-tip">{{mode === 'edit' ? '确认后保存孩子的档案信息' : '确认后创建孩子档案，并生成学生邀请码'}}</view>
+      <view class="done-tip">{{mode === 'edit' ? '确认后保存孩子的档案信息' : '确认后创建孩子档案，并生成孩子邀请码'}}</view>
     </view>
   </scroll-view>
 

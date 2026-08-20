@@ -13,7 +13,7 @@
       <!-- 顶部提示 -->
       <view class="todo-tip">
         <text class="todo-tip-title">{{isManager ? '待审核打卡' : '我的待办'}}</text>
-        <text class="todo-tip-desc">{{isManager ? '学生提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
+        <text class="todo-tip-desc">{{isManager ? '孩子提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
       </view>
 
       <empty wx:if="{{!loading && list.length === 0}}" icon="{{isManager ? '📋' : '🎉'}}" title="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" desc="{{isManager ? '孩子的打卡会展示在这里' : '所有任务都完成啦'}}" />
@@ -71,14 +71,15 @@
               class="review-img"
               src="{{img}}"
               mode="aspectFill"
-              data-url="{{img}}"
+              lazy-load
+              data-url="{{item.previewImages[index] || img}}"
               data-cid="{{item.checkin_id}}"
               bindtap="preview"
             />
           </view>
           <view class="review-actions">
-            <t-button class="review-btn" theme="danger" variant="outline" size="small" bindtap="onReject" data-id="{{item.checkin_id}}">审核不通过</t-button>
-            <t-button class="review-btn" theme="primary" variant="base" size="small" bindtap="onApprove" data-id="{{item.checkin_id}}">审核通过</t-button>
+            <t-button class="review-btn" theme="danger" variant="outline" size="small" bindtap="onReject" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核不通过</t-button>
+            <t-button class="review-btn" theme="primary" variant="base" size="small" bindtap="onApprove" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核通过</t-button>
           </view>
         </view>
       </block>

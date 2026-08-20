@@ -52,4 +52,24 @@ function genId() {
   return `${Date.now()}${rand}`;
 }
 
-module.exports = { formatDate, calcStreak, thisMonthPrefix, monthRange, nowSql, genId };
+// ==================== 进程内互斥锁（单实例串行化读改写，如 checkin_count 计数） ====================
+// 场景：@cloudbase RDB 无原子自增 API，checkin_count 等计数为「读-改-写」，
+// 并发请求会丢失更新。该锁在同一进程内按 key 串行执行，避免并发丢计数；
+// 多实例部署时各实例独立锁（需分布式锁才完全消除，当前单实例场景已足够收敛）。
+const __locks = new Map();
+async function withLock(key, fn) {
+  const prev = __locks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const run = prev.then(() => gate);
+  __locks.set(key, run);
+  await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (__locks.get(key) === run) __locks.delete(key);
+  }
+}
+
+module.exports = { formatDate, calcStreak, thisMonthPrefix, monthRange, nowSql, genId, withLock };

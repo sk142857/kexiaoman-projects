@@ -9,28 +9,30 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { db } = require("../db");
 const { ok, fail } = require("../response");
-const { nowSql, formatDate } = require("../utils");
+const { nowSql, formatDate, withLock } = require("../utils");
 const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, storageFileExists, VIDEO_MAX_SIZE } = require("../storage");
 const { crudRouter } = require("./adminApi");
 const { nextSeq } = require("../seq");
 const { logStaffEvent } = require("../staffAudit");
 const { logTaskEvent } = require("../taskTimeline");
 const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = require("../apps");
-const { createInvite, inviteById, genUniqueInviteCode } = require("./lpAuth");
-const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource } = require("../learningLib");
+const { createInvite, inviteById, genUniqueInviteCode, familyScope } = require("./lpAuth");
+const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted, staffPoints, staffPointsMap, recentPointLogs, syncBadgeUnlocks } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
 const { sendReviewNotification } = require("../subscribeLib");
 
 const router = express.Router();
 
-// JWT 密钥：优先 ADMIN_JWT_SECRET；未配置时不阻止启动，回退到内置密钥 123456 并提示
-// ⚠️ 内置密钥为可预测常量，任何知道该值的人都能伪造管理员 Token，生产环境务必尽快改为环境变量 ADMIN_JWT_SECRET
+// JWT 密钥：仅接受环境变量 ADMIN_JWT_SECRET（或 JWT_SECRET）。
+// 安全审计 S2：不再回退内置密钥（"123456" 为可预测常量，任何人可伪造管理员 Token），
+// 未配置时后台登录/鉴权全部拒绝（fail-closed），小程序业务不受影响。
 const JWT_SECRET = (process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || "").trim();
 if (!JWT_SECRET) {
-  console.warn("[admin] 警告：未配置 ADMIN_JWT_SECRET（JWT 签名密钥），已回退使用内置密钥 123456。");
-  console.warn("[admin] 内置密钥为可预测常量，存在被伪造管理员 Token 的风险，请尽快在云托管控制台配置 ADMIN_JWT_SECRET 环境变量。");
+  console.error("[admin] 致命错误：未配置 ADMIN_JWT_SECRET（JWT 签名密钥），后台管理已禁用。");
+  console.error("[admin] 请立即在云托管控制台配置环境变量 ADMIN_JWT_SECRET（建议 ≥32 位随机串）后重启服务。");
 }
-const JWT_SECRET_FINAL = JWT_SECRET || "123456";
+const JWT_SECRET_FINAL = JWT_SECRET;
+const ADMIN_SECRET_READY = !!JWT_SECRET_FINAL;
 const JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES || "12h";
 
 // ==================== 登录/初始化限流（进程内简单滑动窗口） ====================
@@ -61,8 +63,9 @@ function clearAttempt(key) {
   attemptMap.delete(key);
 }
 
-/** 签发 token */
+/** 签发 token（未配置密钥时拒绝签发，fail-closed） */
 function signToken(staff) {
+  if (!ADMIN_SECRET_READY) throw new Error("后台 JWT 密钥未配置，无法登录（请配置 ADMIN_JWT_SECRET）");
   return jwt.sign(
     { staffId: staff.staff_id, username: staff.staff_username, role: staff.staff_role },
     JWT_SECRET_FINAL,
@@ -73,6 +76,9 @@ function signToken(staff) {
 /** admin 鉴权中间件：校验 Authorization: Bearer <token> */
 async function adminAuth(req, res, next) {
   try {
+    if (!ADMIN_SECRET_READY) {
+      return res.status(500).json({ code: 500, msg: "后台 JWT 密钥未配置，服务已禁用后台管理", data: null });
+    }
     const auth = req.headers.authorization || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!token) {
@@ -132,6 +138,9 @@ async function requireAppAccess(req, res, next) {
 // ==================== 登录 ====================
 router.post("/login", async (req, res) => {
   try {
+    if (!ADMIN_SECRET_READY) {
+      return res.json(fail("后台 JWT 密钥未配置，请先配置 ADMIN_JWT_SECRET 环境变量", 500));
+    }
     const { username, password } = req.body;
     const rlKey = `login:${getIp(req)}:${username || ""}`;
     // 同一 IP+账号 15 分钟内最多 5 次尝试
@@ -340,7 +349,8 @@ async function ensureDefaultMenus() {
     if (!rmErr && !(rmRows && rmRows.length > 0)) {
       const all = flatten.map(m => ({ role_code: "admin", menu_id: m.menu_id }));
       // 学生仅学习相关菜单（按路径匹配，避免依赖序列分配的 menu_id 数字）：学习仪表盘 + 学习管理分组及子页
-      const STUDENT_MENU_PATHS = ["/dashboard", "/dashboard/learning", "/learning", "/module/todo_tasks", "/module/tasks", "/module/card_tasks", "/module/task_checkins", "/module/task_collections", "/module/lp_students", "/module/lp_children", "/module/lp_family_members"];
+      // 安全审计 S5：lp_students / lp_children / lp_family_members / task_checkins 为敏感管理数据，不再授权给学生角色
+      const STUDENT_MENU_PATHS = ["/dashboard", "/dashboard/learning", "/learning", "/module/todo_tasks", "/module/tasks", "/module/card_tasks", "/module/task_collections"];
       const student = flatten.filter(m => STUDENT_MENU_PATHS.includes(m.menu_path))
         .map(m => ({ role_code: "student", menu_id: m.menu_id }));
       for (const r of [...all, ...student]) {
@@ -739,6 +749,196 @@ router.post("/api/file_uploads/batchDelete", adminAuth, async (req, res) => {
     }
   } catch (e) {
     console.error("[admin] file_uploads batchDelete error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// ==================== 图片清理：回收业务系统已不再引用的文件 ====================
+// 找出 file_uploads 登记中「业务表已不再引用」的文件（用户改头像后旧头像、任务/打卡编辑移除的图片、
+// 打卡删除仅审计标记未删存储的 removed 记录、上传后未保存的脏数据等），
+// 物理删除腾讯云存储对象 + 同步清理登记记录（两段式：preview=1 仅统计预览，preview=0 实际执行）。
+// 与「打卡删除 markRemoved（仅审计标记）」不同，本接口是真实回收历史脏数据。
+// 安全边界：不触碰任何仍被 users/staff/tasks/task_checkins/task_collections 引用的路径。
+async function fetchAllRows(table, cols, batchSize = 2000) {
+  const out = [];
+  let offset = 0;
+  for (;;) {
+    let rows = null;
+    const rangeRes = await db.from(table).select(cols).range(offset, offset + batchSize - 1);
+    if (!rangeRes.error && Array.isArray(rangeRes.data)) {
+      rows = rangeRes.data;
+    } else {
+      // range 兜底：limit + 内存切片（上限 10000 行，超出部分无法分页时放弃）
+      const fetchLimit = Math.min(offset + batchSize, 10000);
+      const { data, error } = await db.from(table).select(cols).limit(fetchLimit);
+      if (error) throw error;
+      rows = (data || []).slice(offset, offset + batchSize);
+    }
+    if (!rows || rows.length === 0) break;
+    out.push(...rows);
+    if (rows.length < batchSize) break;
+    offset += batchSize;
+  }
+  return out;
+}
+
+/** 并发受控的异步池（限制同时进行的存在性探测，避免瞬时打满 RDB/存储） */
+function mapLimit(items, limit, fn) {
+  return new Promise((resolveAll, rejectAll) => {
+    let cursor = 0;
+    let active = 0;
+    let resolved = false;
+    const results = new Array(items.length);
+    const worker = async () => {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        active += 1;
+        try {
+          results[idx] = await fn(items[idx]);
+        } catch (e) {
+          results[idx] = undefined;
+        } finally {
+          active -= 1;
+        }
+      }
+      if (active === 0 && !resolved) {
+        resolved = true;
+        resolveAll(results);
+      }
+    };
+    const n = Math.min(limit, items.length || 1);
+    for (let i = 0; i < n; i++) worker();
+  });
+}
+
+router.post("/api/file_uploads/cleanup", adminAuth, async (req, res) => {
+  const CLEANUP_LIMIT = 500; // 单次执行最多回收条数（避免超时；超出请分批）
+  try {
+    const preview = !!(req.body && req.body.preview);
+
+    // 1) 收集业务系统仍在引用的文件路径集合
+    //    users.avatar|avatar_hd|avatar_pending|avatar_hd_pending / staff.staff_avatar /
+    //    tasks.images / task_checkins.checkin_images|voice_url|video_url|video_cover / task_collections.cover_images
+    const refPaths = new Set();
+    const addRef = (v) => {
+      if (!v) return;
+      const s = String(v).trim().replace(/^\/+/, "");
+      if (s) refPaths.add(s);
+    };
+    const addRefs = (list) => (Array.isArray(list) ? list.forEach(addRef) : addRef(list));
+
+    const [usersRes, staffRes, tasksRes, checkinsRes, collsRes] = await Promise.all([
+      fetchAllRows("users", "avatar, avatar_hd, avatar_pending, avatar_hd_pending"),
+      fetchAllRows("staff", "staff_avatar"),
+      fetchAllRows("tasks", "images"),
+      fetchAllRows("task_checkins", "checkin_images, voice_url, video_url, video_cover"),
+      fetchAllRows("task_collections", "cover_images"),
+    ]);
+    for (const u of usersRes) addRefs([u.avatar, u.avatar_hd, u.avatar_pending, u.avatar_hd_pending]);
+    for (const s of staffRes) addRef(s.staff_avatar);
+    for (const t of tasksRes) addRefs(parseImgList(t.images));
+    for (const c of checkinsRes) {
+      addRefs(parseImgList(c.checkin_images));
+      addRef(c.voice_url);
+      addRef(c.video_url);
+      addRef(c.video_cover);
+    }
+    for (const c of collsRes) addRefs(parseImgList(c.cover_images));
+
+    // 2) 拉取 file_uploads 全部登记（active/removed 都纳入回收范围：removed=打卡删除时仅审计标记未删存储）
+    const uploads = await fetchAllRows("file_uploads", "file_id, file_path, biz, file_name, content_type, file_size, file_status, created_at");
+
+    // 候选：登记路径不在业务引用集合中（含空路径登记）
+    const candidates = (uploads || []).filter(r => {
+      const p = String(r.file_path || "").trim().replace(/^\/+/, "");
+      return !p || !refPaths.has(p);
+    });
+    const emptyRecords = candidates.filter(r => !String(r.file_path || "").trim());
+    const pathCandidates = candidates.filter(r => String(r.file_path || "").trim());
+
+    if (preview) {
+      const samples = pathCandidates.slice(0, 20).map(r => ({
+        file_id: r.file_id, file_path: r.file_path, biz: r.biz,
+        file_name: r.file_name, file_size: r.file_size, file_status: r.file_status,
+      }));
+      const truncated = pathCandidates.length > CLEANUP_LIMIT;
+      return res.json(ok({
+        preview: true,
+        total: candidates.length,
+        empty: emptyRecords.length,
+        pathCount: pathCandidates.length,
+        cap: CLEANUP_LIMIT,
+        truncated,
+        samples,
+      }, `发现 ${candidates.length} 个不再被业务引用的文件${emptyRecords.length ? `（含 ${emptyRecords.length} 条无路径登记）` : ""}`));
+    }
+
+    // 3) 执行：单次最多 CLEANUP_LIMIT 条（含空路径登记）
+    const targets = pathCandidates.slice(0, CLEANUP_LIMIT);
+    const emptyTargets = emptyRecords.slice(0, CLEANUP_LIMIT);
+
+    // 3.1) 探测存储存在性：存在→物理删除；缺失→仅清登记；未知→尝试物理删除（文件已不被引用，尽力而为）
+    const existsFlags = await mapLimit(targets, 8, async (r) => {
+      try {
+        return await storageFileExists(r.file_path);
+      } catch (_) {
+        return null;
+      }
+    });
+    const toRemove = [];
+    const missing = [];
+    targets.forEach((r, i) => {
+      if (existsFlags[i] === false) missing.push(r);
+      else toRemove.push(r);
+    });
+
+    // 3.2) 物理删除云存储对象（成功失败分别统计，失败保留登记便于重试）
+    const { deleted, failed } = await removeFiles(toRemove.map(r => r.file_path));
+
+    // 3.3) 清理登记记录：物理删除成功的 + 存储已缺失的 + 空路径登记；删除失败的保留登记便于重试
+    const recordIds = new Set();
+    const failedPaths = new Set(failed.map(f => f.path));
+    for (const r of toRemove) {
+      if (failedPaths.has(r.file_path)) continue;
+      recordIds.add(r.file_id);
+    }
+    for (const r of missing) recordIds.add(r.file_id);
+    for (const r of emptyTargets) recordIds.add(r.file_id);
+
+    if (recordIds.size > 0) {
+      // 分片删除登记记录（避免单条 IN 过长）
+      const idList = [...recordIds];
+      for (let i = 0; i < idList.length; i += 200) {
+        const { error: delErr } = await db.from("file_uploads")
+          .delete()
+          .in("file_id", idList.slice(i, i + 200));
+        if (delErr) throw delErr;
+      }
+    }
+
+    logStaffEvent({
+      req, staff: req.staff,
+      eventType: "delete",
+      eventName: `清理未引用图片（回收 ${recordIds.size} 条登记，物理删除 ${deleted.length} 个文件）`,
+      module: "file_uploads",
+      apiPath: "/api/file_uploads/cleanup",
+      extra: {
+        total: candidates.length, recordCleaned: recordIds.size,
+        deleted: deleted.length, missing: missing.length, failed: failed.length, empty: emptyTargets.length,
+      },
+    });
+
+    const parts = [`已回收 ${recordIds.size} 条登记记录`];
+    if (deleted.length) parts.push(`物理删除 ${deleted.length} 个文件`);
+    if (missing.length) parts.push(`${missing.length} 个存储已缺失（仅清登记）`);
+    if (emptyTargets.length) parts.push(`${emptyTargets.length} 条无路径登记`);
+    if (failed.length) parts.push(`${failed.length} 个删除失败（登记已保留，可重试）`);
+    res.json(ok({
+      total: candidates.length, recordCleaned: recordIds.size,
+      deleted: deleted.length, missing: missing.length, failed: failed.length, empty: emptyTargets.length,
+    }, `${parts.join("，")}`));
+  } catch (e) {
+    console.error("[admin] file_uploads cleanup error", e);
     res.json(fail("服务异常", 500));
   }
 });
@@ -1508,6 +1708,8 @@ async function studentBindState(studentId) {
  *  逻辑校验：主家长角色/启用、学生角色/启用、学生账号不重复归属孩子档案。 */
 router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
   try {
+    // 安全审计 S5：跨家庭绑定为后台最高级别操作，仅平台管理员可执行
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可执行该操作", 403));
     const b = req.body || {};
     if (!b.parent_staff_id) return res.json(fail("请选择主家长账号"));
     if (!b.student_staff_id) return res.json(fail("请选择学生账号"));
@@ -1614,6 +1816,8 @@ router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
 /** 绑定孩子到主家长（换绑视为变更归属）：两段式，force=1 才实际落库 */
 router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
   try {
+    // 安全审计 S5：跨家庭换绑为后台最高级别操作，仅平台管理员可执行
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可执行该操作", 403));
     const { child_id, parent_staff_id, force } = req.body || {};
     if (!child_id) return res.json(fail("缺少孩子档案ID"));
     if (!parent_staff_id) return res.json(fail("请选择要绑定的主家长账号"));
@@ -1668,6 +1872,8 @@ router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
 /** 解绑孩子与当前主家长：仅清空家长归属，孩子档案、学生账号与已绑定小程序访问保留。两段式，force=1 才实际落库 */
 router.post("/api/lp_children/unbind", adminAuth, async (req, res) => {
   try {
+    // 安全审计 S5：解绑为后台最高级别操作，仅平台管理员可执行
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可执行该操作", 403));
     const { child_id, force } = req.body || {};
     if (!child_id) return res.json(fail("缺少孩子档案ID"));
 
@@ -1922,6 +2128,47 @@ router.use("/api/dict_items", adminAuth, crudRouter({
 function taskScope(req) {
   if (req.staff && req.staff.role === "admin") return null;
   return { field: "created_by", value: (req.staff && req.staff.staff_id) || "" };
+}
+
+// ==================== 家庭维度数据可见范围（安全审计 S6） ====================
+// 非管理员（家长/家属/学生）只能看到本家庭的数据，杜绝跨家庭读取任务/打卡/合集：
+// - parent/family → 名下孩子的 student staff_id + 本人
+// - student → 本人
+// - admin → null（全部）
+async function familyStaffScope(req) {
+  const role = (req.staff && req.staff.role) || "";
+  const staffId = String((req.staff && req.staff.staff_id) || "");
+  if (role === "admin") return null;
+  let ids = [];
+  try { ids = await familyScope(staffId, role); } catch (_) { ids = []; }
+  const set = new Set((ids || []).map(String));
+  if (staffId) set.add(staffId);
+  set.delete("");
+  return set;
+}
+
+/** 家庭可见任务 ID 集合（创建人或派发人在家庭范围内）；admin 返回 null（不过滤） */
+async function familyTaskIds(req) {
+  const scope = await familyStaffScope(req);
+  if (!scope) return null;
+  const sids = [...scope].map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (sids.length === 0) return [];
+  const [created, assigned] = await Promise.all([
+    db.from("tasks").select("task_id").in("created_by", sids).limit(5000),
+    db.from("task_assignees").select("task_id").in("staff_id", sids).limit(5000),
+  ]);
+  const set = new Set();
+  (created && !created.error && Array.isArray(created.data) ? created.data : []).forEach(r => set.add(Number(r.task_id)));
+  (assigned && !assigned.error && Array.isArray(assigned.data) ? assigned.data : []).forEach(r => set.add(Number(r.task_id)));
+  return [...set];
+}
+
+/** 当前登录员工是否可访问指定任务（admin 全部；其余按家庭可见范围） */
+async function canAccessTask(req, taskId) {
+  const role = (req.staff && req.staff.role) || "";
+  if (role === "admin") return true;
+  const ids = await familyTaskIds(req);
+  return Array.isArray(ids) && ids.includes(Number(taskId));
 }
 // ==================== 任务派发（task_assignees） ====================
 // 同步任务派发人员：全量替换 task_assignees（幂等，返回最终派发 staff_id 数组）
@@ -2217,20 +2464,31 @@ router.use("/api/tasks", adminAuth, crudRouter({
   filters: ["task_status", "subject", "collection_id", "source"],
   // 按用户过滤（staff_id，非表字段故不走白名单 filters）：创建人 = 该员工 或 任务派发给该员工
   // 注意：RDB 查询链是 thenable，async 函数不能直接 return 构建器（会被吞掉提前执行），须返回 { q } 包装
+  // 安全审计 S6：非管理员（家长/家属/学生）先按家庭可见范围收敛（杜绝跨家庭读取），管理员再叠加 staff_id 钻取
   extraFilter: async (req, q) => {
+    let q2 = q;
+    // 1) 家庭维度收敛
+    const famIds = await familyTaskIds(req);
+    if (Array.isArray(famIds)) {
+      if (famIds.length === 0) return { q: q2.eq("task_id", -1) };
+      q2 = q2.in("task_id", famIds);
+    }
+    // 2) 指定学生钻取（管理员查看某学生）
     const sid = String(req.query.staff_id || "").trim();
-    if (!sid) return { q };
-    const [created, assigned] = await Promise.all([
-      db.from("tasks").select("task_id").eq("created_by", sid).order("task_id", { ascending: false }).limit(1000),
-      db.from("task_assignees").select("task_id").eq("staff_id", sid).order("task_id", { ascending: false }).limit(1000),
-    ]);
-    const ids = new Set();
-    (created && !created.error && Array.isArray(created.data) ? created.data : [])
-      .forEach(r => ids.add(Number(r.task_id)));
-    (assigned && !assigned.error && Array.isArray(assigned.data) ? assigned.data : [])
-      .forEach(r => ids.add(Number(r.task_id)));
-    if (ids.size === 0) return { q: q.eq("task_id", -1) };
-    return { q: q.in("task_id", [...ids]) };
+    if (sid) {
+      const [created, assigned] = await Promise.all([
+        db.from("tasks").select("task_id").eq("created_by", sid).order("task_id", { ascending: false }).limit(1000),
+        db.from("task_assignees").select("task_id").eq("staff_id", sid).order("task_id", { ascending: false }).limit(1000),
+      ]);
+      const ids = new Set();
+      (created && !created.error && Array.isArray(created.data) ? created.data : [])
+        .forEach(r => ids.add(Number(r.task_id)));
+      (assigned && !assigned.error && Array.isArray(assigned.data) ? assigned.data : [])
+        .forEach(r => ids.add(Number(r.task_id)));
+      if (ids.size === 0) return { q: q2.eq("task_id", -1) };
+      q2 = q2.in("task_id", [...ids]);
+    }
+    return { q: q2 };
   },
   scopeFn: taskScope,
   readScopeFn: () => null,
@@ -2262,6 +2520,11 @@ router.use("/api/tasks", adminAuth, crudRouter({
     const assigneeIds = await syncTaskAssignees(req, id);
     await syncTaskImages(req, id, values, oldRecord);
     logTaskUpdate(req, values, id, oldRecord, assigneeIds, oldAssigneeIds);
+    // 积分账本：任务完成 +30 / 回退 -30（幂等：按 old→new 状态变迁判定）
+    if (oldRecord && values.task_status !== undefined && oldRecord.task_status !== values.task_status) {
+      const actor = Number((req.staff && req.staff.staff_id) || 0);
+      applyTaskStatusPoints(oldRecord, oldRecord.task_status, values.task_status, actor).catch(() => {});
+    }
   },
   // 兜底风控：已完成任务仅可查看，学生禁止修改（管理员不受限）
   onBeforeUpdate: async (req, oldRecord, values) => {
@@ -2287,6 +2550,9 @@ router.use("/api/tasks", adminAuth, crudRouter({
     return null;
   },
   onAfterDelete: async (req, record, id) => {
+    // 积分账本：删除任务回扣（已完成 -30、已通过打卡每人 -10），须在派发人关联删除前调用
+    const actor = Number((req.staff && req.staff.staff_id) || 0);
+    deductTaskDeleted(record, actor).catch(() => {});
     // 级联删除：删除该任务关联的全部打卡，并物理清理任务附件图片与打卡图片（腾讯云存储 + file_uploads 登记记录）
     try {
       const { data: checkins, error } = await db.from("task_checkins")
@@ -2361,6 +2627,14 @@ router.use("/api/task_collections", adminAuth, crudRouter({
   scopeFn: taskScope,
   readScopeFn: () => null,
   defaults: (req) => ({ created_by: (req.staff && req.staff.staff_id) || "" }),
+  // 安全审计 S6：非管理员按家庭可见员工收敛合集
+  extraFilter: async (req, q) => {
+    const fam = await familyStaffScope(req);
+    if (!fam) return { q };
+    const sids = [...fam].map(Number).filter(n => Number.isInteger(n) && n > 0);
+    if (sids.length === 0) return { q: q.eq("collection_id", -1) };
+    return { q: q.in("created_by", sids) };
+  },
   enrich: async (rows) => attachCollectionCount(await attachStaffInfo(rows)),
   pkGenerator: () => nextSeq("collection_id"),
   onAfterCreate: async (req, values, id) => invalidateCollectionRows([id]),
@@ -2403,6 +2677,10 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
     if (error) throw error;
     const task = rows && rows[0];
     if (!task) return res.json(fail("任务不存在"));
+    // 安全审计 S7：非管理员只能对本家庭可见任务打卡（创建人=本人 或 派发给本人/名下孩子）
+    if (!(await canAccessTask(req, taskId))) {
+      return res.json(fail("无权操作该任务", 403));
+    }
     // 兜底风控：已完成任务仅可查看，学生禁止打卡（管理员不受限）
     if (req.staff && req.staff.role === "student" && task.task_status === "done") {
       return res.json(fail("任务已完成，不能打卡"));
@@ -2494,14 +2772,19 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
       }, 0);
     }
 
-    // 更新任务打卡次数与状态（打卡即进度提升至 50%）
-    const taskValues = {
-      checkin_count: (task.checkin_count || 0) + 1,
-      progress: 50,
-      updated_at: nowSql(),
-    };
-    if (task.task_status === "todo") taskValues.task_status = "doing";
-    await db.from("tasks").update(taskValues).eq("task_id", taskId);
+    // 更新任务打卡次数与状态（加锁串行化读改写，防并发丢计数）
+    await withLock(`task:count:${taskId}`, async () => {
+      const { data: curRows } = await db.from("tasks")
+        .select("checkin_count, task_status").eq("task_id", taskId).limit(1);
+      const cur = (curRows && curRows[0]) || task;
+      const taskValues = {
+        checkin_count: (Number(cur.checkin_count) || 0) + 1,
+        progress: 50,
+        updated_at: nowSql(),
+      };
+      if (cur.task_status === "todo") taskValues.task_status = "doing";
+      await db.from("tasks").update(taskValues).eq("task_id", taskId);
+    });
 
     // 任务时间轴：记录打卡事件（含任务标题快照，任务删除后仍可追溯）
     logTaskEvent({
@@ -2616,6 +2899,8 @@ router.post("/api/task_checkins/delete", adminAuth, async (req, res) => {
     }
     const { error: delErr } = await db.from("task_checkins").delete().eq("checkin_id", Number(id));
     if (delErr) throw delErr;
+    // 积分账本：删除已通过打卡 -10（未通过本就无分，直接忽略）
+    deductCheckinDeleted(rec, Number(staffId) || 0).catch(() => {});
     // 级联清理媒体文件（语音/视频/封面：物理删 COS + 登记记录）
     const mediaPaths = [];
     if (rec.voice_url) mediaPaths.push(rec.voice_url);
@@ -2629,13 +2914,15 @@ router.post("/api/task_checkins/delete", adminAuth, async (req, res) => {
         }
       } catch (_) {}
     }
-    // 扣减任务打卡次数（不小于0）
-    const { data: tRows, error: tErr } = await db.from("tasks")
-      .select("checkin_count").eq("task_id", rec.task_id).limit(1);
-    if (!tErr && tRows && tRows[0]) {
-      const cnt = Math.max(0, (tRows[0].checkin_count || 0) - 1);
-      await db.from("tasks").update({ checkin_count: cnt, updated_at: nowSql() }).eq("task_id", rec.task_id);
-    }
+    // 扣减任务打卡次数（不小于0，加锁串行化防并发竞态）
+    await withLock(`task:count:${rec.task_id}`, async () => {
+      const { data: tRows, error: tErr } = await db.from("tasks")
+        .select("checkin_count").eq("task_id", rec.task_id).limit(1);
+      if (!tErr && tRows && tRows[0]) {
+        const cnt = Math.max(0, (tRows[0].checkin_count || 0) - 1);
+        await db.from("tasks").update({ checkin_count: cnt, updated_at: nowSql() }).eq("task_id", rec.task_id);
+      }
+    });
 
     // 任务时间轴：记录删除打卡事件（快照，便于审计追溯）
     let imgCount = 0;
@@ -2664,6 +2951,13 @@ router.use("/api/task_checkins", adminAuth, crudRouter({
   scopeFn: taskScope,
   readScopeFn: () => null,
   readonly: true,
+  // 安全审计 S6：非管理员按家庭可见任务收敛打卡（杜绝跨家庭读取打卡内容/媒体）
+  extraFilter: async (req, q) => {
+    const famIds = await familyTaskIds(req);
+    if (!Array.isArray(famIds)) return { q };
+    if (famIds.length === 0) return { q: q.eq("checkin_id", -1) };
+    return { q: q.in("task_id", famIds) };
+  },
   enrich: async (rows) => {
     const ids = [...new Set((rows || []).map(r => r.task_id).filter(Boolean))];
     if (ids.length === 0) return rows || [];
@@ -2891,6 +3185,9 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
         await db.from("tasks").update({ task_status: "done", progress: 100, score: 10, updated_at: nowSql() })
           .eq("task_id", task.task_id);
       }
+      // 积分账本：打卡审核通过 +10；任务本次转完成 +30（幂等：按状态变迁判定）
+      awardCheckinApproved(checkin, staffId).catch(() => {});
+      if (task) applyTaskStatusPoints(task, task.task_status, "done", staffId).catch(() => {});
       // 同任务其余待审核打卡自动关闭（该任务已完成，不再重复处理）
       const { data: pendRows } = await db.from("task_checkins")
         .select("checkin_id").eq("task_id", checkin.task_id).eq("review_status", "pending").limit(200);
@@ -2928,6 +3225,8 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
         // 兜底：已完成任务若仍有待审核打卡，驳回时回退为进行中
         await db.from("tasks").update({ task_status: "doing", progress: 50, updated_at: nowSql() })
           .eq("task_id", task.task_id);
+        // 积分账本：已完成任务回退 -30（收款人与加分方一致）
+        applyTaskStatusPoints(task, "done", "doing", staffId).catch(() => {});
       }
       logTaskEvent({
         taskId: checkin.task_id, checkinId: cid, bizType: "task_checkin", eventType: "review_reject",
@@ -3140,7 +3439,7 @@ router.get("/dashboard/monitor", adminAuth, async (req, res) => {
 // 说明：
 // - 面向学生角色，突出游戏化等级体验（经验值/等级/连续打卡/成就徽章），激励学生坚持打卡；
 // - 统计口径：已删除任务的打卡（孤儿打卡）一律剔除，不进入任何统计与列表，保证「已删除任务/打卡不统计到仪表盘」。
-// 等级配置：XP = 有效打卡 ×10 + 完成任务 ×30（等级阈值见 LEARNING_LEVELS）
+// 等级配置：经验值 = 积分账本余额（打卡审核通过 +10、完成任务 +30；删除已通过打卡 -10、任务回退 -30、删除任务回扣，见 learningLib 积分账本）
 const LEARNING_LEVELS = [
   { level: 1, xp: 0, title: "学习新手" },
   { level: 2, xp: 100, title: "初学乍练" },
@@ -3312,27 +3611,86 @@ function buildLearningReminders({
   return reminders;
 }
 
+// ==================== 学习仪表盘（Web 后台） ====================
+// 视角解析：管理员默认「全部学生」汇总、可切换到任意单个学生；
+//          家长/家属默认第一个孩子、仅能切换名下孩子；学生固定本人。
+// 返回：{ staff, role, students(可切换列表), target(目标学生记录|null=全部), scope(家长孩子staff_id数组) }
+async function resolveLearningView(req) {
+  const staff = req.staff || {};
+  const role = staff.role || "";
+  const staffId = String(staff.staff_id || "");
+  const qsid = String((req.query && req.query.studentId) || "").trim();
+
+  let students = [];
+  let scope = null; // null = admin 全部
+  const pick = (rows) => (rows || []).filter(Boolean)
+    .map(s => ({ staff_id: String(s.staff_id), nickname: s.staff_nickname || s.staff_username || "学生", username: s.staff_username || "" }));
+
+  if (role === "admin") {
+    const { data, error } = await db.from("staff")
+      .select("staff_id, staff_username, staff_nickname, staff_status")
+      .eq("staff_role", "student").order("staff_id", { ascending: true }).limit(2000);
+    if (!error) students = pick(data);
+  } else if (role === "parent" || role === "family") {
+    let famIds = [];
+    try { famIds = await familyScope(staffId, role); } catch (_) {}
+    scope = famIds.map(Number).filter(n => Number.isInteger(n) && n > 0);
+    if (scope.length > 0) {
+      const { data, error } = await db.from("staff")
+        .select("staff_id, staff_username, staff_nickname, staff_status")
+        .in("staff_id", scope).limit(scope.length);
+      if (!error) students = pick(data);
+    }
+  } else {
+    // 学生本人
+    const { data, error } = await db.from("staff")
+      .select("staff_id, staff_username, staff_nickname, staff_status")
+      .eq("staff_id", Number(staffId)).limit(1);
+    if (!error) students = pick(data);
+    scope = [Number(staffId)];
+  }
+
+  // 目标学生：优先 query.studentId（须在可切换范围内）；未指定/非法则回退默认
+  let target = null;
+  if (qsid && (role === "admin" || (scope && scope.includes(Number(qsid))))) {
+    target = students.find(s => s.staff_id === qsid) || null;
+  }
+  if (!target) {
+    if (role === "admin") target = null; // 全部
+    else target = students[0] || null;   // 家长/家属默认第一个孩子
+  }
+  return { staff, role, students, scope, target };
+}
+
+/** 单个学生可见任务 ID：派发给我 + 我创建（与 todoTaskIds / 小程序 myTaskIds 一致） */
+async function viewStudentTaskIds(staffId) {
+  const set = new Set();
+  const [assignR, ownR] = await Promise.all([
+    db.from("task_assignees").select("task_id").eq("staff_id", staffId).limit(5000),
+    db.from("tasks").select("task_id").eq("created_by", staffId).limit(5000),
+  ]);
+  (assignR.data || []).forEach(a => set.add(String(a.task_id)));
+  (ownR.data || []).forEach(t => set.add(String(t.task_id)));
+  return [...set].map(x => Number(x));
+}
+
 router.get("/dashboard/learning", adminAuth, async (req, res) => {
   try {
-    const staff = req.staff || {};
-    const isStudent = staff.role === "student";
+    const view = await resolveLearningView(req);
+    const { staff, role, students, target } = view;
+    const isAdmin = role === "admin";
 
-    // 任务范围：学生严格按任务派发统计（派发给本人的任务 + 本人自建任务）；
-    // 管理员仍为全员汇总视图
-    const studentTaskIds = [];
-    if (isStudent) {
-      const set = new Set();
-      const [assignR, ownedR] = await Promise.all([
-        db.from("task_assignees").select("task_id").eq("staff_id", staff.staff_id).limit(5000),
-        db.from("tasks").select("task_id").eq("created_by", staff.staff_id).limit(5000),
-      ]);
-      (assignR.data || []).forEach(a => set.add(String(a.task_id)));
-      (ownedR.data || []).forEach(t => set.add(String(t.task_id)));
-      studentTaskIds.push(...[...set].map(x => Number(x)));
+    // 任务范围（安全审计 S6）：管理员默认全员汇总；选中单个学生时仅统计该学生任务；
+    // 家长/家属默认第一个孩子（可切换名下孩子），学生固定本人
+    let visibleTaskIds = null;
+    if (target) {
+      visibleTaskIds = await viewStudentTaskIds(target.staff_id);
+    } else if (!isAdmin) {
+      visibleTaskIds = [];
     }
     const scoped = (q) => {
-      if (!isStudent) return q;
-      return studentTaskIds.length ? q.in("task_id", studentTaskIds) : null;
+      if (visibleTaskIds === null) return q;
+      return visibleTaskIds.length ? q.in("task_id", visibleTaskIds) : null;
     };
     const taskQuery = async (q) => {
       if (!q) return { data: [], error: null };
@@ -3341,10 +3699,10 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
 
     const checkinQ = () => db.from("task_checkins").select();
     const recentTasksQ = scoped(db.from("tasks").select());
-    // 打卡查询同样按任务派发范围过滤（学生只取自己任务下的打卡，避免 2000 行截断导致统计漏数）
+    // 打卡查询同样按任务范围过滤（学生只取自己任务下的打卡，避免 2000 行截断导致统计漏数）
     const scopedCheckinQ = () => {
       const q = checkinQ();
-      return isStudent ? (studentTaskIds.length ? q.in("task_id", studentTaskIds) : null) : q;
+      return visibleTaskIds === null ? q : (visibleTaskIds.length ? q.in("task_id", visibleTaskIds) : null);
     };
 
     const [tasksR, checkinsR, recentCheckinsR, recentTasksR] = await Promise.all([
@@ -3379,8 +3737,18 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
     const completionRate = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
     const avgCheckin = totalTasks > 0 ? Math.round(totalCheckins / totalTasks) : 0;
 
-    // 游戏化：经验值 / 等级 / 连击
-    const xp = totalCheckins * 10 + doneCount * 30;
+    // 游戏化：经验值来自积分账本（审核通过+10/完成任务+30，删除与回退自动扣分，杜绝只增不减）；
+    // 选中单个学生=该学生余额；管理员全部=所有学生余额之和
+    let xp = 0;
+    let pointLogs = [];
+    if (target) {
+      xp = await staffPoints(target.staff_id);
+      pointLogs = await recentPointLogs(target.staff_id, 10);
+    } else {
+      const allIds = students.map(s => Number(s.staff_id)).filter(Boolean);
+      const pmap = await staffPointsMap(allIds);
+      xp = Object.values(pmap).reduce((s, v) => s + (Number(v) || 0), 0);
+    }
     const level = levelFromXp(xp);
     const checkinDates = new Set(checkins.map(c => String(c.checkin_date || "").slice(0, 10)).filter(Boolean));
     // 当前连击：以今天为终点；今天未打卡时以昨天为终点，避免当天连击数归零
@@ -3556,6 +3924,16 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       else if (dlMs <= soonMs) dueSoonCount += 1;
     });
 
+    // 成就徽章解锁落库：选中单个学生时记录新解锁徽章及解锁时间；汇总视图不记录（徽章为聚合口径）
+    let badgesWithTime = badges;
+    if (target) {
+      const badgeUnlockMap = await syncBadgeUnlocks(
+        Number(target.staff_id),
+        badges.filter(b => b.unlocked).map(b => b.key)
+      );
+      badgesWithTime = badges.map(b => (b.unlocked ? { ...b, unlocked_at: badgeUnlockMap[b.key] || "" } : b));
+    }
+
     // 打卡/进度提醒文案（后端独立生成）
     const reminders = buildLearningReminders({
       todayCheckedIn, todayCheckins, currentStreak,
@@ -3563,11 +3941,17 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       remainingCount: totalTasks - doneCount,
       activeCount: doingCount,
       overdueCount, dueSoonCount,
-      nextBadge: badges.find(b => !b.unlocked) || null,
+      nextBadge: badgesWithTime.find(b => !b.unlocked) || null,
     });
 
     res.json(ok({
-      student: { nickname: staff.nickname || "", username: staff.username || "" },
+      student: target
+        ? { staff_id: target.staff_id, nickname: target.nickname, username: target.username }
+        : { nickname: "全部学生", username: isAdmin ? "平台学生汇总" : "本家庭学生汇总" },
+      viewStudentId: target ? target.staff_id : "",
+      students,
+      points: xp,
+      pointLogs,
       stats: {
         totalTasks, todoCount, doingCount, doneCount,
         totalCheckins, todayCheckins, todayCheckedIn,
@@ -3577,7 +3961,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       },
       level,
       streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
-      badges,
+      badges: badgesWithTime,
       days,
       subjectDist,
       statusDist,

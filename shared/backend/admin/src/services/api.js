@@ -83,6 +83,8 @@ export const crudApi = {
   remove: (biz, id) => api.post(`/admin/api/${biz}/delete`, { id }),
   // 批量删除（file_uploads：物理删除腾讯云存储对象 + 登记记录）
   batchDelete: (biz, ids) => api.post(`/admin/api/${biz}/batchDelete`, { ids }),
+  // 图片清理（file_uploads）：找出业务系统已不再引用的文件并回收（两段式：preview=1 仅统计预览，preview=0 实际执行）
+  fileCleanup: (data) => api.post('/admin/api/file_uploads/cleanup', data),
   // 内容审核：action = approve / reject，note 为审核原因（写入审计留痕）
   // （endpoint 默认 review，用户资料审核为 reviewProfile）
   review: (biz, id, action, endpoint = 'review', note = '') => api.post(`/admin/api/${biz}/${endpoint}`, { id, action, note }),
@@ -138,5 +140,5 @@ export const menuApi = {
 // ==================== 仪表盘 API ====================
 export const dashboardApi = {
   monitor: () => api.get('/admin/dashboard/monitor'),
-  learning: () => api.get('/admin/dashboard/learning'),
+  learning: (params) => api.get('/admin/dashboard/learning', { params }),
 };

@@ -10,7 +10,7 @@ const userRouter = require("./routes/user");
 const systemRouter = require("./routes/system");
 const analyticsRouter = require("./routes/analytics");
 const storageRouter = require("./routes/storage");
-const { router: lpAuthRouter, lpAuth } = require("./routes/lpAuth");
+const { router: lpAuthRouter, lpAuth, verifyLpToken } = require("./routes/lpAuth");
 const lpRouter = require("./routes/lp");
 const familyRouter = require("./routes/family");
 const { router: adminRouter } = require("./routes/admin");
@@ -83,17 +83,22 @@ app.get("/healthz", (req, res) => {
 // ==================== 后台管理路由（独立 JWT 鉴权，不走 openid） ====================
 app.use("/admin", adminRouter);
 
-// ==================== openid 鉴权 + 小程序应用解析中间件 ====================
-// 微信云托管在小程序 callContainer 请求头注入 X-WX-OPENID（用户 openid）与 X-WX-APPID（小程序 AppID）
-// 多小程序共享环境：所有小程序走同一套后端，按 X-WX-APPID 解析 app_id；
-// 共享环境下 X-WX-OPENID 可能带 "{AppID}_" 前缀，统一剥离为规范 openid（兼容历史无前缀数据）
+// ==================== 身份确认 + 小程序应用解析中间件 ====================
+// 微信云托管在 callContainer 请求注入 X-WX-OPENID / X-WX-APPID，但服务同时公开托管后台 SPA，
+// 直接访问者可以伪造该头冒充任意用户（见安全审计 S1）。因此共享 /api/* 路由**不再信任身份头**，
+// 统一以 X-LP-Token（LP 会话 JWT，服务端签发）验签后取 openid；无有效会话一律 401。
+// 多小程序共享环境：按 X-WX-APPID 解析 app_id（仅用于展示/落库，不承载身份）；
+// 共享环境下 X-WX-OPENID 可能带 "{AppID}_" 前缀，统一剥离为规范 openid（兼容历史数据）。
 // 仅对业务 /api/* 生效，避免 /favicon.ico 等非接口请求被 401 拦截
 app.use(async (req, res, next) => {
-  // /api/lp/* 为课小满接口（走 LP JWT，见 lpAuth），身份取自 JWT，不要求 X-WX-OPENID
+  // /api/lp/* 为课小满接口（走 LP JWT，见 lpAuth），身份取自 JWT，不在此处理
   if (!req.path.startsWith("/api/") || req.path.startsWith("/api/lp/")) return next();
-  const rawOpenid = req.headers["x-wx-openid"] || req.headers["X-WX-OPENID"];
-  if (!rawOpenid) {
-    return res.status(401).json({ code: 401, msg: "未授权：缺少 openid", data: null });
+  const lpHeader = req.headers["x-lp-token"] || "";
+  const auth = req.headers.authorization || "";
+  const token = lpHeader || (auth.startsWith("Bearer ") ? auth.slice(7) : "");
+  const session = await verifyLpToken(token);
+  if (!session || !session.openid) {
+    return res.status(401).json({ code: 401, msg: "未授权：会话无效或已过期", data: null });
   }
   let app = null;
   try {
@@ -103,9 +108,9 @@ app.use(async (req, res, next) => {
     try { await ensureAppInDb(app); } catch (_) { /* 忽略 */ }
   }
   const wechatAppid = (app && app.wechat_appid) || "";
-  const openid = normalizeOpenid(rawOpenid, wechatAppid);
+  const openid = normalizeOpenid(session.openid, wechatAppid);
   req.openid = openid;
-  req.app = app || { app_id: "miniprogram-kxm", app_name: "课小满", wechat_appid: "" };
+  req.app = app || { app_id: session.appId || "miniprogram-kxm", app_name: "课小满", wechat_appid: "" };
   req.appId = req.app.app_id;
   next();
 });

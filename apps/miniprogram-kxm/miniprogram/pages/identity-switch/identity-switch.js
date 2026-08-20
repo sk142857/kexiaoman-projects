@@ -3,7 +3,8 @@
 const { lp, lpAuth, getRole, getIdentities, setIdentities, getActiveStaffId, setActiveStaffId, persistLogin, clearViewStudent } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
-const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '学生' };
+// 角色代码不变（student），界面统一展示为「孩子」
+const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '孩子' };
 
 Page({
   data: {
@@ -148,7 +149,7 @@ Page({
   },
 
   roleText(role) {
-    return ROLE_TEXT[role] || '学生';
+    return ROLE_TEXT[role] || '孩子';
   },
 
   // 切换到指定身份（家长/管理员身份需 PIN 弹窗）

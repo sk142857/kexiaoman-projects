@@ -14,6 +14,11 @@ const CLOUD_SERVICE = 'kxm-service';
 // 云存储公开访问域名（与 shared/backend/storage.js 的 STORAGE_DOMAIN 保持一致）
 const STORAGE_DOMAIN = 'https://636c-cloud1-d6gddqzrsda16338f-1467751604.tcb.qcloud.la';
 
+/** 会话 token（/api/storage/upload 身份确认必需，后端不再信任 X-WX-OPENID 头） */
+function getToken() {
+  try { return wx.getStorageSync('lp_token') || ''; } catch (_) { return ''; }
+}
+
 /** 相对路径 → 完整 URL（已是 http(s) 的原样返回） */
 function fileUrl(p) {
   if (!p) return '';
@@ -82,7 +87,7 @@ function uploadImageFile(tempFilePath, biz) {
               name: cloudPath.split('/').pop(),
             }],
           },
-          header: { 'X-WX-SERVICE': CLOUD_SERVICE },
+          header: { 'X-WX-SERVICE': CLOUD_SERVICE, 'X-LP-Token': getToken() },
           success: (regRes) => {
             const body = (regRes && regRes.data) || {};
             if (body.code === 0) {

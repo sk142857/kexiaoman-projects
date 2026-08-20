@@ -119,7 +119,7 @@
       </view>
 
       <view wx:if="{{isManager}}" class="field">
-        <view class="label">派发给学生 <text class="req">*</text></view>
+        <view class="label">派发给孩子 <text class="req">*</text></view>
         <view class="assignee-list">
           <view
             wx:for="{{students}}"
@@ -128,7 +128,7 @@
             data-id="{{item.staff_id}}"
             bindtap="toggleAssignee"
           >{{item.nickname}}</view>
-          <view wx:if="{{students.length === 0}}" class="hint">暂无学生账号，请联系管理员创建学生后再派发</view>
+          <view wx:if="{{students.length === 0}}" class="hint">暂无孩子账号，请联系管理员创建孩子后再派发</view>
         </view>
       </view>
     </view>

@@ -79,7 +79,7 @@ Page({
   _syncCopy() {
     const { identity, parentMode } = this.data;
     let placeholder = '请输入邀请码';
-    if (identity === 'student') placeholder = '请输入学生邀请码';
+    if (identity === 'student') placeholder = '请输入孩子邀请码'; // student 角色界面展示为「孩子」
     else if (identity === 'family') placeholder = '请输入家属共享码';
     else if (identity === 'parent' && parentMode === 'bind') placeholder = '请输入家长邀请码';
     this.setData({ placeholder });

@@ -36,12 +36,14 @@ Page({
   },
 
   onReset() {
+    if (this.data.loading) return;
     wx.showModal({
       title: '重置后台密码',
       content: '将生成新的后台登录密码（仅展示一次），原密码立即失效。确定重置？',
       confirmColor: '#ff4d4f',
       success: async (r) => {
         if (!r.confirm) return;
+        if (this.data.loading) return;
         this.setData({ loading: true });
         try {
           const res = await family.passwordReset();

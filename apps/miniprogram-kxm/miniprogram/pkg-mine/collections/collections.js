@@ -43,6 +43,7 @@ Page({
   onDesc(e) { this.setData({ description: e.detail.value }); },
 
   submitCreate() {
+    if (this.data.submitting) return;
     const name = this.data.name.trim();
     if (!name) {
       wx.showToast({ title: '请输入合集名称', icon: 'none' });

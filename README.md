@@ -97,11 +97,59 @@
   与 `CLOUD_SERVICE`（`kxm-service`），所有请求经 `wx.cloud.callContainer` 携带 `X-LP-Token` 调用 `/api/lp/*`。
 - 部署：需在云开发控制台把课小满绑定到云环境 `cloud1-d6gddqzrsda16338f`（多小程序共享环境），
   云托管服务名部署为 `kxm-service`。
-- 图片 upload 走 base64，前端**逐张**直调 `/api/lp/upload`（后端并发上限 3），避免单次请求体过大。
+- 图片/视频/语音均走 `wx.cloud.uploadFile` **直传云存储**（绕过 callContainer 100KB 请求体限制），
+  再调 `/api/storage/upload` 登记 `t_file_uploads`（该接口以 `X-LP-Token` 会话验签确认身份，不再信任 `X-WX-OPENID` 请求头）。
 
 > 安全提示：`t_apps.app_secret` 为明文存储，请收敛 `t_apps` 表的访问权限，勿将含密钥的数据导出仓库。
-
+>
+> 安全提示：后台管理 JWT 仅接受环境变量 `ADMIN_JWT_SECRET`，未配置时后台登录/鉴权一律拒绝（fail-closed），不会回退内置弱密钥。
+> 课小满小程序会话 `jwt_secret` 缺失时登录/绑定同样拒绝并提示，请在后台「小程序配置」中配置后再启动。
+>
+> 安全提示：`t_apps.app_secret` / `jwt_secret` 未配置时，登录、绑定及 `X-LP-Token` 相关接口全部拒绝（fail-closed），需在后台配置后恢复。
+>
 > 安全提示：邀请码为弱共享密钥（6 位），`/api/lp/bind` 已做失败限流（同一 openid 15 分钟 10 次）；请定期轮换邀请码。
+
+## 积分制度（积分账本，可审计可减分）
+
+课小满积分从「现算只增不减」升级为**账本式**（表 `t_lp_point_logs`，逻辑名 `point_logs`），
+每次加分/减分写一条流水（`reason` 区分原因），**经验值 = 账本累加**，杜绝待审核/被驳回误计与只增不减。
+
+| 事件 | 变动 | 流水 reason |
+|------|------|------------|
+| 打卡审核通过 | +10 | `checkin_approved` |
+| 任务完成（状态转 done） | +30（有派发人则每人，否则创建人） | `task_done` |
+| 删除已通过打卡 | -10 | `checkin_deleted` |
+| 已完成任务回退（done→doing/todo） | -30 | `task_undone` |
+| 删除已完成任务 | -30 + 该任务已通过打卡每人 -10 | `task_deleted` / `checkin_deleted` |
+
+- 加分/减分幂等：按「状态变迁」判定（如任务 old→new 才计分），重复调用不重复计。
+- 审核驳回本身不加分也不扣分（从未计分，无需回扣）。
+- 后台「学习仪表盘 → 选中单个学生 → 积分明细」可审计最近 10 条加减分流水；余额即 `level.xp`。
+- 存量回填：`sql/upgrade_035_points_ledger.sql` 一次性把历史已通过打卡（+10）与已完成任务（+30）补录进账本，
+  并自动纠正旧公式把待审核/驳回打卡计入经验的问题（经验小幅回落属预期修复）。
+- 等级阈值（Lv.1~10，满级 3200 XP）见 `learningLib.js LEARNING_LEVELS`，经验上限可后台按需调整。
+
+## 成就徽章系统（解锁落库，记录达成时间）
+
+徽章从「每次现算」升级为**解锁落库**（表 `t_lp_badge_unlocks`，逻辑名 `badge_unlocks`）：
+仪表盘计算时把**新解锁**的徽章写入记录（`staff_id + badge_key` 唯一，幂等），响应附带 `unlocked_at` 解锁时间，
+可在后台徽章悬停提示 / 小程序「我的奖章」墙展示「xxxx-xx-xx 解锁」。
+
+- 运行时落库：首页/奖章页每次打开都会调 `/api/lp/dashboard`，达标即记录，时间精确到"下次打开 App 时"（学生打开 App 频率高，误差很小）。
+- 存量回填：`sql/upgrade_036_badge_unlocks.sql` 用触发事件时间**估算**历史解锁时间（第 N 次通过打卡时间 / 连续打卡第 N 天 / 积分账本累计首达阈值等）。
+  滚动型徽章（`perfect_week` 近 7 天全勤）不做回填，运行时首次达标时记录。
+- 部署顺序：先跑 `upgrade_035_points_ledger.sql`（积分账本，等级徽章回填依赖它），再跑 `upgrade_036_badge_unlocks.sql`。
+
+## 学习仪表盘（Web 后台）学生切换
+
+`/dashboard/learning` 支持按学生视角查看：
+
+- **管理员**：默认「全部学生」汇总，可下拉切换到任意单个学生（统计该学生派发+创建的任务与打卡）。
+- **家长/家属**：默认第一个孩子，仅能切换**名下孩子**（`lp_children` 关系），越权切换自动回退。
+- **学生**：固定本人。
+- 切换选择存 `localStorage`（`lp_admin_view_student`），刷新后保持。
+- 后端接口：`/api/admin/dashboard/learning?studentId=xxx`（`studentId` 留空=默认视角）；
+  响应含 `students`（可切换列表）与 `viewStudentId`（当前视角，空串=全部）。
 
 ## 内容审核机制
 
@@ -114,7 +162,8 @@
 
 ## 图片上传
 
-- 前端选择图片后**仅本地预览**，提交打卡时统一压缩，通过 `wx.cloud.uploadFile` **直传云存储**（绕过 `callContainer` 100KB 请求体限制，错误码 `-606001`），再调 `/api/storage/upload` 登记 `t_file_uploads` 记录表。
+- 前端选择图片后**仅本地预览**（选原图，压缩统一由后端异步完成），通过 `wx.cloud.uploadFile` **直传云存储**（绕过 `callContainer` 100KB 请求体限制，错误码 `-606001`），再调 `/api/storage/upload` 登记 `t_file_uploads` 记录表。
+- 列表/详情展示使用 `previewUrl` 缩略图（数据万象 `imageMogr2/thumbnail`），lightbox 查看原图，减少流量。
 - 存储桶：`636c-cloud1-d6gddqzrsda16338f-1467751604`；共享存储根路径 `kxm`；按业务分目录，如任务图片 `kxm/tasks/yyyy-mm-dd/{fileId}.jpg`。
 - 图片公开访问域名：`https://636c-cloud1-d6gddqzrsda16338f-1467751604.tcb.qcloud.la/{路径}`（前端/后台拼接完整域名）。
 - ⚠️ 小程序端 `<image>` 展示该域名图片，需在微信公众平台配置 **downloadFile 合法域名**。

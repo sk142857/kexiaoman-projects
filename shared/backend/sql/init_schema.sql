@@ -225,7 +225,8 @@ CREATE TABLE t_staff_events (
   PRIMARY KEY (event_id),
   KEY idx_staff_created (staff_id, created_at),
   KEY idx_type_created (event_type, created_at),
-  KEY idx_module_created (module, created_at)
+  KEY idx_module_created (module, created_at),
+  KEY idx_app_created (app_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台操作审计';
 
 -- 小程序注册表（多小程序共享后台；密钥类配置存表，后台可维护，不用环境变量）
@@ -284,7 +285,8 @@ CREATE TABLE t_file_uploads (
   KEY idx_openid_created (openid, created_at),
   KEY idx_biz (biz, biz_id),
   KEY idx_staff (staff_id),
-  KEY idx_openid_path (openid, file_path)
+  KEY idx_openid_path (openid, file_path),
+  KEY idx_file_path (file_path(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图片上传记录';
 
 -- 用户操作事件埋点表
@@ -409,6 +411,34 @@ CREATE TABLE t_lp_task_checkins (
   KEY idx_created_at (created_at),
   KEY idx_review_status (review_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习任务打卡';
+-- 学习积分账本表（主键由序列 point_log_id 发放；积分=流水累加，审核通过/任务完成加分，删除/回退自动回扣）
+DROP TABLE IF EXISTS t_lp_point_logs;
+CREATE TABLE t_lp_point_logs (
+  log_id      BIGINT       NOT NULL COMMENT '主键（序列 point_log_id 发放）',
+  staff_id    BIGINT       NOT NULL DEFAULT 0 COMMENT '学生 staff_id',
+  points      INT          NOT NULL DEFAULT 0 COMMENT '积分变动(+加分/-扣分)',
+  reason      VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '变动原因 checkin_approved/task_done/checkin_deleted/task_undone/task_deleted/admin_adjust',
+  ref_type    VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '关联类型 task/task_checkin',
+  ref_id      BIGINT       NOT NULL DEFAULT 0 COMMENT '关联任务或打卡ID',
+  note        VARCHAR(255) NOT NULL DEFAULT '' COMMENT '说明',
+  created_by  BIGINT       NOT NULL DEFAULT 0 COMMENT '操作人 staff_id(0=系统)',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '变动时间',
+  PRIMARY KEY (log_id),
+  KEY idx_staff (staff_id, created_at),
+  KEY idx_ref (ref_type, ref_id),
+  KEY idx_reason (reason)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习积分账本';
+
+-- 成就徽章解锁记录表（徽章从现算升级为解锁落库：仪表盘计算时记录新解锁徽章及解锁时间，可审计可展示）
+DROP TABLE IF EXISTS t_lp_badge_unlocks;
+CREATE TABLE t_lp_badge_unlocks (
+  staff_id    BIGINT      NOT NULL COMMENT '学生 staff_id',
+  badge_key   VARCHAR(32) NOT NULL COMMENT '徽章 key（如 checkin_10 / streak_7 / level_5）',
+  unlocked_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '解锁时间',
+  PRIMARY KEY (staff_id, badge_key),
+  KEY idx_badge (badge_key),
+  KEY idx_unlocked_at (unlocked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='成就徽章解锁记录';
 
 -- 任务业务时间轴表（主键由序列 task_timeline_event_id 发放；任务/打卡全生命周期事件审计）
 DROP TABLE IF EXISTS t_lp_task_timeline;
@@ -549,7 +579,8 @@ CREATE TABLE t_lp_subscribe_grants (
   KEY idx_staff (staff_id),
   KEY idx_openid (openid),
   KEY idx_status (grant_status),
-  KEY idx_staff_status (staff_id, grant_status)
+  KEY idx_staff_status (staff_id, grant_status),
+  KEY idx_app_created (app_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满订阅消息授权记录';
 
 -- 课小满订阅消息发送记录表（主键由序列 subscribe_send_id 发放）
@@ -573,7 +604,8 @@ CREATE TABLE t_lp_subscribe_sends (
   PRIMARY KEY (send_id),
   KEY idx_staff_created (staff_id, created_at),
   KEY idx_biz (biz_type, biz_id),
-  KEY idx_status (send_status)
+  KEY idx_status (send_status),
+  KEY idx_event_app_created (event_type, app_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满订阅消息发送记录';
 
 -- 序列管理表（统一发号）

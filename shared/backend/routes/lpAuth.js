@@ -51,18 +51,35 @@ async function getLpConfig(force) {
   const cfg = {
     appid: (row && row.wechat_appid) || LP_APP.wechat_appid,
     appSecret: (row && row.app_secret) || "",
-    jwtSecret: (row && row.jwt_secret) || "lp-insecure-fallback",
+    jwtSecret: (row && row.jwt_secret) || "",
     jwtExpires: (row && row.jwt_expires) || "7d",
   };
+  // fail-closed：密钥缺失时直接拒绝（拒绝再回退内置弱密钥，防止 Token 被伪造）
   if (!cfg.appSecret) {
-    console.warn("[lpAuth] 警告：t_apps 中课小满未配置 app_secret，code2session 登录将失败（请在后端「小程序配置」中填写）");
+    console.warn("[lpAuth] 警告：t_apps 中课小满未配置 app_secret，登录/绑定已拒绝（请在后端「小程序配置」中填写）");
+    throw new Error("服务未配置小程序 AppSecret（请在后台「小程序配置」填写）");
   }
-  if (!(row && row.jwt_secret)) {
-    console.warn("[lpAuth] 警告：t_apps 中课小满未配置 jwt_secret，已回退内置弱密钥（请尽快在后台配置）");
+  if (!cfg.jwtSecret) {
+    console.warn("[lpAuth] 警告：t_apps 中课小满未配置 jwt_secret，登录/会话已拒绝（请在后端「小程序配置」中填写）");
+    throw new Error("服务未配置 jwt_secret（请在后台「小程序配置」填写）");
   }
   lpConfigCache = cfg;
   lpConfigAt = now;
   return cfg;
+}
+
+/** 校验会话 token 并返回 { openid, staffId? }（仅验签，不查绑定；供共享 /api/* 路由身份确认，替代不可信的 X-WX-OPENID 头） */
+async function verifyLpToken(token) {
+  if (!token) return null;
+  try {
+    const cfg = await getLpConfig();
+    const decoded = jwt.verify(String(token), cfg.jwtSecret);
+    return (decoded && decoded.openid)
+      ? { openid: decoded.openid, appId: decoded.appId || "", staffId: decoded.staffId ? String(decoded.staffId) : "" }
+      : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ==================== 工具 ====================
@@ -319,6 +336,24 @@ function recordBindAttempt(openid) {
   else rec.count += 1;
 }
 
+// ==================== PIN 校验限流（安全审计 S8） ====================
+// 4-6 位数字 PIN 空间有限（≤10^6），必须限流防爆破（切身份/校验/关闭均计入）。
+// key = openid:staffId，避免多身份互相干扰；成功校验后清空计数。
+const PIN_ATTEMPT = new Map();
+function pinAllow(key, max = 5, windowMs = 15 * 60 * 1000) {
+  const now = Date.now();
+  const rec = PIN_ATTEMPT.get(key);
+  if (!rec || now - rec.start >= windowMs) return true;
+  return rec.count < max;
+}
+function recordPinAttempt(key, windowMs = 15 * 60 * 1000) {
+  const now = Date.now();
+  const rec = PIN_ATTEMPT.get(key);
+  if (!rec || now - rec.start >= windowMs) PIN_ATTEMPT.set(key, { start: now, count: 1 });
+  else rec.count += 1;
+}
+function clearPinAttempt(key) { PIN_ATTEMPT.delete(key); }
+
 /** 静默注册/刷新 t_users 用户记录（学习星球用户画像，fire-and-forget） */
 function touchUserProfile(openid) {
   ensureUser(LP_APP, openid).catch(() => {});
@@ -439,7 +474,7 @@ router.post("/login", async (req, res) => {
     }, "登录成功"));
   } catch (e) {
     console.error("[lpAuth] login error", e);
-    res.json(fail("服务异常", 500));
+    res.json(fail((e && e.message) ? e.message : "服务异常", 500));
   }
 });
 
@@ -724,14 +759,18 @@ router.post("/switch", async (req, res) => {
     const target = identities.find(s => String(s.staff_id) === String(targetId));
     if (!target) return res.json(fail("无权切换到该身份", 403));
 
-    // 切到家长/管理员身份：若已设 PIN，必须校验
+    // 切到家长/管理员身份：若已设 PIN，必须校验（含限流，防 4-6 位 PIN 爆破）
     if (["parent", "admin"].includes(target.role)) {
       const staff = await staffById(targetId);
       if (staff && staff.pin_hash) {
+        const pinKey = `pin:${openid}:${targetId}`;
+        if (!pinAllow(pinKey)) return res.json(fail("PIN 尝试次数过多，请 15 分钟后再试", 429));
         const pin = String((req.body || {}).pin || "");
         if (!pin || !bcrypt.compareSync(pin, staff.pin_hash)) {
+          recordPinAttempt(pinKey);
           return res.json(fail("PIN 错误，请重试", 403));
         }
+        clearPinAttempt(pinKey);
       }
     }
 
@@ -804,16 +843,23 @@ router.post("/pin", async (req, res) => {
     }
 
     if (act === "remove") {
+      const pinKey = `pin:${openid}:${staffId}`;
+      if (!pinAllow(pinKey)) return res.json(fail("PIN 尝试次数过多，请 15 分钟后再试", 429));
       const p = String(pin || "");
       if (!staff.pin_hash || !bcrypt.compareSync(p, staff.pin_hash)) {
+        recordPinAttempt(pinKey);
         return res.json(fail("PIN 错误，请重试", 403));
       }
+      clearPinAttempt(pinKey);
       await db.from("staff").update({ pin_hash: "", updated_at: nowSql() }).eq("staff_id", staffId);
       return res.json(ok(null, "身份 PIN 已关闭"));
     }
 
-    // verify
+    // verify（含限流）
+    const pinKey = `pin:${openid}:${staffId}`;
+    if (!pinAllow(pinKey)) return res.json(fail("PIN 尝试次数过多，请 15 分钟后再试", 429));
     const okPin = staff.pin_hash && bcrypt.compareSync(String(pin || ""), staff.pin_hash);
+    if (okPin) clearPinAttempt(pinKey); else recordPinAttempt(pinKey);
     res.json(ok({ valid: !!okPin, enabled: !!staff.pin_hash }, okPin ? "校验通过" : "PIN 错误"));
   } catch (e) {
     console.error("[lpAuth] pin error", e);
@@ -944,4 +990,5 @@ module.exports = {
   hasBoundStaff,
   activateBinding,
   verifySession,
+  verifyLpToken,
 };

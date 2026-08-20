@@ -8,7 +8,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Button, Modal, Input, Select, DatePicker, Tag, Card, Row, Col, Pagination, Empty, message, Image,
 } from 'antd';
-import { EyeOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EyeOutlined, DeleteOutlined, ReloadOutlined, ClearOutlined } from '@ant-design/icons';
 import { crudApi } from '../services/api';
 import DetailDrawer from '../components/DetailDrawer.jsx';
 import {
@@ -227,6 +227,65 @@ export default function FileUploadsCardsPage() {
     });
   };
 
+  // ==================== 图片清理（两段式：预览统计 → 确认后物理删除未引用文件） ====================
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const openCleanup = async () => {
+    setCleanupLoading(true);
+    try {
+      // 第一阶段：仅统计预览（不删除）
+      const res = await crudApi.fileCleanup({ preview: 1 });
+      const d = res.data || {};
+      const total = Number(d.total) || 0;
+      const samples = Array.isArray(d.samples) ? d.samples : [];
+      if (total === 0) {
+        message.success('暂无需要清理的文件（所有登记均被业务引用）');
+        return;
+      }
+      const run = async () => {
+        const execRes = await crudApi.fileCleanup({ preview: 0 });
+        message.success((execRes.data && execRes.data.msg) || '清理完成');
+        fetchList();
+      };
+      Modal.confirm({
+        title: '确认清理未引用图片',
+        width: 640,
+        content: (
+          <div style={{ lineHeight: 1.8 }}>
+            <p style={{ marginBottom: 8 }}>
+              将<b style={{ color: '#f5222d' }}>物理删除腾讯云存储对象</b>并清理登记记录，删除后不可恢复。
+            </p>
+            <p style={{ margin: 0 }}>
+              本次共发现 <b>{total}</b> 个文件不再被业务系统引用：
+            </p>
+            <ul style={{ margin: '4px 0 8px', paddingLeft: 18 }}>
+              <li>待物理删除：<b>{Number(d.pathCount) || 0}</b> 个</li>
+              <li>无路径登记（仅清登记）：<b>{Number(d.empty) || 0}</b> 条</li>
+              {d.truncated ? <li style={{ color: '#fa8c16' }}>数量超过单次上限（{d.cap}），本次仅处理前 {d.cap} 条，可重复点击分批清理</li> : null}
+            </ul>
+            {samples.length > 0 ? (
+              <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 12px', background: '#fafafa', fontSize: 12, color: '#595959' }}>
+                {samples.slice(0, 10).map(s => (
+                  <div key={s.file_id} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.file_path || '（无路径登记）'}
+                    {s.biz ? <span style={{ color: '#8c8c8c' }}> · {s.biz}</span> : null}
+                  </div>
+                ))}
+                {samples.length > 10 ? <div style={{ color: '#8c8c8c' }}>… 等 {samples.length} 条</div> : null}
+              </div>
+            ) : null}
+          </div>
+        ),
+        okText: '确认清理',
+        cancelText: '取消',
+        okButtonProps: { danger: true },
+        onOk: () => run(),
+      });
+    } catch (_) {
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
+
   return (
     <div>
       {/* ==================== 工具栏：业务/状态筛选 + 时间范围 + 搜索 + 重置/刷新 ==================== */}
@@ -264,6 +323,15 @@ export default function FileUploadsCardsPage() {
         />
         <Button onClick={onFilterReset}>重置</Button>
         <Button icon={<ReloadOutlined />} onClick={() => reload(1)} />
+        <Button
+          danger
+          icon={<ClearOutlined />}
+          loading={cleanupLoading}
+          onClick={openCleanup}
+          style={{ marginLeft: 'auto' }}
+        >
+          清理图片
+        </Button>
       </div>
 
       {/* ==================== 卡片网格（6 列等宽，媒体大幅展示） ==================== */}

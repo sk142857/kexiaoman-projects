@@ -7,7 +7,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="mine-scroll">
+  <scroll-view scroll-y class="mine-scroll">
     <view class="mine-main">
 
       <!-- 用户卡 -->
@@ -19,7 +19,7 @@
             <text class="profile-name">{{nickname}}</text>
             <text class="profile-edit">✏️</text>
           </view>
-          <text class="profile-meta">{{appId}} · ID {{staffId || '--'}} · {{roleText}}</text>
+          <text class="profile-meta">ID {{userId || '--'}} · {{roleText}}</text>
         </view>
         <text class="profile-arrow">›</text>
       </view>

@@ -119,7 +119,7 @@ Page({
   _regen(child) {
     wx.showModal({
       title: '重新生成邀请码',
-      content: `将为「${child.child_name}」生成新的学生邀请码，旧码作废。若孩子已绑定，重新绑定需用新码。`,
+      content: `将为「${child.child_name}」生成新的孩子邀请码，旧码作废。若孩子已绑定，重新绑定需用新码。`,
       success: async (r) => {
         if (!r.confirm) return;
         try {
@@ -138,7 +138,7 @@ Page({
   _delete(child) {
     wx.showModal({
       title: '删除孩子档案',
-      content: `删除「${child.child_name}」的档案后，其学生账号与邀请码将作废，孩子需重新绑定。确定删除？`,
+      content: `删除「${child.child_name}」的档案后，其孩子账号与邀请码将作废，孩子需重新绑定。确定删除？`,
       confirmColor: '#ff4d4f',
       success: async (r) => {
         if (!r.confirm) return;

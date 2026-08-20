@@ -200,6 +200,7 @@ Page({
   },
 
   onSubmit() {
+    if (this.data.submitting) return;
     if (!this._dateValid()) {
       wx.showToast({ title: '请选择有效打卡日期', icon: 'none' });
       return;

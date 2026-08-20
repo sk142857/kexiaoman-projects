@@ -13,7 +13,7 @@
  * 凭证：access_token 走 t_apps.app_secret 获取，内存缓存（7200s 内提前 5 分钟过期）。
  */
 const { db } = require("./db");
-const { nowSql } = require("./utils");
+const { nowSql, withLock } = require("./utils");
 const { getAppConfig } = require("./apps");
 const { nextSeq } = require("./seq");
 
@@ -95,37 +95,40 @@ async function availableCount(staffId, tmplId) {
 
 /**
  * 消耗一次订阅次数（FIFO，优先消耗最早授权；空模板授权视为任意模板可用）
+ * 安全审计：读改写计数在进程内加锁串行化（@cloudbase RDB 无原子自增 API），防并发超额消耗
  * @returns {Promise<boolean>} 是否消耗成功（次数不足返回 false）
  */
 async function consumeCredit(staffId, tmplId, count = 1) {
-  try {
-    const sid = Number(staffId) || 0;
-    const need = Math.max(1, Number(count) || 1);
-    let q = db.from("subscribe_grants")
-      .select().eq("staff_id", sid).eq("grant_status", "active");
-    if (tmplId) q = q.in("tmpl_id", [String(tmplId), ""]);
-    const { data, error } = await q.order("created_at", { ascending: true }).limit(1000);
-    if (error) throw error;
-    const records = (data || []).filter(g => (Number(g.grant_count) || 0) > (Number(g.used_count) || 0));
-    let remain = need;
-    for (const g of records) {
-      if (remain <= 0) break;
-      const avail = (Number(g.grant_count) || 0) - (Number(g.used_count) || 0);
-      const take = Math.min(avail, remain);
-      const usedNow = (Number(g.used_count) || 0) + take;
-      const status = usedNow >= (Number(g.grant_count) || 0) ? "consumed" : "active";
-      await db.from("subscribe_grants").update({
-        used_count: usedNow,
-        grant_status: status,
-        updated_at: nowSql(),
-      }).eq("grant_id", g.grant_id);
-      remain -= take;
+  const sid = Number(staffId) || 0;
+  const need = Math.max(1, Number(count) || 1);
+  return withLock(`subscribe:credit:${sid}`, async () => {
+    try {
+      let q = db.from("subscribe_grants")
+        .select().eq("staff_id", sid).eq("grant_status", "active");
+      if (tmplId) q = q.in("tmpl_id", [String(tmplId), ""]);
+      const { data, error } = await q.order("created_at", { ascending: true }).limit(1000);
+      if (error) throw error;
+      const records = (data || []).filter(g => (Number(g.grant_count) || 0) > (Number(g.used_count) || 0));
+      let remain = need;
+      for (const g of records) {
+        if (remain <= 0) break;
+        const avail = (Number(g.grant_count) || 0) - (Number(g.used_count) || 0);
+        const take = Math.min(avail, remain);
+        const usedNow = (Number(g.used_count) || 0) + take;
+        const status = usedNow >= (Number(g.grant_count) || 0) ? "consumed" : "active";
+        await db.from("subscribe_grants").update({
+          used_count: usedNow,
+          grant_status: status,
+          updated_at: nowSql(),
+        }).eq("grant_id", g.grant_id);
+        remain -= take;
+      }
+      return remain <= 0;
+    } catch (e) {
+      console.error("[subscribeLib] consumeCredit error", e.message);
+      return false;
     }
-    return remain <= 0;
-  } catch (e) {
-    console.error("[subscribeLib] consumeCredit error", e.message);
-    return false;
-  }
+  });
 }
 
 // ==================== 发送结果记录 ====================

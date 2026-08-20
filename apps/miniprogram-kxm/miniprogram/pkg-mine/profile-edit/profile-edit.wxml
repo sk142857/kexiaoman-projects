@@ -25,7 +25,7 @@
       <view class="form-card">
         <view class="field">
           <text class="label">用户ID</text>
-          <text class="value-box">{{staffId || '--'}}</text>
+          <text class="value-box">{{userId || '--'}}</text>
         </view>
         <view class="field">
           <text class="label">昵称</text>

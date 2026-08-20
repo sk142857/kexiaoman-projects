@@ -3,7 +3,8 @@ const { lp, getRole, getIdentities, setIdentities, getActiveStaffId } = require(
 const { fileUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
-const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '学生' };
+// 角色代码不变（student），界面统一展示为「孩子」
+const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '孩子' };
 
 Page({
   data: {
@@ -12,9 +13,10 @@ Page({
     avatarUrl: '',
     username: '',
     staffId: '',
+    userId: '',
     appId: 'miniprogram-kxm',
     role: 'student',
-    roleText: '学生',
+    roleText: '孩子',
     isAdmin: false,
     isParent: false,    // 主家长（可维护孩子档案/共享）
     isManager: false,   // 家长/家属/管理员（可审核）
@@ -39,7 +41,7 @@ Page({
     const role = getRole();
     this.setData({
       role,
-      roleText: ROLE_TEXT[role] || '学生',
+      roleText: ROLE_TEXT[role] || '孩子',
       isAdmin: role === 'admin',
       isParent: role === 'parent' || role === 'admin',
       isManager: ['admin', 'parent', 'family'].includes(role),
@@ -71,6 +73,7 @@ Page({
         avatarUrl: fileUrl(s.avatar || ''),
         username: s.username || staff.username || '',
         staffId: String(s.staff_id || staff.staff_id || activeId || ''),
+        userId: String(profile.userId || ''),
         appId: (profile && profile.app) || 'miniprogram-kxm',
         stats: (dash && dash.stats) || { totalTasks: 0, totalCheckins: 0 },
         level: (dash && dash.level) || null,

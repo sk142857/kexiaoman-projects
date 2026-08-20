@@ -12,6 +12,7 @@ Page({
     tempAvatarPath: '',    // 本次选中的临时头像路径（未上传）
     avatarChar: '学',
     staffId: '',
+    userId: '',
     saving: false,
   },
 
@@ -35,6 +36,7 @@ Page({
         tempAvatarPath: '',
         avatarChar: String(s.nickname || '学').charAt(0),
         staffId: String(s.staff_id || ''),
+        userId: String(profile.userId || ''),
       });
     } catch (e) {
       wx.showToast({ title: e.msg || '加载失败', icon: 'none' });

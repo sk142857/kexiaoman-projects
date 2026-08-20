@@ -47,11 +47,12 @@
         <view class="card-check {{identity === 'parent' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
       </view>
 
+      <!-- 身份代码为 student，界面文案统一展示为「孩子」 -->
       <view class="card {{identity === 'student' ? 'card--active' : ''}}" bindtap="onPickIdentity" data-identity="student">
         <view class="card-icon icon--student"><t-icon name="book-open-filled" size="44rpx" /></view>
         <view class="card-main">
-          <view class="card-name">我是学生</view>
-          <view class="card-desc">输入家长提供的学生邀请码，完成绑定即可学习</view>
+          <view class="card-name">我是孩子</view>
+          <view class="card-desc">输入家长提供的孩子邀请码，完成绑定即可学习</view>
         </view>
         <view class="card-check {{identity === 'student' ? 'card-check--active' : ''}}"><t-icon name="check-circle-filled" size="40rpx" /></view>
       </view>
@@ -98,7 +99,7 @@
     </view>
 
     <view wx:if="{{identity !== 'parent' || parentMode === 'bind'}}" class="code-box">
-      <view class="code-label">{{identity === 'family' ? '家属共享码' : identity === 'parent' ? '家长邀请码' : '学生邀请码'}}</view>
+      <view class="code-label">{{identity === 'family' ? '家属共享码' : identity === 'parent' ? '家长邀请码' : '孩子邀请码'}}</view>
       <input
         class="input"
         type="text"
@@ -119,7 +120,7 @@
     <view class="done">
       <view class="done-icon"><t-icon name="check-circle-filled" size="120rpx" /></view>
       <view class="done-title">{{(identity === 'parent' && parentMode === 'create') ? '创建成功' : '绑定成功'}}</view>
-      <view class="done-desc">{{identity === 'parent' && parentMode === 'create' ? '家庭账号已创建，请先添加至少一个孩子档案，生成学生邀请码' : identity === 'parent' ? '已绑定主家长账号，可查看与维护孩子档案' : identity === 'family' ? '欢迎加入家庭，随时查看孩子的学习情况' : '欢迎加入课小满，开始你的学习之旅'}}</view>
+      <view class="done-desc">{{identity === 'parent' && parentMode === 'create' ? '家庭账号已创建，请先添加至少一个孩子档案，生成孩子邀请码' : identity === 'parent' ? '已绑定主家长账号，可查看与维护孩子档案' : identity === 'family' ? '欢迎加入家庭，随时查看孩子的学习情况' : '欢迎加入课小满，开始你的学习之旅'}}</view>
 
       <!-- 共用微信风险提示：多身份 + 家长未设 PIN -->
       <view wx:if="{{riskPrompt}}" class="pin-warn">

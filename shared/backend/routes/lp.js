@@ -11,7 +11,7 @@
 const express = require("express");
 const { db } = require("../db");
 const { ok, fail } = require("../response");
-const { nowSql, formatDate, genId } = require("../utils");
+const { nowSql, formatDate, genId, withLock } = require("../utils");
 const { nextSeq } = require("../seq");
 const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, compressImageAsync, storageFileExists, VIDEO_MAX_SIZE } = require("../storage");
 const { logTaskEvent } = require("../taskTimeline");
@@ -19,13 +19,16 @@ const { logEvent } = require("../events");
 const { getAppConfig } = require("../apps");
 const { reportTrace } = require("../trace");
 const { sendReviewNotification } = require("../subscribeLib");
+const { ensureUser } = require("../appAuth");
 const { listBoundStaffs } = require("./lpAuth");
 const {
   parseImgList, attachAssignees, attachStaffInfo, attachCollectionName, attachCollectionCount,
   syncTaskAssignees, isTaskDone, levelFromXp, streakEndingAt, maxStreakOf, buildLearningReminders,
-  invalidateCollectionRows, cachedDictItems, cachedStaffRows,
+  invalidateCollectionRows, invalidateStaffRows, cachedDictItems, cachedStaffRows,
   CHECKIN_TYPE_ALLOWED, normalizeCheckinType,
   TASK_SOURCE_ALLOWED, TASK_SOURCE_DEFAULT, normalizeTaskSource,
+  staffPoints, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted,
+  syncBadgeUnlocks,
 } = require("../learningLib");
 
 const router = express.Router();
@@ -99,7 +102,7 @@ async function taskInScope(req, task) {
   if (scope.length === 0) return false;
   try {
     const { data } = await db.from("task_assignees")
-      .select("task_id").eq("task_id", task.task_id).in("staff_id", scope).limit(1);
+      .select("task_id").eq("task_id", task.task_id).in("staff_id", scope.map(Number).filter(n => Number.isInteger(n) && n > 0)).limit(1);
     if (data && data[0]) return true;
   } catch (_) {}
   return false;
@@ -122,10 +125,17 @@ router.get("/profile", async (req, res) => {
     if (error) throw error;
     const staff = rows && rows[0];
     if (!staff) return res.json(fail("账号不存在", 403));
+    // t_users 用户画像（user_uid = 小程序端展示的「用户ID」；区别于 staff_id）
+    let userId = "";
+    try {
+      const u = await ensureUser(req.app, myOpenid(req));
+      userId = (u && u.user_uid) || "";
+    } catch (_) { /* 静默注册失败不阻断资料查询 */ }
     // 多身份（共用微信）：返回该 openid 全部有效身份 + PIN 状态，供前端切换
     const identities = await listBoundStaffs(myOpenid(req));
     res.json(ok({
       app: req.appId || "miniprogram-kxm",
+      userId,
       staff: {
         staff_id: String(staff.staff_id),
         username: staff.staff_username,
@@ -149,6 +159,8 @@ router.post("/profile", async (req, res) => {
     const values = { staff_nickname: n, updated_at: nowSql() };
     if (avatar !== undefined) values.staff_avatar = String(avatar).trim().slice(0, 500);
     await db.from("staff").update(values).eq("staff_id", Number(me(req)));
+    // 失效 staff 行缓存（昵称/头像变更立即生效，避免 60s 内读到旧值）
+    invalidateStaffRows([Number(me(req))]);
     // 后台压缩头像（异步，压缩完成后回写 staff_avatar）
     if (avatar !== undefined && String(avatar).trim()) {
       setTimeout(async () => {
@@ -178,7 +190,7 @@ router.get("/admin/students", async (req, res) => {
     if (scope !== null && scope.length === 0) return res.json(ok({ list: [] }));
     let q = db.from("staff").select("staff_id, staff_username, staff_nickname, staff_status")
       .eq("staff_role", "student");
-    if (scope !== null) q = q.in("staff_id", scope);
+    if (scope !== null) q = q.in("staff_id", scope.map(Number).filter(n => Number.isInteger(n) && n > 0));
     const { data: rows, error } = await q.order("staff_id", { ascending: true }).limit(2000);
     if (error) throw error;
     const students = rows || [];
@@ -658,6 +670,8 @@ router.post("/tasks/status", async (req, res) => {
     } else {
       await db.from("tasks").update(values).eq("task_id", tid).eq("created_by", staffId);
     }
+    // 积分账本：任务完成 +30 / 回退 -30（幂等：按 old→new 状态变迁判定）
+    if (old.task_status !== st) applyTaskStatusPoints(old, old.task_status, st, staffId).catch(() => {});
 
     logTaskEvent({
       taskId: tid, bizType: "task", eventType: st === "done" ? "done" : "update",
@@ -694,6 +708,9 @@ router.post("/tasks/delete", async (req, res) => {
     if (!record) return res.json(fail("无权删除该任务", 403));
     // 兜底风控：已完成任务仅可查看，学生禁止删除（家长/家属/管理员不受限）
     if (!isManager(req) && record.task_status === "done") return res.json(fail("任务已完成，仅可查看，禁止删除"));
+
+    // 积分账本：删除任务回扣（已完成 -30、已通过打卡每人 -10），须在派发人关联删除前调用
+    deductTaskDeleted(record, staffId).catch(() => {});
 
     // 级联清理：任务附件图 + 打卡图 + 打卡语音 + 打卡记录 + 派发关联
     try {
@@ -887,9 +904,14 @@ router.post("/checkins/create", async (req, res) => {
       });
     }
 
-    const taskValues = { checkin_count: (task.checkin_count || 0) + 1, progress: 50, updated_at: nowSql() };
-    if (task.task_status === "todo") taskValues.task_status = "doing";
-    await db.from("tasks").update(taskValues).eq("task_id", tid);
+    // 更新任务打卡次数与状态（加锁串行化读改写，防并发丢计数）
+    await withLock(`task:count:${tid}`, async () => {
+      const { data: curRows } = await db.from("tasks").select("checkin_count, task_status").eq("task_id", tid).limit(1);
+      const cur = (curRows && curRows[0]) || task;
+      const taskValues = { checkin_count: (Number(cur.checkin_count) || 0) + 1, progress: 50, updated_at: nowSql() };
+      if (cur.task_status === "todo") taskValues.task_status = "doing";
+      await db.from("tasks").update(taskValues).eq("task_id", tid);
+    });
 
     logTaskEvent({
       taskId: tid, checkinId, bizType: "task_checkin", eventType: "checkin", eventName: "任务打卡",
@@ -921,6 +943,8 @@ router.post("/checkins/delete", async (req, res) => {
     if (!isAdmin(req) && await isTaskDone(rec.task_id)) return res.json(fail("任务已完成，仅可查看，禁止删除打卡"));
 
     await db.from("task_checkins").delete().eq("checkin_id", cid).eq("created_by", staffId);
+    // 积分账本：删除已通过打卡 -10（未通过本就无分，直接忽略）
+    deductCheckinDeleted(rec, staffId).catch(() => {});
     // 级联清理媒体文件（语音/视频/封面：物理删 COS + 登记记录）
     const mediaPaths = [];
     if (rec.voice_url) mediaPaths.push(rec.voice_url);
@@ -934,12 +958,15 @@ router.post("/checkins/delete", async (req, res) => {
         }
       } catch (_) {}
     }
-    const { data: tRows } = await db.from("tasks")
-      .select("checkin_count").eq("task_id", rec.task_id).limit(1);
-    if (tRows && tRows[0]) {
-      const cnt = Math.max(0, (tRows[0].checkin_count || 0) - 1);
-      await db.from("tasks").update({ checkin_count: cnt, updated_at: nowSql() }).eq("task_id", rec.task_id);
-    }
+    // 任务打卡次数回退（加锁串行化，防并发读写竞态）
+    await withLock(`task:count:${rec.task_id}`, async () => {
+      const { data: tRows } = await db.from("tasks")
+        .select("checkin_count").eq("task_id", rec.task_id).limit(1);
+      if (tRows && tRows[0]) {
+        const cnt = Math.max(0, (tRows[0].checkin_count || 0) - 1);
+        await db.from("tasks").update({ checkin_count: cnt, updated_at: nowSql() }).eq("task_id", rec.task_id);
+      }
+    });
     logTaskEvent({
       taskId: rec.task_id, checkinId: cid, bizType: "task_checkin", eventType: "checkin_delete",
       eventName: "删除打卡", summary: `小程序端删除打卡记录（${rec.checkin_date || ""}）`,
@@ -1005,7 +1032,7 @@ async function managerTodos(req, res) {
   // 空 scope（家长/家属名下无孩子）：直接返回空列表，避免空数组 in() 报错
   if (scope !== null && scope.length === 0) return res.json(ok({ type: "admin", count: 0, list: [] }));
   let q = db.from("task_checkins").select().eq("review_status", "pending");
-  if (scope !== null) q = q.in("created_by", scope);
+  if (scope !== null) q = q.in("created_by", scope.map(Number).filter(n => Number.isInteger(n) && n > 0));
   const { data: rows, error } = await q.order("created_at", { ascending: false }).limit(200);
   if (error) throw error;
   const list0 = rows || [];
@@ -1121,6 +1148,9 @@ router.post("/todos/review", async (req, res) => {
         await db.from("tasks").update({ task_status: "done", score: 10, updated_at: nowSql() })
           .eq("task_id", task.task_id);
       }
+      // 积分账本：打卡审核通过 +10；任务本次转完成 +30（幂等：按状态变迁判定）
+      awardCheckinApproved(checkin, staffId).catch(() => {});
+      if (task) applyTaskStatusPoints(task, task.task_status, "done", staffId).catch(() => {});
       // 同任务其余待审核打卡自动关闭（该任务已从待办列表移除）
       const { data: pendRows } = await db.from("task_checkins")
         .select("checkin_id").eq("task_id", checkin.task_id).eq("review_status", "pending").limit(200);
@@ -1157,6 +1187,8 @@ router.post("/todos/review", async (req, res) => {
         // 兜底：已完成任务若仍有待审核打卡，驳回时回退为进行中
         await db.from("tasks").update({ task_status: "doing", updated_at: nowSql() })
           .eq("task_id", task.task_id);
+        // 积分账本：已完成任务回退 -30
+        applyTaskStatusPoints(task, "done", "doing", staffId).catch(() => {});
       }
       logTaskEvent({
         taskId: checkin.task_id, checkinId: cid, bizType: "task_checkin", eventType: "review_reject",
@@ -1465,8 +1497,8 @@ router.get("/dashboard", async (req, res) => {
     const todayCheckedIn = todayCheckins > 0;
     const completionRate = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
 
-    // 游戏化
-    const xp = totalCheckins * 10 + doneCount * 30;
+    // 游戏化：经验值来自积分账本（审核通过+10/完成任务+30，删除与回退自动扣分）
+    const xp = await staffPoints(staffId);
     const level = levelFromXp(xp);
     const checkinDates = new Set(checkins.map(c => String(c.checkin_date || "").slice(0, 10)).filter(Boolean));
     const todayStreak = streakEndingAt(checkinDates, new Date());
@@ -1539,11 +1571,18 @@ router.get("/dashboard", async (req, res) => {
       { key: "collection_3", name: "合集达人", desc: "使用 3 个任务合集", icon: "🗂️", unlocked: collectionCount >= 3, progress: Math.min(1, collectionCount / 3) },
     ];
 
+    // 成就徽章解锁落库：新解锁徽章记录解锁时间（可审计、奖章墙展示）
+    const badgeUnlockMap = await syncBadgeUnlocks(
+      staffId,
+      badges.filter(b => b.unlocked).map(b => b.key)
+    );
+    const badgesWithTime = badges.map(b => (b.unlocked ? { ...b, unlocked_at: badgeUnlockMap[b.key] || "" } : b));
+
     const reminders = buildLearningReminders({
       todayCheckedIn, todayCheckins, currentStreak, completionRate,
       doneCount, totalTasks, remainingCount: totalTasks - doneCount,
       activeCount: doingCount, overdueCount, dueSoonCount,
-      nextBadge: badges.find(b => !b.unlocked) || null,
+      nextBadge: badgesWithTime.find(b => !b.unlocked) || null,
     });
 
     // 最近打卡（含任务标题）
@@ -1571,7 +1610,7 @@ router.get("/dashboard", async (req, res) => {
       stats: { totalTasks, todoCount, doingCount, doneCount, totalCheckins, todayCheckins, todayCheckedIn, completionRate },
       level,
       streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
-      badges,
+      badges: badgesWithTime,
       days,
       subjectDist,
       statusDist,

@@ -17,6 +17,7 @@ const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
 const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword } = require("./lpAuth");
 const { logEvent } = require("../events");
+const { invalidateStaffRows } = require("../learningLib");
 
 const router = express.Router();
 
@@ -200,6 +201,8 @@ router.post("/family/children/update", async (req, res) => {
       values.child_name = n;
       if (child.student_staff_id) {
         await db.from("staff").update({ staff_nickname: n, updated_at: nowSql() }).eq("staff_id", Number(child.student_staff_id));
+        // 失效 staff 行缓存（孩子改名立即生效）
+        try { invalidateStaffRows([Number(child.student_staff_id)]); } catch (_) {}
       }
     }
     if (b.gender !== undefined) values.gender = Number(b.gender) || 0;

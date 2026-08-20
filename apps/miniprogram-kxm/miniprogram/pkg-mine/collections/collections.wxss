@@ -1,6 +1,6 @@
 .page {
-  /* 底部有 FAB：safe-bottom(180rpx) + 128rpx 留白 */
-  padding: 24rpx 32rpx calc(var(--safe-bottom) + 128rpx);
+  /* 底部有 FAB：非 tab 页用 env 安全区，避免多余留白 */
+  padding: 24rpx 32rpx calc(env(safe-area-inset-bottom) + 128rpx);
 }
 .item {
   background: #ffffff;

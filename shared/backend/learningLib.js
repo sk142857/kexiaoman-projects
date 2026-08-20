@@ -4,6 +4,7 @@
  */
 const { db } = require("./db");
 const { nowSql, formatDate } = require("./utils");
+const { nextSeq } = require("./seq");
 const { cache, cached, invalidatePrefix } = require("./cache");
 
 // ==================== 参考数据行缓存 ====================
@@ -295,6 +296,198 @@ function maxStreakOf(dateSet) {
   return max;
 }
 
+// ==================== 积分账本（t_lp_point_logs） ====================
+// 积分改为账本式：每次加分/减分写流水（reason 区分原因），余额 = 流水累加。
+// 规则：打卡审核通过 +10；任务完成 +30（有派发人则每位派发人，否则创建人）；
+//      删除已通过打卡 -10；已完成任务回退 -30；删除已完成任务 -30、其已通过打卡每人 -10。
+const POINT_REASON_MAP = {
+  checkin_approved: "打卡审核通过",
+  task_done: "完成任务",
+  checkin_deleted: "删除已通过打卡",
+  task_undone: "任务状态回退",
+  task_deleted: "删除任务回扣",
+  admin_adjust: "管理员调整",
+};
+
+/** 写积分流水（幂等由调用方按业务语义保证；失败仅记日志不阻断主流程） */
+async function logPoints({ staffId, points, reason, refType = "", refId = 0, note = "", createdBy = 0 }) {
+  try {
+    const logId = await nextSeq("point_log_id");
+    const { error } = await db.from("point_logs").insert({
+      log_id: logId,
+      staff_id: Number(staffId) || 0,
+      points: Number(points) || 0,
+      reason: String(reason || "admin_adjust").slice(0, 32),
+      ref_type: String(refType || "").slice(0, 32),
+      ref_id: Number(refId) || 0,
+      note: String(note || "").slice(0, 255),
+      created_by: Number(createdBy) || 0,
+      created_at: nowSql(),
+    });
+    if (error) throw error;
+    return logId;
+  } catch (e) {
+    console.error("[learningLib] logPoints error", e);
+    return 0;
+  }
+}
+
+/** 学生积分余额 = 账本累加（无流水返回 0） */
+async function staffPoints(staffId) {
+  try {
+    const { data, error } = await db.from("point_logs")
+      .select("points").eq("staff_id", Number(staffId)).limit(10000);
+    if (error) return 0;
+    return (data || []).reduce((s, r) => s + (Number(r.points) || 0), 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+/** 批量学生积分余额：{ staff_id(string) -> balance }（未命中的学生补 0） */
+async function staffPointsMap(staffIds) {
+  const ids = [...new Set((staffIds || []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  const map = {};
+  if (ids.length === 0) return map;
+  try {
+    const { data, error } = await db.from("point_logs")
+      .select("staff_id, points").in("staff_id", ids).limit(10000);
+    if (!error && Array.isArray(data)) {
+      data.forEach(r => {
+        const k = String(r.staff_id);
+        map[k] = (map[k] || 0) + (Number(r.points) || 0);
+      });
+    }
+  } catch (_) { /* 部分失败按 0 计 */ }
+  ids.forEach(id => { if (map[String(id)] === undefined) map[String(id)] = 0; });
+  return map;
+}
+
+/** 最近积分流水（时间倒序，供仪表盘展示明细） */
+async function recentPointLogs(staffId, limit = 10) {
+  try {
+    const { data, error } = await db.from("point_logs")
+      .select().eq("staff_id", Number(staffId))
+      .order("created_at", { ascending: false }).order("log_id", { ascending: false }).limit(limit);
+    if (error) return [];
+    return (data || []).map(l => ({
+      log_id: String(l.log_id),
+      points: Number(l.points) || 0,
+      reason: l.reason,
+      reason_label: POINT_REASON_MAP[l.reason] || l.reason || "调整",
+      ref_type: l.ref_type,
+      ref_id: l.ref_id,
+      note: l.note,
+      created_at: l.created_at,
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
+/** 任务完成分收款人：有派发人则每人（去重），否则创建人 */
+async function taskDoneRecipients(task) {
+  if (!task) return [];
+  try {
+    const { data, error } = await db.from("task_assignees")
+      .select("staff_id").eq("task_id", task.task_id).limit(5000);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return [...new Set(data.map(a => Number(a.staff_id)).filter(Boolean))];
+    }
+  } catch (_) { /* 回退创建人 */ }
+  return [Number(task.created_by)].filter(Boolean);
+}
+
+/** 任务状态流转自动加减分：完成 +30 / 回退 -30（幂等：按 old→new 状态变迁判定，重复调用同变迁不重复计） */
+async function applyTaskStatusPoints(task, oldStatus, newStatus, actorStaffId = 0) {
+  if (!task) return;
+  if (String(oldStatus) === String(newStatus)) return;
+  const title = String(task.title || "").slice(0, 40);
+  const recipients = await taskDoneRecipients(task);
+  if (recipients.length === 0) return;
+  if (newStatus === "done") {
+    for (const sid of recipients) {
+      await logPoints({ staffId: sid, points: 30, reason: "task_done", refType: "task", refId: task.task_id, note: `完成任务「${title}」`, createdBy: actorStaffId });
+    }
+  } else if (oldStatus === "done") {
+    for (const sid of recipients) {
+      await logPoints({ staffId: sid, points: -30, reason: "task_undone", refType: "task", refId: task.task_id, note: `任务「${title}」状态回退`, createdBy: actorStaffId });
+    }
+  }
+}
+
+/** 打卡审核通过 +10（调用方保证该打卡由 pending 首次转为 approved） */
+async function awardCheckinApproved(checkin, actorStaffId = 0) {
+  if (!checkin || !checkin.created_by) return;
+  await logPoints({ staffId: checkin.created_by, points: 10, reason: "checkin_approved", refType: "task_checkin", refId: checkin.checkin_id, note: "打卡审核通过 +10", createdBy: actorStaffId });
+}
+
+/** 删除已通过打卡 -10（未通过的打卡本就无分，直接忽略） */
+async function deductCheckinDeleted(checkin, actorStaffId = 0) {
+  if (!checkin || !checkin.created_by) return;
+  if (String(checkin.review_status) !== "approved") return;
+  await logPoints({ staffId: checkin.created_by, points: -10, reason: "checkin_deleted", refType: "task_checkin", refId: checkin.checkin_id, note: "删除已通过打卡 -10", createdBy: actorStaffId });
+}
+
+// ==================== 成就徽章解锁记录（t_lp_badge_unlocks） ====================
+// 徽章从「每次现算」升级为「解锁落库」：仪表盘计算时把新解锁徽章写入本表并记录解锁时间。
+/** 将新解锁徽章落库（幂等），返回该学生全量 { badge_key -> unlocked_at }，供响应附加解锁时间 */
+async function syncBadgeUnlocks(staffId, unlockedKeys) {
+  const map = {};
+  const keys = [...new Set((unlockedKeys || []).map(String).filter(Boolean))];
+  const sid = Number(staffId);
+  if (!sid || keys.length === 0) return map;
+  try {
+    const { data, error } = await db.from("badge_unlocks")
+      .select("badge_key, unlocked_at").eq("staff_id", sid).limit(500);
+    if (!error && Array.isArray(data)) {
+      data.forEach(r => { map[r.badge_key] = r.unlocked_at; });
+    }
+    const missing = keys.filter(k => !map[k]);
+    for (const k of missing) {
+      try {
+        await db.from("badge_unlocks").insert({ staff_id: sid, badge_key: k, unlocked_at: nowSql() });
+        map[k] = nowSql();
+      } catch (_) { /* 并发重复插入忽略，重读 */ }
+    }
+    if (missing.length > 0) {
+      const { data: fresh, error: fErr } = await db.from("badge_unlocks")
+        .select("badge_key, unlocked_at").eq("staff_id", sid).limit(500);
+      if (!fErr && Array.isArray(fresh)) {
+        fresh.forEach(r => { map[r.badge_key] = r.unlocked_at; });
+      }
+    }
+  } catch (e) {
+    console.error("[learningLib] syncBadgeUnlocks error", e);
+  }
+  return map;
+}
+
+/** 删除任务回扣：已完成 -30（收款人同加分方）+ 该任务已通过打卡每人 -10 */
+async function deductTaskDeleted(task, actorStaffId = 0) {
+  if (!task) return;
+  const title = String(task.title || "").slice(0, 40);
+  const recipients = await taskDoneRecipients(task);
+  if (task.task_status === "done") {
+    for (const sid of recipients) {
+      await logPoints({ staffId: sid, points: -30, reason: "task_deleted", refType: "task", refId: task.task_id, note: `删除任务「${title}」回扣完成分`, createdBy: actorStaffId });
+    }
+  }
+  try {
+    const { data, error } = await db.from("task_checkins")
+      .select("checkin_id, created_by, review_status").eq("task_id", task.task_id).limit(10000);
+    if (!error && Array.isArray(data)) {
+      for (const c of data) {
+        if (String(c.review_status) === "approved" && c.created_by) {
+          await logPoints({ staffId: c.created_by, points: -10, reason: "checkin_deleted", refType: "task_checkin", refId: c.checkin_id, note: `删除任务回扣打卡分「${title}」`, createdBy: actorStaffId });
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[learningLib] deductTaskDeleted checkins error", e);
+  }
+}
+
 /** 打卡/进度提醒文案生成（分级） */
 function buildLearningReminders({
   todayCheckedIn, todayCheckins, currentStreak,
@@ -383,4 +576,15 @@ module.exports = {
   streakEndingAt,
   maxStreakOf,
   buildLearningReminders,
+  POINT_REASON_MAP,
+  logPoints,
+  staffPoints,
+  staffPointsMap,
+  recentPointLogs,
+  taskDoneRecipients,
+  applyTaskStatusPoints,
+  awardCheckinApproved,
+  deductCheckinDeleted,
+  deductTaskDeleted,
+  syncBadgeUnlocks,
 };
