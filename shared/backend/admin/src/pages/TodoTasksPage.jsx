@@ -6,7 +6,7 @@ import {
 import { CalendarOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons';
 import { crudApi, uploadApi } from '../services/api';
 import {
-  ImageUploader, parseImages, fmtDateOnly, fmtDateTime, DictTag,
+  ImageUploader, parseImages, fmtDateOnly, fmtDateTime, DictTag, hashColorFor,
 } from '../components/fields.jsx';
 import { taskProgressOf } from '../config/modules.jsx';
 import TaskCard, { TaskImages } from '../components/TaskCard.jsx';
@@ -23,6 +23,12 @@ const CHECKIN_TYPE_MAP = {
 const TASK_SOURCE_MAP = {
   web: { label: 'Web后台', color: 'purple' },
   miniprogram: { label: '小程序', color: 'blue' },
+};
+// 内容安全状态（任务内容机器检测结果）
+const RISK_STATUS_MAP = {
+  pass: { label: '安全', color: 'success' },
+  pending: { label: '检测中', color: 'processing' },
+  reject: { label: '违规', color: 'error' },
 };
 
 /** 读取音频时长（秒），元数据加载失败返回 0 */
@@ -243,6 +249,7 @@ export default function TodoTasksPage() {
         {
           key: 'title',
           label: '任务标题',
+          span: 2,
           children: (
             <div style={{ minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               {record.subject && <DictTag code="subject" value={record.subject} />}
@@ -254,6 +261,7 @@ export default function TodoTasksPage() {
         {
           key: 'desc',
           label: '任务描述',
+          span: 2,
           children: (
             <div style={{ minHeight: 88, display: 'flex', alignItems: 'center', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {desc || '-'}
@@ -285,12 +293,13 @@ export default function TodoTasksPage() {
           ),
         },
         { key: 'checkinCount', label: '打卡次数', children: `${record.checkin_count || 0} 次` },
+        { key: 'riskStatus', label: '内容安全', children: (() => { const c = RISK_STATUS_MAP[record.risk_status] || {}; return record.risk_status ? <Tag color={c.color}>{c.label || record.risk_status}</Tag> : '-'; })() },
         { key: 'assignee', label: '派发学生', children: assignees },
         {
           key: 'tags',
           label: '任务标签',
           children: tags.length > 0
-            ? <Space size={4} wrap>{tags.map((t, i) => <Tag key={`tag-${i}`} color="purple">{t}</Tag>)}</Space>
+            ? <Space size={4} wrap>{tags.map((t, i) => <Tag key={`tag-${i}`} color={hashColorFor(t)}>{t}</Tag>)}</Space>
             : '-',
         },
         { key: 'taskId', label: '任务编号', children: record.task_id },

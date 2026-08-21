@@ -122,6 +122,8 @@ export const crudApi = {
   lpStudentDelete: (id) => api.post('/admin/api/lp_students/delete', { id }),
   lpStudentUnbind: (id) => api.post('/admin/api/lp_students/unbind', { id }),
   lpStudentRebind: (id, staffId) => api.post('/admin/api/lp_students/rebind', { id, staffId }),
+  // 家庭成员关系树（后台集中视图：主家长 → 孩子/家属 → 小程序绑定）
+  lpFamilyTree: () => api.get('/admin/api/lp_family_tree/list'),
   // 订阅消息：后台给学生赠送订阅次数 { staffId, tmplId, count, remark }
   subscribeGrant: (data) => api.post('/admin/api/subscribe_grants/grant', data),
 };

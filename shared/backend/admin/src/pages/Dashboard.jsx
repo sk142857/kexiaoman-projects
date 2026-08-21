@@ -13,6 +13,7 @@ import {
   DatabaseOutlined, ProfileOutlined, OrderedListOutlined, FolderOutlined,
   AuditOutlined, CheckSquareOutlined, KeyOutlined,
   LinkOutlined, SolutionOutlined, BellOutlined, SendOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 
 // 菜单图标映射（与后端 menus.menu_icon 对应）
@@ -51,6 +52,7 @@ const ICON_MAP = {
   SolutionOutlined: <SolutionOutlined />,
   BellOutlined: <BellOutlined />,
   SendOutlined: <SendOutlined />,
+  ApartmentOutlined: <ApartmentOutlined />,
 };
 const iconOf = (name) => ICON_MAP[name] || <AppstoreOutlined />;
 

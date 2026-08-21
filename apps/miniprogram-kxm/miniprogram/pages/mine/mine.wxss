@@ -72,7 +72,8 @@
 }
 .profile-arrow {
   flex-shrink: 0;
-  font-size: 32rpx;
+  font-size: 44rpx;
+  font-weight: 700;
   color: #b0b6c0;
 }
 .profile-meta {
@@ -152,8 +153,24 @@
   color: #1f2329;
 }
 .menu-arrow {
-  font-size: 32rpx;
+  font-size: 44rpx;
+  font-weight: 700;
   color: #b0b6c0;
+}
+
+/* 未读通知徽标 */
+.notify-badge {
+  flex-shrink: 0;
+  min-width: 36rpx;
+  height: 36rpx;
+  padding: 0 12rpx;
+  border-radius: 18rpx;
+  background: #f53f3f;
+  color: #ffffff;
+  font-size: 22rpx;
+  line-height: 36rpx;
+  text-align: center;
+  margin-right: 8rpx;
 }
 
 .foot {

@@ -88,6 +88,14 @@
   color: #722ed1;
   background: #f9f0ff;
 }
+.meta-tag.sec-warning {
+  color: #d46b08;
+  background: #fff7e6;
+}
+.meta-tag.sec-danger {
+  color: #f6685d;
+  background: #fdeeed;
+}
 .deadline {
   font-size: 24rpx;
   color: #8a919f;
@@ -104,6 +112,12 @@
 }
 .score {
   font-weight: 600;
+}
+.list-foot {
+  padding: 24rpx 0 8rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #b0b6c0;
 }
 .fab {
   position: fixed;

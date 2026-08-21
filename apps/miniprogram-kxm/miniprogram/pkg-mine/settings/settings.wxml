@@ -8,7 +8,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="lp-scroll">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
     <view class="page">
       <view class="menu-card">
         <view wx:if="{{isParent}}" class="menu-item" bindtap="goBackendAccount">
@@ -25,9 +25,20 @@
           <text class="identity-status {{pinEnabled ? 'identity-status--on' : ''}}">{{pinEnabled ? '已开启' : '未开启'}}</text>
           <text class="menu-arrow">›</text>
         </view>
+        <view wx:if="{{isParent}}" class="menu-item" bindtap="goShares">
+          <view class="menu-icon menu-icon--purple">🤝</view>
+          <text class="menu-label">家属共享</text>
+          <text class="menu-arrow">›</text>
+        </view>
         <view class="menu-item" bindtap="goSubscribe">
           <view class="menu-icon menu-icon--green">🔔</view>
           <text class="menu-label">订阅消息</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" bindtap="goNotifications">
+          <view class="menu-icon menu-icon--purple">📣</view>
+          <text class="menu-label">系统通知</text>
+          <text wx:if="{{notifyUnread > 0}}" class="notify-badge">{{notifyUnread > 99 ? '99+' : notifyUnread}}</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-item" bindtap="onRebind">

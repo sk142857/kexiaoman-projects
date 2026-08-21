@@ -68,7 +68,7 @@
       </view>
 
       <view class="field">
-        <view class="label">合集</view>
+        <view class="label">归属合集</view>
         <picker range="{{collections}}" range-key="name" value="{{collectionIndex}}" bindchange="onCollection">
           <view class="picker-box {{collectionIndex >= 0 ? '' : 'is-ph'}}">
             <text>{{collectionIndex >= 0 ? collections[collectionIndex].name : '不选择合集'}}</text>
@@ -83,14 +83,14 @@
   <scroll-view wx:if="{{step === 2}}" scroll-y class="lp-scroll content">
     <view class="form">
       <view class="field">
-        <view class="label">标签</view>
-        <view class="tag-input-row">
-          <input class="input tag-input" placeholder="输入标签，点击添加" placeholder-class="ph" value="{{tagText}}" bindinput="onTagInput" confirm-type="done" bindconfirm="addTag" />
-          <view class="tag-add" bindtap="addTag">添加</view>
-        </view>
-        <view wx:if="{{tags.length}}" class="tag-list">
-          <view wx:for="{{tags}}" wx:key="index" class="tag" data-index="{{index}}" bindtap="removeTag">#{{item}}<text class="tag-x"> ✕</text></view>
-        </view>
+        <view class="label">打卡方式</view>
+        <picker mode="selector" range="{{checkinTypeOptions}}" range-key="label" value="{{checkinTypeIndex}}" bindchange="onCheckinType">
+          <view class="picker-box">
+            <text>{{checkinTypeOptions[checkinTypeIndex].label}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+        <view class="checkin-type-desc">{{checkinTypeOptions[checkinTypeIndex].desc}}</view>
       </view>
 
       <view class="field">
@@ -108,14 +108,14 @@
       </view>
 
       <view class="field">
-        <view class="label">打卡方式</view>
-        <picker mode="selector" range="{{checkinTypeOptions}}" range-key="label" value="{{checkinTypeIndex}}" bindchange="onCheckinType">
-          <view class="picker-box">
-            <text>{{checkinTypeOptions[checkinTypeIndex].label}}</text>
-            <text class="arrow">›</text>
-          </view>
-        </picker>
-        <view class="checkin-type-desc">{{checkinTypeOptions[checkinTypeIndex].desc}}</view>
+        <view class="label">标签</view>
+        <view class="tag-input-row">
+          <input class="input tag-input" placeholder="输入标签，点击添加" placeholder-class="ph" value="{{tagText}}" bindinput="onTagInput" confirm-type="done" bindconfirm="addTag" />
+          <view class="tag-add" bindtap="addTag">添加</view>
+        </view>
+        <view wx:if="{{tags.length}}" class="tag-list">
+          <view wx:for="{{tags}}" wx:key="index" class="tag" data-index="{{index}}" bindtap="removeTag">#{{item}}<text class="tag-x"> ✕</text></view>
+        </view>
       </view>
 
       <view wx:if="{{isManager}}" class="field">
@@ -155,35 +155,45 @@
   <scroll-view wx:if="{{step === 4}}" scroll-y class="lp-scroll content">
     <view class="preview-card">
       <view class="preview-head">
-        <view class="preview-title">{{title}}</view>
-        <view class="preview-subject">{{subject}}</view>
+        <view class="preview-title">{{title || '—'}}</view>
+        <view class="preview-subject">{{subject || '—'}}</view>
+      </view>
+      <view class="preview-row">
+        <text class="preview-label">打卡方式</text>
+        <text class="preview-value">{{checkinTypeOptions[checkinTypeIndex].label}}</text>
       </view>
       <view class="preview-row">
         <text class="preview-label">时间</text>
         <text class="preview-value">{{startDate || '—'}} ~ {{deadline || '—'}}</text>
       </view>
-      <view wx:if="{{collectionIndex >= 0 && collections[collectionIndex]}}" class="preview-row">
-        <text class="preview-label">合集</text>
-        <text class="preview-value">{{collections[collectionIndex].name}}</text>
+      <view class="preview-row">
+        <text class="preview-label">归属合集</text>
+        <text class="preview-value">{{collectionIndex >= 0 && collections[collectionIndex] ? collections[collectionIndex].name : '—'}}</text>
       </view>
-      <view wx:if="{{tags.length}}" class="preview-row">
+      <view class="preview-row">
         <text class="preview-label">标签</text>
-        <view class="preview-tags">
-          <text wx:for="{{tags}}" wx:key="index" class="preview-tag">#{{item}}</text>
+        <view class="preview-value">
+          <view wx:if="{{tags.length}}" class="preview-tags">
+            <text wx:for="{{tags}}" wx:key="index" class="preview-tag">#{{item}}</text>
+          </view>
+          <text wx:else>—</text>
         </view>
       </view>
-      <view wx:if="{{description}}" class="preview-row">
+      <view class="preview-row">
         <text class="preview-label">描述</text>
-        <text class="preview-value preview-desc">{{description}}</text>
+        <text class="preview-value preview-desc">{{description || '—'}}</text>
       </view>
       <view wx:if="{{isManager}}" class="preview-row">
         <text class="preview-label">派发</text>
-        <text class="preview-value">{{assigneeIds.length ? assigneeNames : '未选择'}}</text>
+        <text class="preview-value">{{assigneeNames || '—'}}</text>
       </view>
-      <view wx:if="{{previewImages.length}}" class="preview-row">
+      <view class="preview-row">
         <text class="preview-label">图片</text>
-        <view class="preview-imgs">
-          <image wx:for="{{previewImages}}" wx:key="index" class="preview-img" src="{{item}}" mode="aspectFill" bindtap="preview" data-index="{{index}}" />
+        <view class="preview-value">
+          <view wx:if="{{previewImages.length}}" class="preview-imgs">
+            <image wx:for="{{previewImages}}" wx:key="index" class="preview-img" src="{{item}}" mode="aspectFill" bindtap="preview" data-index="{{index}}" />
+          </view>
+          <text wx:else>—</text>
         </view>
       </view>
     </view>

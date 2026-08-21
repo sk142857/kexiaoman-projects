@@ -3,17 +3,41 @@
     <t-navbar
       t-class-placeholder="t-navbar-placeholder"
       t-class-content="t-navbar-content"
-      title="待办"
+      title="我的待办"
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh" bindscrolltolower="onLoadMore" lower-threshold="120">
     <view class="todo-main">
 
-      <!-- 顶部提示 -->
+      <!-- 顶部提示 + 今日概览统计 -->
       <view class="todo-tip">
-        <text class="todo-tip-title">{{isManager ? '待审核打卡' : '我的待办'}}</text>
-        <text class="todo-tip-desc">{{isManager ? '孩子提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
+        <view class="todo-tip-head">
+          <text class="todo-tip-title">{{isManager ? '待审核打卡' : '我的待办'}}</text>
+          <text class="todo-tip-sub">{{isManager ? '孩子提交打卡后进入这里，审核通过即完成任务' : '只展示当前需要你处理的任务'}}</text>
+        </view>
+        <view class="todo-stats">
+          <block wx:if="{{isManager}}">
+            <view class="todo-stat">
+              <text class="todo-stat-num">{{todayStats.todayReviewed}}</text>
+              <text class="todo-stat-label">今日已审核</text>
+            </view>
+            <view class="todo-stat">
+              <text class="todo-stat-num">{{total}}</text>
+              <text class="todo-stat-label">待审核</text>
+            </view>
+          </block>
+          <block wx:else>
+            <view class="todo-stat">
+              <text class="todo-stat-num">{{todayStats.todayCheckins}}</text>
+              <text class="todo-stat-label">今日打卡</text>
+            </view>
+            <view class="todo-stat">
+              <text class="todo-stat-num">{{todayStats.todayTasksDone}}</text>
+              <text class="todo-stat-label">今日完成</text>
+            </view>
+          </block>
+        </view>
       </view>
 
       <empty wx:if="{{!loading && list.length === 0}}" icon="{{isManager ? '📋' : '🎉'}}" title="{{isManager ? '暂无待审核打卡' : '太棒了，没有待办任务'}}" desc="{{isManager ? '孩子的打卡会展示在这里' : '所有任务都完成啦'}}" />
@@ -49,6 +73,7 @@
               <text class="review-time">{{item.submitTime || item.checkin_date}} 提交</text>
             </view>
             <text wx:if="{{item.sourceText === 'Web后台'}}" class="review-badge source">Web后台</text>
+            <text wx:if="{{item.secBadge}}" class="review-badge {{item.secTagTheme === 'danger' ? 'sec-danger' : 'sec-warning'}}">{{item.secBadge}}</text>
             <text class="review-badge">待审核</text>
           </view>
           <view class="review-task" bindtap="goTask" data-id="{{item.task_id}}">
@@ -64,18 +89,28 @@
             <voice-player src="{{item.voiceUrl}}" duration="{{item.voice_duration}}" />
           </view>
           <view wx:elif="{{item.images.length}}" class="review-imgs">
-            <image
+            <view
               wx:for="{{item.images}}"
               wx:key="index"
               wx:for-item="img"
-              class="review-img"
-              src="{{img}}"
-              mode="aspectFill"
-              lazy-load
-              data-url="{{item.previewImages[index] || img}}"
-              data-cid="{{item.checkin_id}}"
-              bindtap="preview"
-            />
+              wx:for-index="idx"
+              class="review-img-wrap"
+            >
+              <image
+                class="review-img {{item.imageStates[idx] === 'reviewing' ? 'review-img--locked' : ''}}"
+                src="{{img}}"
+                mode="aspectFill"
+                lazy-load
+                data-url="{{item.previewImages[idx] || img}}"
+                data-cid="{{item.checkin_id}}"
+                data-index="{{idx}}"
+                bindtap="preview"
+              />
+              <view wx:if="{{item.imageStates[idx] === 'reviewing'}}" class="review-img-lock">
+                <view class="review-img-lock-icon">🔒</view>
+                <view class="review-img-lock-text">安全审核中</view>
+              </view>
+            </view>
           </view>
           <view class="review-actions">
             <t-button class="review-btn" theme="danger" variant="outline" size="small" bindtap="onReject" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核不通过</t-button>
@@ -85,6 +120,9 @@
       </block>
 
       <view wx:if="{{!loading && list.length > 0}}" class="todo-foot-note">处理完成后将自动从待办移除</view>
+
+      <view wx:if="{{list.length > 0 && !hasMore}}" class="todo-foot-note">— 没有更多了 —</view>
+      <view wx:if="{{loadingMore}}" class="todo-foot-note">加载中…</view>
     </view>
   </scroll-view>
 

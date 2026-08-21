@@ -2,6 +2,7 @@
 const { lp, getViewStudent, getRole } = require('../../utils/api');
 const { fileUrl, previewUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
+const { secBadgeMeta } = require('../../utils/display');
 
 const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成' };
 const REVIEW_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
@@ -33,6 +34,7 @@ function fmtFull(ts) {
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     id: '',
     task: null,
     checkins: [],
@@ -58,9 +60,12 @@ Page({
       isManager,
       canCheckin: !isManager,
     });
+    trackEvent('page_view', '任务详情', { taskId: options.id || '' });
   },
 
   onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     if (this.data.id) this._load();
   },
 
@@ -71,21 +76,29 @@ Page({
       const task = res.task || null;
       const isDone = !!(task && task.task_status === 'done');
       const own = !!(task && String(task.created_by) === this.data.staffId);
+      const taskSecMeta = secBadgeMeta(task);
       const checkins = (res.checkins || []).map(c => {
         const st = c.review_status || 'approved';
         const theme = REVIEW_THEME[st] || REVIEW_THEME.approved;
         // 未审核通过（待审核/已驳回）内容脱敏：正文 ****、图片/语音/视频占位，防止未审核信息被截图传播
         const masked = st === 'pending' || st === 'rejected';
+        // 内容安全角标：业务已审核通过时展示（安全关闭/失败时无 display 字段 → 空，走旧逻辑）
+        const secMeta = masked ? null : secBadgeMeta(c);
         const totalImages = masked ? 0 : (c.images || []).length;
         const dateParts = splitDate(c.checkin_date);
         return {
           ...c,
           masked,
           maskText: st === 'rejected' ? '该打卡未通过审核，内容暂不展示' : '该打卡正在审核中，内容暂不展示',
+          secBadge: secMeta ? secMeta.text : '',
+          secColor: secMeta ? secMeta.color : '',
+          secBg: secMeta ? secMeta.bg : '',
           checkin_note: masked ? '****' : (c.checkin_note || ''),
           // 列表展示用预览图缩略（省流量），lightbox 用原图
           images: masked ? [] : (c.images || []).slice(0, 4).map(p => previewUrl(p)),
           fullImages: masked ? [] : (c.images || []).slice(0, 4).map(fileUrl),
+          // 逐张图片内容安全状态（后端派生）：reviewing=检测中→磨砂加锁，ok=正常
+          imageStates: masked ? [] : (c.images || []).slice(0, 4).map((p, i) => (c.images_states && c.images_states[i]) || 'ok'),
           totalImages,
           dateDay: dateParts.day,
           dateMonth: dateParts.month,
@@ -110,12 +123,16 @@ Page({
         task,
         checkins,
         images: ((task && task.images) || []).map(fileUrl),
+        // 任务图片逐张内容安全状态（reviewing=检测中→磨砂加锁，ok=正常）
+        taskImageStates: ((task && task.images) || []).map((p, i) => (task.images_states && task.images_states[i]) || 'ok'),
         isDone,
         creatorName: (task && (task.creator_name || '创建者')),
         creatorAvatar: fileUrl((task && task.creator_avatar) || ''),
         creatorChar: String((task && task.creator_name) || '创').slice(0, 1),
         createdTime: fmtFull(task && task.created_at),
         checkinType: (task && task.checkin_type) || 'image',
+        taskSecBadge: taskSecMeta ? taskSecMeta.text : '',
+        taskSecTagTheme: taskSecMeta ? taskSecMeta.tagTheme : '',
         sourceText: SOURCE_TEXT[(task && task.source)] || (task && task.source === 'web' ? 'Web后台' : '小程序'),
         // 已完成任务仅可查看：学生隐藏编辑/删除/打卡；家长/家属/管理员不受限
         canManage: this.data.isManager || (own && !isDone),
@@ -132,6 +149,11 @@ Page({
   },
 
   preview(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    if ((this.data.taskImageStates || [])[index] === 'reviewing') {
+      wx.showToast({ title: '内容安全检测中，通过后可查看原图', icon: 'none' });
+      return;
+    }
     const url = previewUrl(e.currentTarget.dataset.url);
     const urls = this.data.images.map(previewUrl);
     wx.previewImage({ urls, current: url });
@@ -141,6 +163,10 @@ Page({
     const index = Number(e.currentTarget.dataset.index);
     const cid = String(e.currentTarget.dataset.cid);
     const item = this.data.checkins.find(c => String(c.checkin_id) === cid);
+    if ((item && (item.imageStates || [])[index]) === 'reviewing') {
+      wx.showToast({ title: '内容安全检测中，通过后可查看原图', icon: 'none' });
+      return;
+    }
     const urls = ((item && item.fullImages) || []).map(previewUrl);
     const url = urls[index];
     if (!url) return;
@@ -171,13 +197,14 @@ Page({
       success: (r) => {
         if (!r.confirm) return;
         lp.taskDelete(this.data.id)
-          .then(() => { wx.showToast({ title: '已删除', icon: 'success' }); setTimeout(() => wx.navigateBack(), 600); })
+          .then(() => { trackEvent('button_click', '删除任务', { taskId: this.data.id }); wx.showToast({ title: '已删除', icon: 'success' }); setTimeout(() => wx.navigateBack(), 600); })
           .catch((e) => wx.showToast({ title: e.msg, icon: 'none' }));
       },
     });
   },
 
   onEdit() {
+    trackEvent('button_click', '编辑任务入口', { taskId: this.data.id });
     wx.navigateTo({ url: `/pkg-task/task-edit/task-edit?id=${this.data.id}` });
   },
 
@@ -186,6 +213,7 @@ Page({
       wx.showToast({ title: '任务已完成，不能打卡', icon: 'none' });
       return;
     }
+    trackEvent('button_click', '任务-去打卡', { taskId: this.data.id });
     wx.navigateTo({ url: `/pkg-task/checkin/checkin?taskId=${this.data.id}` });
   },
 
@@ -203,7 +231,7 @@ Page({
       success: (r) => {
         if (!r.confirm) return;
         lp.checkinDelete(cid)
-          .then(() => { wx.showToast({ title: '已删除', icon: 'success' }); this._load(); })
+          .then(() => { trackEvent('button_click', '删除打卡', { checkinId: cid }); wx.showToast({ title: '已删除', icon: 'success' }); this._load(); })
           .catch((e2) => wx.showToast({ title: e2.msg, icon: 'none' }));
       },
     });

@@ -189,6 +189,17 @@
 - `TRACE_STATUS_MAP`：server_only→warning「仅服务端」/ complete→success「完整链路」
 - 字典项着色：`dict_items.color` 字段（如 `#1677ff`），`DictTag` 自动按该色值渲染
 
+### 5.1 统一随机 hash 色值（字符头像 / 任务标签）
+
+无字典色值、需“按内容取色”的业务文本（**字符头像**、**任务标签**等），统一使用 `fields.jsx` 的 `hashColorFor(text)`：
+
+- **色板**（`HASH_COLORS`，固定 7 色）：`#f6685d` / `#e37318` / `#2ba471` / `#c6c6c6` / `#029cd4` / `#ad75fe` / `#e851b3`
+- **算法**：对文本做确定性 hash（`h = h*31 + charCodeAt`）后 `% 7` 取色；**同一文本恒取同一色**，禁止使用 `Math.random()`（避免刷新闪色/前后不一致）。
+- **已接入场景**：
+  - 字符头像：`ImageAvatar`（无头像地址时渲染昵称首字符 + `avatarColorFor(ch)`，即 `hashColorFor(ch)`）
+  - 任务标签：任务卡片「任务标签」、详情抽屉 `type:'tags'`（`SplitTags` 内部已按标签文本 hash 着色）
+- **新增场景规则**：优先复用 `hashColorFor`，禁止另起色板；有字典色值的枚举仍走 `DictTag` / `StatusTag`，不落入本规范。
+
 ---
 
 ## 6. 学习仪表盘设计约定
@@ -208,6 +219,7 @@
 - [ ] 图片一律 `TableImages`/`CoverThumb`/`ImageGallery`，无图自动占位，不显示「-」
 - [ ] 图片用缩略图 `toThumbUrl`，预览用原图
 - [ ] 字典值用 `DictTag`（自动着色），不硬编码 label/color
+- [ ] 字符头像/任务标签等无字典色值的文本用 `hashColorFor` 统一 hash 取色，不硬编码/随机
 - [ ] 长文本列用 `PlainText`/省略，禁止撑破表格
 - [ ] 表格默认禁止横向滚动（`tableScroll` 默认 false）
 - [ ] 删除/审核等用页面级 Modal，不用行级 Popconfirm

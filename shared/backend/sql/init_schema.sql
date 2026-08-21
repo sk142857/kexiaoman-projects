@@ -239,6 +239,7 @@ CREATE TABLE t_apps (
   jwt_secret    VARCHAR(128) NOT NULL DEFAULT '' COMMENT '小程序业务 JWT 签名密钥（后台配置）',
   jwt_expires   VARCHAR(16)  NOT NULL DEFAULT '7d' COMMENT 'JWT 有效期（如 7d）',
   service_url   VARCHAR(255) NOT NULL DEFAULT '' COMMENT '云托管服务默认公网域名（前端 BASE_URL 依据）',
+  content_security VARCHAR(500) NOT NULL DEFAULT '' COMMENT '内容安全配置JSON(如 {"enabled":true,"scene":2})',
   subscribe_tmpl_ids VARCHAR(500) NOT NULL DEFAULT '' COMMENT '订阅消息模板ID(逗号分隔,后台可维护)',
   reminder_window VARCHAR(16) NOT NULL DEFAULT '18:00-22:00' COMMENT '打卡提醒窗口(如 18:00-22:00)',
   reminder_days INT NOT NULL DEFAULT 3 COMMENT '打卡提醒提前天数',
@@ -288,6 +289,33 @@ CREATE TABLE t_file_uploads (
   KEY idx_openid_path (openid, file_path),
   KEY idx_file_path (file_path(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图片上传记录';
+
+-- 内容安全审核记录（旁路，独立于业务表；结果不写业务表，读路径派生展示级别）
+DROP TABLE IF EXISTS t_content_audits;
+CREATE TABLE t_content_audits (
+  audit_id     BIGINT       NOT NULL COMMENT '审核ID（seqs 发放）',
+  app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
+  biz_type     VARCHAR(24)  NOT NULL DEFAULT '' COMMENT '业务类型 task/checkin/profile/collection/review_note/file',
+  biz_id       VARCHAR(128) NOT NULL DEFAULT '' COMMENT '业务ID（文本=biz_id；媒体=file_path）',
+  field        VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '字段名（title/description/checkin_note/nickname/avatar；媒体为 file）',
+  media_type   TINYINT      NOT NULL DEFAULT 1 COMMENT '1文本 2图片 3音频 4视频',
+  content      VARCHAR(2500) NOT NULL DEFAULT '' COMMENT '文本内容（文本，与 msgSecCheck 2500 上限对齐）或文件相对路径（媒体）',
+  openid       VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '提交用户 openid',
+  status       VARCHAR(16)  NOT NULL DEFAULT 'pending' COMMENT 'pending/pass/reject/risk/skip',
+  detail       VARCHAR(500) NOT NULL DEFAULT '' COMMENT '风险点/命中标签/失败原因',
+  wx_raw       TEXT         NULL COMMENT '微信接口原始返回(JSON，后台审计展示)',
+  score        TINYINT      NOT NULL DEFAULT 0 COMMENT '风险分（0-100）',
+  trace_id     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '微信异步检测 trace_id（音频/视频）',
+  next_poll_at DATETIME     NULL COMMENT '下次轮询时间（异步检测/失败退避）',
+  retries      TINYINT      NOT NULL DEFAULT 0 COMMENT '重试/轮询次数',
+  enqueued_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入队时间',
+  detected_at  DATETIME     NULL COMMENT '检测完成时间',
+  PRIMARY KEY (audit_id),
+  KEY idx_status_enq (status, enqueued_at),
+  KEY idx_biz (biz_type, biz_id, field),
+  KEY idx_trace (trace_id),
+  KEY idx_app_status (app_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='内容安全审核记录（旁路，独立于业务表）';
 
 -- 用户操作事件埋点表
 DROP TABLE IF EXISTS t_user_events;
@@ -353,6 +381,7 @@ CREATE TABLE t_lp_tasks (
   task_link     VARCHAR(500) NOT NULL DEFAULT '' COMMENT '任务链接(可点击跳转)',
   images        VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '图片路径(JSON数组字符串,最多9张)',
   task_status   VARCHAR(16)  NOT NULL DEFAULT 'todo' COMMENT 'todo未开始/doing进行中/done已完成',
+  risk_status   VARCHAR(16)  NOT NULL DEFAULT 'pending' COMMENT '内容安全状态 pass通过/pending检测中/reject违规',
   progress      TINYINT      NOT NULL DEFAULT 1 COMMENT '任务进度(1待开始/50已打卡进行中/100已完成)',
   checkin_type  VARCHAR(16)  NOT NULL DEFAULT 'image' COMMENT '打卡方式 image图文/voice语音/video视频(预留)',
   source        VARCHAR(16)  NOT NULL DEFAULT 'web' COMMENT '发布来源 web后台/miniprogram小程序',
@@ -400,6 +429,7 @@ CREATE TABLE t_lp_task_checkins (
   created_by    BIGINT       NOT NULL DEFAULT 0 COMMENT '打卡人 staff_id',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '打卡时间',
   review_status VARCHAR(12)  NOT NULL DEFAULT 'pending' COMMENT '审核状态 pending待审核/approved已通过/rejected已驳回',
+  risk_status   VARCHAR(16)  NOT NULL DEFAULT 'pending' COMMENT '内容安全状态 pass通过/pending检测中/reject违规',
   review_score  TINYINT      NOT NULL DEFAULT 0 COMMENT '审核评分(0-10)',
   review_note   VARCHAR(500) NOT NULL DEFAULT '' COMMENT '审核说明/原因',
   reviewed_at   DATETIME     NULL COMMENT '审核时间',
@@ -607,6 +637,46 @@ CREATE TABLE t_lp_subscribe_sends (
   KEY idx_status (send_status),
   KEY idx_event_app_created (event_type, app_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满订阅消息发送记录';
+
+-- 课小满系统通知模板表（类型 × 角色，占位符模板，管理员可改；主键由序列 template_id 发放）
+DROP TABLE IF EXISTS t_lp_notify_templates;
+CREATE TABLE t_lp_notify_templates (
+  template_id  BIGINT       NOT NULL COMMENT '模板ID（seqs 发放）',
+  app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
+  code         VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '通知类型编码（如 checkin_approved/checkin_rejected/content_violation/checkin_submitted/task_assigned/task_done）',
+  name         VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '模板名称（如 打卡审核通过）',
+  target_role  VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '目标角色 student/parent/family（不同角色收到不同文案）',
+  title_tmpl   VARCHAR(128) NOT NULL DEFAULT '' COMMENT '标题模板（支持占位符）',
+  content_tmpl VARCHAR(500) NOT NULL DEFAULT '' COMMENT '正文模板（支持占位符）',
+  enabled      TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0停用（停用后该类型不再发送）',
+  sort         INT          NOT NULL DEFAULT 0 COMMENT '排序',
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (template_id),
+  KEY idx_app_code (app_id, code),
+  KEY idx_app_role (app_id, target_role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满系统通知模板';
+
+-- 课小满系统通知记录表（每条 = 一位接收人的一条站内信；查看即已读；主键由序列 notify_id 发放）
+DROP TABLE IF EXISTS t_lp_notifications;
+CREATE TABLE t_lp_notifications (
+  notify_id  BIGINT       NOT NULL COMMENT '通知ID（seqs 发放）',
+  app_id     VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
+  staff_id   BIGINT       NOT NULL DEFAULT 0 COMMENT '接收人账号 staff_id',
+  role       VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '接收时角色快照 student/parent/family/admin',
+  type       VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '通知类型 code（对应模板 code）',
+  title      VARCHAR(128) NOT NULL DEFAULT '' COMMENT '渲染后的标题',
+  content    VARCHAR(500) NOT NULL DEFAULT '' COMMENT '渲染后的正文（轻量文本）',
+  biz_type   VARCHAR(24)  NOT NULL DEFAULT '' COMMENT '业务类型 task/checkin',
+  biz_id     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '业务ID（任务/打卡ID）',
+  is_read    TINYINT      NOT NULL DEFAULT 0 COMMENT '是否已读 0未读 1已读',
+  read_at    DATETIME     NULL COMMENT '已读时间',
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发送时间',
+  PRIMARY KEY (notify_id),
+  KEY idx_staff_created (staff_id, created_at),
+  KEY idx_staff_read (staff_id, is_read, created_at),
+  KEY idx_app_type (app_id, type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满系统通知（站内信，与订阅消息隔离）';
 
 -- 序列管理表（统一发号）
 DROP TABLE IF EXISTS t_seqs;

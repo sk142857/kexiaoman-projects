@@ -5,12 +5,15 @@ const { trackEvent } = require('../../utils/tracker');
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     loading: true,
     list: [],
     availableCode: '',
   },
 
   onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     trackEvent('page_view', '家属共享');
     this._load();
   },

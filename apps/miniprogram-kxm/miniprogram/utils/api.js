@@ -365,7 +365,7 @@ export const lp = {
   checkinCreate: (data) => request('/api/lp/checkins/create', { method: 'POST', data }),
   checkinDelete: (id) => request('/api/lp/checkins/delete', { method: 'POST', data: { id } }),
 
-  collections: () => request('/api/lp/collections'),
+  collections: (params) => request('/api/lp/collections', { data: { ...(params || {}) } }),
   collectionCreate: (data) => request('/api/lp/collections/create', { method: 'POST', data }),
   collectionUpdate: (data) => request('/api/lp/collections/update', { method: 'POST', data }),
   collectionDelete: (id) => request('/api/lp/collections/delete', { method: 'POST', data: { id } }),
@@ -374,7 +374,7 @@ export const lp = {
   adminStudents: () => request('/api/lp/admin/students'),
 
   /** 待办（角色差异化：学生=待打卡任务；管理员=待审核打卡） */
-  todos: () => request('/api/lp/todos'),
+  todos: (params) => request('/api/lp/todos', { data: { ...(params || {}) } }),
   /** 管理员审核打卡 { checkinId, action: 'approve'|'reject', score?, note? } */
   todosReview: (data) => request('/api/lp/todos/review', { method: 'POST', data }),
 
@@ -382,6 +382,13 @@ export const lp = {
   subscribeStatus: () => request('/api/lp/subscribe/status'),
   /** 记录订阅授权 { tmplIds, grantCount, remark? } */
   subscribeGrant: (data) => request('/api/lp/subscribe/grant', { method: 'POST', data }),
+
+  /** 系统通知（站内信，与订阅消息隔离）：列表（含未读数） */
+  notifications: (params) => request('/api/lp/notifications', { data: { ...(params || {}) } }),
+  /** 系统通知：未读数 */
+  notificationsUnread: () => request('/api/lp/notifications/unread'),
+  /** 系统通知：标记已读 { id } 单条 / { all:true } 全部 */
+  notificationsRead: (data) => request('/api/lp/notifications/read', { method: 'POST', data }),
 
   /** 批量图片上传（base64 JSON，逐张直调后端，避开单次请求体过大） → 相对路径列表 */
   upload: (biz, files) => request('/api/lp/upload', { method: 'POST', data: { biz, files } }),

@@ -8,7 +8,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="lp-scroll">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
     <view class="page">
       <empty wx:if="{{!loading && children.length === 0}}" icon="👶" title="还没有孩子档案" desc="点击右下角按钮添加" />
 
@@ -23,12 +23,31 @@
         <view class="child-main">
           <view class="child-name-row">
             <text class="child-name">{{item.child_name}}</text>
-            <text class="child-gender">{{item.genderText}}</text>
-            <text wx:if="{{item.isCurrent}}" class="child-tag-default">默认</text>
+            <text wx:if="{{item.genderText}}" class="child-gender">{{item.genderText}}</text>
+            <text wx:if="{{item.isCurrent}}" class="child-tag-default">当前默认</text>
           </view>
-          <view class="child-meta">{{item.gradeText || '未设置年级'}} · {{item.school_name || '未填写学校'}}</view>
+          <view class="child-info">
+            <view class="child-info-item">
+              <text class="child-info-label">年级班级</text>
+              <text class="child-info-value">{{item.gradeText || '未设置'}}</text>
+            </view>
+            <view class="child-info-item">
+              <text class="child-info-label">学校</text>
+              <text class="child-info-value">{{item.school_name || '未填写'}}</text>
+            </view>
+            <view class="child-info-item">
+              <text class="child-info-label">出生年月</text>
+              <text class="child-info-value">{{item.birth_date || '未填写'}}</text>
+            </view>
+            <view wx:if="{{canManage}}" class="child-info-item">
+              <text class="child-info-label">学生邀请码</text>
+              <text class="child-info-value child-info-value--code">{{item.invite_code || '未生成'}}</text>
+            </view>
+          </view>
         </view>
-        <text class="child-arrow">›</text>
+        <view class="child-right">
+          <text class="child-arrow">›</text>
+        </view>
       </view>
 
       <view class="foot">{{canManage ? '孩子档案由主家长维护，家属仅有查看与切换当前孩子权限' : '家属仅有查看与切换当前孩子权限'}}</view>

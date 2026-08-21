@@ -7,7 +7,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll" refresher-enabled="{{true}}" refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
     <view class="page">
   <!-- 管理员/家长/家属：当前查看的孩子（点击前往孩子档案页切换默认孩子） -->
   <view wx:if="{{isManager}}" class="current-bar" bindtap="goChildren">
@@ -53,6 +53,10 @@
     <!-- 提醒 -->
     <view class="section">
       <view class="section-title">今日提醒</view>
+      <view wx:if="{{notifyUnread > 0}}" class="reminder r-notify" hover-class="reminder--active" bindtap="goNotifications">
+        <view class="reminder-title">有 {{notifyUnread}} 条新通知</view>
+        <view class="reminder-desc">审核结果、内容动态等，点击查看 ›</view>
+      </view>
       <view wx:for="{{reminders}}" wx:key="index" class="reminder r-{{item.severity}}">
         <view class="reminder-title">{{item.title}}</view>
         <view class="reminder-desc">{{item.desc}}</view>
@@ -106,11 +110,19 @@
       <view class="section-title">最近打卡</view>
       <empty wx:if="{{recentCheckins.length === 0}}" icon="📊" title="还没有打卡记录" desc="完成任务后提交打卡即可展示" />
       <view wx:for="{{recentCheckins}}" wx:key="checkin_id" class="recent" bindtap="goTaskDetail" data-id="{{item.task_id}}">
-        <view class="recent-date">{{item.checkin_date}}</view>
-        <view class="recent-title">{{item.task_title}}</view>
-        <view wx:if="{{item.checkin_type === 'video'}}" class="recent-note voice-note">视频打卡 · {{item.video_duration}} 秒</view>
-        <view wx:elif="{{item.checkin_type === 'voice'}}" class="recent-note voice-note">语音打卡 · {{item.voice_duration}} 秒</view>
-        <view wx:else class="recent-note">{{item.note || '（无备注）'}}</view>
+        <view class="recent-bar recent-bar--{{item.checkin_type}}"></view>
+        <view class="recent-main">
+          <view class="recent-head">
+            <view class="recent-title">{{item.task_title}}</view>
+            <view class="recent-arrow">›</view>
+          </view>
+          <view class="recent-meta">
+            <text class="recent-date">{{item.checkin_date}}</text>
+            <text class="recent-type recent-type--{{item.checkin_type}}">{{item.checkinTypeText}}</text>
+            <text wx:if="{{item.secBadge}}" class="recent-sec {{item.secTagTheme === 'danger' ? 'sec-danger' : 'sec-warning'}}">{{item.secBadge}}</text>
+          </view>
+          <view class="recent-note">{{item.note || '（无备注）'}}</view>
+        </view>
       </view>
     </view>
   </block>

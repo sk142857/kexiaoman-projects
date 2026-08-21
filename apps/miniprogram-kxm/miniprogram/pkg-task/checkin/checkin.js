@@ -50,6 +50,7 @@ Page({
 
   onLoad(options) {
     this.setData({ taskId: options.taskId || '' });
+    trackEvent('page_view', '打卡页', { taskId: options.taskId || '' });
     this._loadTitle(options.taskId);
     // 录音事件统一绑定（惰性单例录音器，避免重复注册）
     voice.onStop((res) => {

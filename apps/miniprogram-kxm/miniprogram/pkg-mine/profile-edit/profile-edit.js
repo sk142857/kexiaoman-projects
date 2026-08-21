@@ -6,6 +6,7 @@ const { trackEvent } = require('../../utils/tracker');
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     nickname: '',
     avatar: '',            // 已保存头像相对路径
     avatarUrl: '',         // 已保存头像完整 URL
@@ -21,6 +22,8 @@ Page({
   },
 
   onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     this._load();
   },
 
@@ -71,6 +74,7 @@ Page({
         avatar = await uploadImageFile(this.data.tempAvatarPath, 'avatar');
       }
       await lp.updateProfile({ nickname: n, avatar });
+      trackEvent('button_click', '保存个人资料');
       const s = wx.getStorageSync('lp_staff') || {};
       wx.setStorageSync('lp_staff', { ...s, nickname: n, avatar });
       wx.hideLoading();

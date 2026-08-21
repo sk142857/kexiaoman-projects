@@ -19,6 +19,7 @@ const { promisify } = require("util");
 const sharp = require("sharp");
 const { app } = require("./db");
 const { genId, nowSql } = require("./utils");
+const { submitForAudit, repointAudit, mediaTypeOf } = require("./contentSecurity");
 
 const execFileP = promisify(execFile);
 
@@ -160,6 +161,8 @@ async function uploadImage({ biz, date, buffer, contentType = "image/jpeg", file
     origSize,
     compressedSize,
     contentType,
+    // 文件名称：调用方传入的原始文件名优先，否则用存储文件名兜底（file_uploads.file_name 不落空）
+    fileName: fileName || `${fileId}.${ext}`,
   };
 }
 
@@ -333,6 +336,8 @@ async function compressVideo({ path: relPath, duration } = {}) {
           content_type: "video/mp4",
         })
         .eq("file_path", src);
+      // 内容安全：审核记录从原路径重指到压缩版（结果随文件走，不重复检测）
+      repointAudit(src, uploaded.path).catch(() => {});
       // 删除原文件（物理删 COS，登记记录改为压缩版后原记录已随 update 失效，无需再删）
       try {
         await removeFiles([src]);
@@ -416,6 +421,8 @@ async function compressImageAsync({ path } = {}) {
       content_type: outType,
     })
     .eq("file_path", src);
+  // 内容安全：审核记录从原路径重指到压缩版（结果随文件走，不重复检测）
+  repointAudit(src, newPath).catch(() => {});
   // 物理删除原文件（登记记录已指向压缩版，无需再删原记录）
   try {
     await removeFiles([src]);
@@ -467,6 +474,17 @@ async function logUpload({ openid, biz, bizId = "", file, fileStatus = "active",
         throw e2;
       }
     }
+    // 内容安全：媒体登记成功后旁路入队检测（fire-and-forget；关闭/失败不影响上传流程）
+    const auditMediaType = mediaTypeOf(file.contentType);
+    if (auditMediaType >= 2 && file.path) {
+      submitForAudit({
+        bizType: "file",
+        bizId: file.path,
+        mediaType: auditMediaType,
+        content: file.path,
+        openid: openid || "",
+      }).catch(() => {});
+    }
   } catch (e) {
     console.error("[storage] file_uploads 入库失败", e.message);
   }
@@ -515,10 +533,10 @@ async function dupSharedImages({ openid = "", staffId = "", paths = [], targetBi
     let finalPath = p;
     try {
       const { data } = await db.from("file_uploads")
-        .select("biz_id, content_type").eq("file_path", p).limit(1);
+        .select("biz_id, content_type, file_name").eq("file_path", p).limit(1);
       const row = data && data[0];
       if (row && row.biz_id && String(row.biz_id) !== String(targetBizId)) {
-        finalPath = await copyImageNew({ openid, staffId, srcPath: p, contentType: row.content_type || "image/jpeg", biz, targetBizId, date });
+        finalPath = await copyImageNew({ openid, staffId, srcPath: p, contentType: row.content_type || "image/jpeg", biz, targetBizId, date, fileName: row.file_name || "" });
       }
     } catch (e) {
       console.error("[storage] dupSharedImages 检查失败，保留原路径", p, e.message);
@@ -532,7 +550,7 @@ async function dupSharedImages({ openid = "", staffId = "", paths = [], targetBi
  * 目录按新业务（任务）的当前日期生成（date 参数可显式指定），不再沿用源路径日期，
  * 与「用户新上传」行为一致：kxm/{biz}/{yyyy-MM-dd}/{newFileId}.{ext}
  */
-async function copyImageNew({ openid, staffId, srcPath, contentType, biz, targetBizId, date }) {
+async function copyImageNew({ openid, staffId, srcPath, contentType, biz, targetBizId, date, fileName = "" }) {
   const src = String(srcPath || "").replace(/^\/+/, "");
   const fileId = genId();
   const dateDir = date || new Date().toISOString().slice(0, 10);
@@ -555,6 +573,8 @@ async function copyImageNew({ openid, staffId, srcPath, contentType, biz, target
   const fileObj = {
     path: newPath, url: publicUrl(newPath), fileId, cosId: "",
     size: 0, origSize: 0, compressedSize: 0, contentType,
+    // 复制任务/打卡：沿用源文件原始名称，源无名称则用新存储文件名兜底（file_uploads.file_name 不落空）
+    fileName: fileName || `${fileId}.${ext}`,
   };
   await logUpload({ openid, staffId, biz, bizId: String(targetBizId), file: fileObj });
   return newPath;

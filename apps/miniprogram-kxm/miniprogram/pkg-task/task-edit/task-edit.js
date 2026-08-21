@@ -154,7 +154,7 @@ Page({
 
   async _loadCollections(selected) {
     try {
-      const res = await lp.collections();
+      const res = await lp.collections({ page: 1, pageSize: 200 });
       const collections = Array.isArray(res) ? res : (res && res.list) || [];
       this.setData({
         collections,
@@ -318,14 +318,19 @@ Page({
       return;
     }
     if (!title.trim()) {
+      // 校验失败直接跳转到对应步骤（标题在步骤一），便于用户定位异常字段
+      this.setData({ step: 0 });
       wx.showToast({ title: '请填写任务标题', icon: 'none' });
       return;
     }
     if (!subject) {
+      this.setData({ step: 0 });
       wx.showToast({ title: '请选择科目', icon: 'none' });
       return;
     }
     if (this.data.isManager && this.data.assigneeIds.length === 0) {
+      // 派发孩子为空 → 跳转到设置步骤（步骤三）
+      this.setData({ step: 2 });
       wx.showToast({ title: '请选择派发孩子', icon: 'none' });
       return;
     }

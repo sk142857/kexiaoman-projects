@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Tag, Progress, Avatar, Typography, Space, Rate, Image, Upload, message, Button, Select } from 'antd';
+import { Tag, Progress, Avatar, Typography, Space, Rate, Image, Upload, message, Button, Select, Modal } from 'antd';
 import { PlusOutlined, DeleteOutlined, LoadingOutlined, PictureOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ImgCrop from 'antd-img-crop';
@@ -234,15 +234,23 @@ export function EmojiAvatar({ value, size = 'small' }) {
   );
 }
 
-// ==================== 用户头像（图片优先；无地址/加载失败一律取昵称首字符，字母大写） ====================
-const AVATAR_COLORS = ['#2ba471', '#c6c6c6', '#029cd4'];
-/** 首字符 hash → 从 3 个预设色值中确定性取色（同字符恒同色，全后台统一，避免随机不一致） */
-export const avatarColorFor = (ch) => {
-  const s = String(ch || '');
+// ==================== 统一全局随机 hash 色值（全后台取色规范） ====================
+// 色板固定 7 色：#f6685d / #e37318 / #2ba471 / #c6c6c6 / #029cd4 / #ad75fe / #e851b3
+// 确定性 hash：同一文本恒取同一色，禁止直接 Math.random（避免刷新闪色/前后端不一致）
+// 适用：字符头像、任务标签等无字典色值的业务文本；规范详见 docs/后端UI设计规范.md「统一随机 hash 色值」
+export const HASH_COLORS = ['#f6685d', '#e37318', '#2ba471', '#c6c6c6', '#029cd4', '#ad75fe', '#e851b3'];
+/** 任意文本 → hash 色值（同文本恒同色） */
+export const hashColorFor = (text) => {
+  const s = String(text || '');
+  if (!s) return HASH_COLORS[0];
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+  return HASH_COLORS[h % HASH_COLORS.length];
 };
+
+// ==================== 用户头像（图片优先；无地址/加载失败一律取昵称首字符，字母大写） ====================
+/** 头像取色：首字符 hash → 统一走 hashColorFor（同字符恒同色，全后台一致，避免随机不一致） */
+export const avatarColorFor = (ch) => hashColorFor(ch);
 export function ImageAvatar({ avatar, avatarChar, nickname, size = 45, background }) {
   const url = toImageUrl(avatar);
   // 无头像地址：一律取昵称第一个字符（字母大写）；昵称为空再回退 avatarChar/默认
@@ -505,12 +513,13 @@ export function BoolTag({ value, yes = '是', no = '否' }) {
 }
 
 // ==================== 字符串列表 → 多个 Tag（兼容 JSON 数组 / 逗号分隔） ====================
+// 每个 Tag 颜色按文本 hash 取统一色板（任务标签等无字典色值的业务文本）
 export function SplitTags({ value, separator = ',' }) {
   const arr = parseImages(value);
   if (arr.length === 0) return <EmptyText />;
   return (
     <Space size={[0, 4]} wrap>
-      {arr.map((t, i) => <Tag key={i} color="blue">{t}</Tag>)}
+      {arr.map((t, i) => <Tag key={i} color={hashColorFor(t)}>{t}</Tag>)}
     </Space>
   );
 }
@@ -648,6 +657,61 @@ export function TableVideo({ value, size = 65 }) {
 // 记录是否为视频（按 content_type 前缀判断）
 export function isVideoRecord(record) {
   return /^video\//i.test(String((record && record.content_type) || ''));
+}
+
+// ==================== 视频点击弹窗播放（内容安全等媒体预览用） ====================
+// 点击 ▶ 缩略按钮弹出 Modal 内嵌 <video controls> 播放器，替代新窗口跳转
+export function VideoPreviewButton({ value, size = 60, poster }) {
+  const url = toImageUrl(value);
+  const [open, setOpen] = useState(false);
+  if (!url) return <ImagePlaceholder size={size} />;
+  const posterUrl = poster ? toImageUrl(poster) : '';
+  return (
+    <>
+      <div
+        onClick={() => setOpen(true)}
+        title="点击播放视频"
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: size, height: size, borderRadius: 6, background: '#1f1f1f', color: '#fff',
+          cursor: 'pointer', fontSize: size > 80 ? 30 : 18, flexShrink: 0,
+        }}
+      >
+        ▶
+      </div>
+      <Modal
+        title="视频预览"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={null}
+        width={720}
+        destroyOnClose
+      >
+        <video
+          controls
+          autoPlay
+          src={url}
+          poster={posterUrl || undefined}
+          style={{ width: '100%', maxHeight: 500, background: '#000', borderRadius: 8 }}
+        />
+      </Modal>
+    </>
+  );
+}
+
+// ==================== 耗时（起止时间差：从入队到检测完成等） ====================
+export function DurationText({ from, to }) {
+  if (!from || !to) return <EmptyText />;
+  const fromMs = dayjs(from).valueOf();
+  const toMs = dayjs(to).valueOf();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return <EmptyText />;
+  const ms = toMs - fromMs;
+  if (ms < 1000) return <span style={{ fontSize: 13, color: '#52c41a', fontWeight: 500 }}>{ms}ms</span>;
+  if (ms < 60000) return <span style={{ fontSize: 13, color: '#1677ff', fontWeight: 500 }}>{(ms / 1000).toFixed(1)}s</span>;
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return <span style={{ fontSize: 13, color: '#722ed1', fontWeight: 500 }}>{m}分{s}秒</span>;
 }
 
 // ==================== 图片大图（详情抽屉用，内置预览；无图自动渲染空图片占位符） ====================
@@ -956,6 +1020,30 @@ export function VideoPlayer({ value, duration, size, style, poster }) {
 
 // ==================== 详情字段渲染（按 detailFields 元数据） ====================
 // f: { name, label, type, map, span, max, labels, color, suffix, totalField, ... }
+// ==================== 内容安全：按媒体类型统一尺寸预览（图片缩略/音频播放/视频弹窗播放） ====================
+// 图片/视频尺寸与「文件管理」模块详情一致（图片 120px 大图、视频播放器），列表用缩略尺寸
+export function ContentMediaPreview({ record, size = 88, detailed = false }) {
+  const mt = Number(record && record.media_type);
+  const path = record && record.content;
+  const url = toImageUrl(path);
+  if (mt === 2) {
+    if (!url) return <ImagePlaceholder size={size} />;
+    const box = detailed ? 120 : size;
+    return (
+      <div style={{ width: box, height: box, borderRadius: 6, overflow: 'hidden', border: '1px solid #eee', background: '#fafafa', flexShrink: 0 }}>
+        <Image src={toThumbUrl(path, 600) || url} fallback={IMG_FALLBACK} width={box} height={box} style={{ objectFit: 'cover', display: 'block' }} preview={{ mask: false, src: url }} />
+      </div>
+    );
+  }
+  if (mt === 3) return <AudioPlayer value={path} />;
+  if (mt === 4) {
+    if (!url) return <ImagePlaceholder size={size} />;
+    if (detailed) return <VideoPlayer value={path} style={{ maxWidth: 360 }} />;
+    return <VideoPreviewButton value={path} size={size} />;
+  }
+  return <LongText value={path} />;
+}
+
 // ==================== 文件大小（自动 B/KB/MB） ====================
 export function SizeText({ value }) {
   const num = Number(value);
@@ -999,9 +1087,11 @@ export function renderDetailValue(f, record) {
     case 'assignees': return <AssigneeTags names={v} />;
     case 'images': return <ImageGallery value={v} />;
     case 'media': return isVideoRecord(record) ? <VideoPlayer value={v} /> : <ImageGallery value={v} />;
+    case 'mediaPreview': return <ContentMediaPreview record={record} detailed />;
     case 'audio': return <AudioPlayer value={v} duration={record[f.durationField]} />;
     case 'video': return <VideoPlayer value={v} duration={record[f.durationField]} size={record[f.sizeField]} poster={record[f.coverField]} />;
     case 'progress': return <Percent value={v} suffix={f.suffix || '%'} />;
+    case 'duration': return <DurationText from={record[f.from]} to={record[f.to]} />;
     case 'mem': return <MemBar used={v} total={record[f.totalField]} />;
     case 'rate': return <StarRate value={v} max={f.max || 5} />;
     case 'level': return <LevelText value={v} labels={f.labels} color={f.color} />;

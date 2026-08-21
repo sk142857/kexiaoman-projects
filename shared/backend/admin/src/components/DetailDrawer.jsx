@@ -18,7 +18,7 @@ export default function DetailDrawer({ title, open, record, fields = [], onClose
         {record && (
           <Descriptions bordered size="small" column={column}>
             {fields.map((f) => (
-              <Descriptions.Item key={f.name} label={f.label} span={f.span || 1}>
+              <Descriptions.Item key={`${f.name}-${f.label}`} label={f.label} span={f.span || 1}>
                 {renderDetailValue(f, record)}
               </Descriptions.Item>
             ))}

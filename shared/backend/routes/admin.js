@@ -20,6 +20,7 @@ const { createInvite, inviteById, genUniqueInviteCode, familyScope } = require("
 const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted, staffPoints, staffPointsMap, recentPointLogs, syncBadgeUnlocks } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
 const { sendReviewNotification } = require("../subscribeLib");
+const { notifyReviewResult, notifyTaskAssigned, notifyTaskDone } = require("../notificationLib");
 
 const router = express.Router();
 
@@ -224,7 +225,7 @@ router.post("/logout", adminAuth, (req, res) => {
 
 // ==================== 菜单权限中间件（非管理员按角色-菜单鉴权） ====================
 // 管理员（admin）拥有全部菜单权限；其余角色只能访问其角色已分配菜单对应的模块
-const MODULE_BIZ = ["users", "monitors", "traces", "sessions", "file_uploads", "user_events", "staff", "roles", "menus", "tasks", "task_checkins", "task_collections", "lp_students", "lp_children", "lp_family_members", "dict_types", "dict_items", "seqs", "staff_events", "apps", "subscribe_grants", "subscribe_sends", "todo_tasks", "checkin_reviews"];
+const MODULE_BIZ = ["users", "monitors", "traces", "sessions", "file_uploads", "user_events", "staff", "roles", "menus", "tasks", "task_checkins", "task_collections", "lp_students", "lp_children", "lp_family_members", "lp_family_tree", "dict_types", "dict_items", "seqs", "staff_events", "apps", "subscribe_grants", "subscribe_sends", "todo_tasks", "checkin_reviews", "content_audits", "notify_templates", "notifications"];
 // 共享参考数据模块：任意角色均可读取（下拉选项/筛选条件依赖，如任务的科目字典），写入仍需模块权限
 const REFERENCE_READ_BIZ = ["dict_types", "dict_items"];
 // 字典读写接口统一归属「数据字典」菜单（/module/dicts），写操作按该菜单路径鉴权
@@ -291,10 +292,13 @@ const DEFAULT_MENU_GROUPS = [
     { id: "36", name: "孩子档案", path: "/module/lp_children", icon: "SolutionOutlined", type: "leaf" },
     { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "HeartOutlined", type: "leaf" },
     { id: "38", name: "邀请码管理", path: "/module/lp_invites", icon: "KeyOutlined", type: "leaf" },
+    { id: "40", name: "家庭关系", path: "/module/lp_family_tree", icon: "ApartmentOutlined", type: "leaf" },
   ]},
   { id: "19", parent_id: "0", name: "消息通知", path: "/message", icon: "BellOutlined", sort: 4, type: "group", status: 1, children: [
     { id: "32", name: "订阅授权", path: "/module/subscribe_grants", icon: "BellOutlined", type: "leaf" },
     { id: "33", name: "发送记录", path: "/module/subscribe_sends", icon: "SendOutlined", type: "leaf" },
+    { id: "42", name: "通知模板", path: "/module/notify_templates", icon: "FormOutlined", type: "leaf" },
+    { id: "43", name: "系统通知", path: "/module/notifications", icon: "BellOutlined", type: "leaf" },
   ]},
   { id: "15", parent_id: "0", name: "系统监控", path: "/ops", icon: "FundOutlined", sort: 5, type: "group", status: 1, children: [
     { id: "16", name: "服务监控", path: "/module/monitors", icon: "MonitorOutlined", type: "leaf" },
@@ -302,6 +306,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "18", name: "会话画像", path: "/module/sessions", icon: "MobileOutlined", type: "leaf" },
     { id: "21", name: "用户事件", path: "/module/user_events", icon: "ThunderboltOutlined", type: "leaf" },
     { id: "20", name: "文件上传记录", path: "/module/file_uploads", icon: "PictureOutlined", type: "leaf" },
+    { id: "41", name: "内容安全", path: "/module/content_audits", icon: "SafetyOutlined", type: "leaf" },
   ]},
   { id: "22", parent_id: "0", name: "系统设置", path: "/system", icon: "SettingOutlined", sort: 6, type: "group", status: 1, children: [
     { id: "23", name: "管理员管理", path: "/module/staff", icon: "SafetyOutlined", type: "leaf" },
@@ -702,6 +707,18 @@ router.use("/api/file_uploads", crudRouter({
   enrichUsers: true,
 }));
 
+// 内容安全审核记录（只读：机器检测结果侧表，业务表零改动；按 app 隔离）
+router.use("/api/content_audits", adminAuth, crudRouter({
+  table: "content_audits", pk: "audit_id",
+  writable: [],
+  search: ["content", "biz_id"],
+  filters: ["status", "media_type", "biz_type"],
+  appField: "app_id",
+  // 本表无 created_at，时间范围过滤按入队时间
+  timeField: "enqueued_at",
+  readonly: true,
+}));
+
 // 文件批量删除：物理删除腾讯云存储对象 + 同步删除 file_uploads 登记记录
 // 注意与打卡删除的 markRemoved（仅审计标记、不删存储）不同，本接口是真实清理存储
 router.post("/api/file_uploads/batchDelete", adminAuth, async (req, res) => {
@@ -713,11 +730,23 @@ router.post("/api/file_uploads/batchDelete", adminAuth, async (req, res) => {
     if (idList.length === 0) return res.json(fail("请选择要删除的文件"));
 
     const { data: rows, error } = await db.from("file_uploads")
-      .select("file_id, file_path, file_cos_id")
+      .select("file_id, file_path, file_cos_id, file_name")
       .in("file_id", idList)
       .limit(idList.length);
     if (error) throw error;
     if (!rows || rows.length === 0) return res.json(fail("未找到对应的文件记录"));
+
+    // 0) 使用中校验：正在被业务数据引用的文件严禁直接删除，仅能通过删除任务/打卡/头像等业务数据级联清理
+    const refPaths = await collectReferencedFilePaths();
+    const blocked = rows.filter(r => {
+      const p = String(r.file_path || "").trim().replace(/^\/+/, "");
+      return !!p && refPaths.has(p);
+    });
+    if (blocked.length > 0) {
+      const names = blocked.slice(0, 5).map(r => r.file_name || r.file_path).join("、");
+      const more = blocked.length > 5 ? ` 等 ${blocked.length} 个` : "";
+      return res.json(fail(`文件正在被业务数据使用，严禁直接删除（${names}${more}）。请先删除引用该文件的任务/打卡/头像等业务数据，由系统级联清理。`));
+    }
 
     // 1) 物理删除腾讯云存储对象（成功失败分别统计）
     const paths = rows.map(r => r.file_path).filter(Boolean);
@@ -811,39 +840,46 @@ function mapLimit(items, limit, fn) {
   });
 }
 
+// 收集业务系统当前仍引用的文件路径集合：
+//   users.avatar|avatar_hd|avatar_pending|avatar_hd_pending / staff.staff_avatar /
+//   tasks.images / task_checkins.checkin_images|voice_url|video_url|video_cover / task_collections.cover_images
+// 供「批量删除」做使用中校验与「图片清理」回收判定共用，确保不误删仍被业务引用的文件
+async function collectReferencedFilePaths() {
+  const refPaths = new Set();
+  const addRef = (v) => {
+    if (!v) return;
+    const s = String(v).trim().replace(/^\/+/, "");
+    if (s) refPaths.add(s);
+  };
+  const addRefs = (list) => (Array.isArray(list) ? list.forEach(addRef) : addRef(list));
+
+  const [usersRes, staffRes, tasksRes, checkinsRes, collsRes] = await Promise.all([
+    fetchAllRows("users", "avatar, avatar_hd, avatar_pending, avatar_hd_pending"),
+    fetchAllRows("staff", "staff_avatar"),
+    fetchAllRows("tasks", "images"),
+    fetchAllRows("task_checkins", "checkin_images, voice_url, video_url, video_cover"),
+    fetchAllRows("task_collections", "cover_images"),
+  ]);
+  for (const u of usersRes) addRefs([u.avatar, u.avatar_hd, u.avatar_pending, u.avatar_hd_pending]);
+  for (const s of staffRes) addRef(s.staff_avatar);
+  for (const t of tasksRes) addRefs(parseImgList(t.images));
+  for (const c of checkinsRes) {
+    addRefs(parseImgList(c.checkin_images));
+    addRef(c.voice_url);
+    addRef(c.video_url);
+    addRef(c.video_cover);
+  }
+  for (const c of collsRes) addRefs(parseImgList(c.cover_images));
+  return refPaths;
+}
+
 router.post("/api/file_uploads/cleanup", adminAuth, async (req, res) => {
   const CLEANUP_LIMIT = 500; // 单次执行最多回收条数（避免超时；超出请分批）
   try {
     const preview = !!(req.body && req.body.preview);
 
     // 1) 收集业务系统仍在引用的文件路径集合
-    //    users.avatar|avatar_hd|avatar_pending|avatar_hd_pending / staff.staff_avatar /
-    //    tasks.images / task_checkins.checkin_images|voice_url|video_url|video_cover / task_collections.cover_images
-    const refPaths = new Set();
-    const addRef = (v) => {
-      if (!v) return;
-      const s = String(v).trim().replace(/^\/+/, "");
-      if (s) refPaths.add(s);
-    };
-    const addRefs = (list) => (Array.isArray(list) ? list.forEach(addRef) : addRef(list));
-
-    const [usersRes, staffRes, tasksRes, checkinsRes, collsRes] = await Promise.all([
-      fetchAllRows("users", "avatar, avatar_hd, avatar_pending, avatar_hd_pending"),
-      fetchAllRows("staff", "staff_avatar"),
-      fetchAllRows("tasks", "images"),
-      fetchAllRows("task_checkins", "checkin_images, voice_url, video_url, video_cover"),
-      fetchAllRows("task_collections", "cover_images"),
-    ]);
-    for (const u of usersRes) addRefs([u.avatar, u.avatar_hd, u.avatar_pending, u.avatar_hd_pending]);
-    for (const s of staffRes) addRef(s.staff_avatar);
-    for (const t of tasksRes) addRefs(parseImgList(t.images));
-    for (const c of checkinsRes) {
-      addRefs(parseImgList(c.checkin_images));
-      addRef(c.voice_url);
-      addRef(c.video_url);
-      addRef(c.video_cover);
-    }
-    for (const c of collsRes) addRefs(parseImgList(c.cover_images));
+    const refPaths = await collectReferencedFilePaths();
 
     // 2) 拉取 file_uploads 全部登记（active/removed 都纳入回收范围：removed=打卡删除时仅审计标记未删存储）
     const uploads = await fetchAllRows("file_uploads", "file_id, file_path, biz, file_name, content_type, file_size, file_status, created_at");
@@ -1939,6 +1975,226 @@ router.use("/api/lp_family_members", adminAuth, crudRouter({
   },
 }));
 
+// ==================== 家庭成员关系树（集中视图，后台专用） ====================
+// 以「主家长」为根聚合：名下孩子（孩子档案 + 学生账号 + 小程序绑定 + 学生邀请码）与家属。
+// 供后台「家庭关系」模块做树形一目了然展示；只读，不承载任何写操作。
+router.get("/api/lp_family_tree/list", adminAuth, async (req, res) => {
+  try {
+    const appId = req.appId || "miniprogram-kxm";
+
+    // 1. 主家长账号（全部，未授权学生/家属/管理员过滤）
+    const { data: parents } = await db.from("staff")
+      .select("staff_id, staff_username, staff_nickname, staff_avatar, staff_role, staff_status")
+      .eq("staff_role", "parent").limit(2000);
+    const parentList = parents || [];
+    const parentIds = parentList.map(p => p.staff_id);
+
+    // 2. 孩子档案（按 app 维度，含无主家长归属的孤儿档案）
+    let children = [];
+    {
+      const { data } = await db.from("lp_children")
+        .select()
+        .eq("app_id", appId)
+        .eq("child_status", 1)
+        .limit(3000);
+      children = data || [];
+    }
+
+    // 3. 学生账号 / 家长账号聚合（staff 共享表，无 app 维度）
+    const studentIds = [...new Set(children.map(c => Number(c.student_staff_id)).filter(v => v > 0))];
+    const allStaffIds = [...new Set([...parentIds.map(Number), ...studentIds].filter(v => v > 0))];
+    const staffMap = {};
+    if (allStaffIds.length > 0) {
+      const { data } = await db.from("staff")
+        .select("staff_id, staff_username, staff_nickname, staff_avatar, staff_role, staff_status")
+        .in("staff_id", allStaffIds).limit(allStaffIds.length);
+      (data || []).forEach(s => { staffMap[String(s.staff_id)] = s; });
+    }
+
+    // 4. 绑定关系（openid ↔ staff）
+    const bindMap = {};
+    if (allStaffIds.length > 0) {
+      const { data } = await db.from("lp_students")
+        .select("id, staff_id, openid, app_id, bound_status, bound_at")
+        .eq("app_id", appId)
+        .in("staff_id", allStaffIds).limit(3000);
+      (data || []).forEach(b => { if (!bindMap[String(b.staff_id)]) bindMap[String(b.staff_id)] = b; });
+    }
+
+    // 5. 小程序用户画像（openid → user_uid/昵称）
+    const openids = [...new Set(Object.values(bindMap).map(b => b.openid).filter(Boolean))];
+    const userMap = {};
+    if (openids.length > 0) {
+      const { data } = await db.from("users")
+        .select("openid, user_uid, nickname, avatar")
+        .in("openid", openids).limit(openids.length);
+      (data || []).forEach(u => { userMap[u.openid] = u; });
+    }
+
+    // 6. 学生邀请码（kind=student，最新一条）
+    const inviteMap = {};
+    if (studentIds.length > 0) {
+      const { data } = await db.from("lp_invites")
+        .select("invite_code, kind, status, owner_staff_id, bound_at")
+        .eq("app_id", appId)
+        .eq("kind", "student")
+        .in("owner_staff_id", studentIds)
+        .order("invite_id", { ascending: false }).limit(studentIds.length * 2);
+      (data || []).forEach(iv => { if (!inviteMap[String(iv.owner_staff_id)]) inviteMap[String(iv.owner_staff_id)] = iv; });
+    }
+
+    // 7. 家属关系 + 家属账号 + 家属用户画像
+    let familyMembers = [];
+    let memberStaffMap = {};
+    let memberUserMap = {};
+    if (parentIds.length > 0) {
+      const { data } = await db.from("lp_family_members")
+        .select()
+        .eq("app_id", appId)
+        .eq("member_status", 1)
+        .in("owner_staff_id", parentIds).limit(3000);
+      familyMembers = data || [];
+      const memberStaffIds = [...new Set(familyMembers.map(f => Number(f.member_staff_id)).filter(v => v > 0))];
+      if (memberStaffIds.length > 0) {
+        const { data: st } = await db.from("staff")
+          .select("staff_id, staff_username, staff_nickname, staff_avatar, staff_role, staff_status")
+          .in("staff_id", memberStaffIds).limit(memberStaffIds.length);
+        (st || []).forEach(s => { memberStaffMap[String(s.staff_id)] = s; });
+      }
+      const memberOpenids = [...new Set(familyMembers.map(f => f.member_openid).filter(Boolean))];
+      if (memberOpenids.length > 0) {
+        const { data: us } = await db.from("users")
+          .select("openid, user_uid, nickname, avatar")
+          .in("openid", memberOpenids).limit(memberOpenids.length);
+        (us || []).forEach(u => { memberUserMap[u.openid] = u; });
+      }
+    }
+
+    // 8. 组装树：主家长 → 孩子（档案/学生账号/绑定/邀请码）+ 家属
+    const bindingOf = (staffId) => {
+      const b = bindMap[String(staffId)];
+      if (!b) return null;
+      const u = userMap[b.openid] || {};
+      return {
+        id: b.id,
+        bound_status: b.bound_status,
+        bound_at: b.bound_at,
+        openid: b.openid,
+        app_id: b.app_id || appId,
+        app_name: req.appName || "",
+        user_uid: u.user_uid || "",
+        user_nickname: u.nickname || "",
+        user_avatar: u.avatar || "",
+      };
+    };
+    const families = parentList.map(p => {
+      const childrenOfParent = children.filter(c => String(c.parent_staff_id) === String(p.staff_id));
+      return {
+        parent: {
+          staff_id: p.staff_id,
+          staff_username: p.staff_username,
+          staff_nickname: p.staff_nickname,
+          staff_avatar: p.staff_avatar || "",
+          staff_status: p.staff_status,
+          binding: bindingOf(p.staff_id),
+        },
+        children: childrenOfParent.map(c => {
+          const stId = String(c.student_staff_id);
+          const student = staffMap[stId] || null;
+          const inv = inviteMap[stId] || null;
+          return {
+            child_id: c.child_id,
+            child_name: c.child_name,
+            gender: c.gender,
+            grade: c.grade,
+            class_no: c.class_no,
+            school_name: c.school_name,
+            birth_date: c.birth_date,
+            student_staff_id: c.student_staff_id,
+            student: student ? {
+              staff_id: student.staff_id,
+              staff_username: student.staff_username,
+              staff_nickname: student.staff_nickname,
+              staff_avatar: student.staff_avatar || "",
+              staff_status: student.staff_status,
+            } : null,
+            binding: stId && Number(c.student_staff_id) > 0 ? bindingOf(c.student_staff_id) : null,
+            invite: inv ? { invite_code: inv.invite_code, status: inv.status, bound_at: inv.bound_at } : null,
+          };
+        }),
+        familyMembers: familyMembers
+          .filter(f => String(f.owner_staff_id) === String(p.staff_id))
+          .map(f => {
+            const m = memberStaffMap[String(f.member_staff_id)] || null;
+            const mu = memberUserMap[f.member_openid] || null;
+            return {
+              id: f.id,
+              member_staff_id: f.member_staff_id,
+              member_openid: f.member_openid,
+              member_status: f.member_status,
+              bound_at: f.bound_at,
+              member: m ? {
+                staff_id: m.staff_id,
+                staff_username: m.staff_username,
+                staff_nickname: m.staff_nickname,
+                staff_avatar: m.staff_avatar || "",
+                staff_role: m.staff_role,
+                staff_status: m.staff_status,
+              } : null,
+              user_uid: mu ? mu.user_uid : "",
+              user_nickname: mu ? mu.nickname : "",
+              user_avatar: mu ? mu.avatar : "",
+            };
+          }),
+      };
+    });
+
+    // 孤儿档案：孩子档案有但无主家长归属（parent_staff_id 不匹配任何主家长）
+    const parentIdSet = new Set(parentList.map(p => String(p.staff_id)));
+    const orphanChildren = children
+      .filter(c => !parentIdSet.has(String(c.parent_staff_id)))
+      .map(c => {
+        const stId = String(c.student_staff_id);
+        const student = staffMap[stId] || null;
+        const inv = inviteMap[stId] || null;
+        return {
+          child_id: c.child_id,
+          child_name: c.child_name,
+          gender: c.gender,
+          grade: c.grade,
+          class_no: c.class_no,
+          school_name: c.school_name,
+          birth_date: c.birth_date,
+          student_staff_id: c.student_staff_id,
+          student: student ? {
+            staff_id: student.staff_id,
+            staff_username: student.staff_username,
+            staff_nickname: student.staff_nickname,
+            staff_avatar: student.staff_avatar || "",
+            staff_status: student.staff_status,
+          } : null,
+          binding: stId && Number(c.student_staff_id) > 0 ? bindingOf(c.student_staff_id) : null,
+          invite: inv ? { invite_code: inv.invite_code, status: inv.status, bound_at: inv.bound_at } : null,
+        };
+      });
+
+    // 统计概览（顶部卡片用）
+    const summary = {
+      parentCount: families.length,
+      childCount: families.reduce((n, f) => n + f.children.length, 0) + orphanChildren.length,
+      boundParentCount: families.filter(f => f.parent.binding && f.parent.binding.bound_status === 1).length,
+      boundChildCount: [...families.flatMap(f => f.children), ...orphanChildren]
+        .filter(c => c.binding && c.binding.bound_status === 1).length,
+      familyMemberCount: families.reduce((n, f) => n + f.familyMembers.length, 0),
+    };
+
+    res.json(ok({ families, orphanChildren, summary }));
+  } catch (e) {
+    console.error("[admin] lp_family_tree error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 // ==================== 角色管理（含菜单分配） ====================
 // 读取角色列表，附加 menuIds（关联菜单）
 router.get("/api/roles/list", adminAuth, async (req, res) => {
@@ -2461,7 +2717,7 @@ router.use("/api/tasks", adminAuth, crudRouter({
   table: "tasks", pk: "task_id",
   writable: ["title", "subject", "description", "images", "task_status", "checkin_type", "score", "start_date", "deadline", "tags", "collection_id", "task_link"],
   search: ["title", "subject"],
-  filters: ["task_status", "subject", "collection_id", "source"],
+  filters: ["task_status", "subject", "collection_id", "source", "risk_status"],
   // 按用户过滤（staff_id，非表字段故不走白名单 filters）：创建人 = 该员工 或 任务派发给该员工
   // 注意：RDB 查询链是 thenable，async 函数不能直接 return 构建器（会被吞掉提前执行），须返回 { q } 包装
   // 安全审计 S6：非管理员（家长/家属/学生）先按家庭可见范围收敛（杜绝跨家庭读取），管理员再叠加 staff_id 钻取
@@ -2514,6 +2770,14 @@ router.use("/api/tasks", adminAuth, crudRouter({
     const assigneeIds = await syncTaskAssignees(req, id);
     await syncTaskImages(req, id, values, null);
     logTaskCreate(req, values, id, assigneeIds);
+    // 系统通知：新任务派发 → 通知被派发学生（后台布置，assignerName=后台操作人昵称）
+    notifyTaskAssigned({
+      appId: req.appId || "miniprogram-kxm",
+      taskId: id,
+      taskTitle: (values && values.title) || "",
+      assigneeIds,
+      assignerStaffId: Number((req.staff && req.staff.staff_id) || 0),
+    }).catch(() => {});
   },
   onAfterUpdate: async (req, values, id, oldRecord) => {
     const oldAssigneeIds = await taskAssigneeIds(id);
@@ -2524,6 +2788,10 @@ router.use("/api/tasks", adminAuth, crudRouter({
     if (oldRecord && values.task_status !== undefined && oldRecord.task_status !== values.task_status) {
       const actor = Number((req.staff && req.staff.staff_id) || 0);
       applyTaskStatusPoints(oldRecord, oldRecord.task_status, values.task_status, actor).catch(() => {});
+      // 系统通知：任务完成 → 通知任务归属学生的家长/家属（操作人自己除外）
+      if (values.task_status === "done" && oldRecord.task_status !== "done") {
+        notifyTaskDone({ appId: req.appId || "miniprogram-kxm", task: oldRecord, actorStaffId: actor }).catch(() => {});
+      }
     }
   },
   // 兜底风控：已完成任务仅可查看，学生禁止修改（管理员不受限）
@@ -2654,7 +2922,7 @@ router.use("/api/seqs", adminAuth, crudRouter({
 // subscribe_tmpl_ids / reminder_window / reminder_days / reminder_overdue_days：订阅消息模板与打卡提醒时机配置
 router.use("/api/apps", adminAuth, crudRouter({
   table: "apps", pk: "app_id",
-  writable: ["app_name", "wechat_appid", "app_secret", "jwt_secret", "jwt_expires", "service_url", "app_desc", "app_status", "subscribe_tmpl_ids", "reminder_window", "reminder_days", "reminder_overdue_days"],
+  writable: ["app_name", "wechat_appid", "app_secret", "jwt_secret", "jwt_expires", "service_url", "app_desc", "app_status", "subscribe_tmpl_ids", "reminder_window", "reminder_days", "reminder_overdue_days", "content_security"],
   search: ["app_id", "app_name"],
   // 密钥明文存表：列表/详情不返回；编辑留空则保持原值（blankKeep，不做哈希）
   exclude: ["app_secret", "jwt_secret"],
@@ -2947,7 +3215,7 @@ router.use("/api/task_checkins", adminAuth, crudRouter({
   table: "task_checkins", pk: "checkin_id",
   writable: [],
   search: ["checkin_note"],
-  filters: ["checkin_date", "source"],
+  filters: ["checkin_date", "source", "risk_status"],
   scopeFn: taskScope,
   readScopeFn: () => null,
   readonly: true,
@@ -3039,6 +3307,7 @@ router.get("/api/todo_tasks/list", adminAuth, async (req, res) => {
         progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
         checkin_type: normalizeCheckinType(t.checkin_type),
         source: normalizeTaskSource(t.source),
+        risk_status: t.risk_status || "pending",
         score: t.score,
         deadline: t.deadline,
         start_date: t.start_date,
@@ -3097,6 +3366,7 @@ async function attachReviewInfo(rows) {
         },
         checkin_date: c.checkin_date,
         checkin_note: c.checkin_note,
+        risk_status: c.risk_status || "pending",
         images: parseImgList(c.checkin_images),
         checkin_type: normalizeCheckinType(c.checkin_type),
         source: normalizeTaskSource(c.source, "miniprogram"),
@@ -3118,7 +3388,8 @@ router.get("/api/checkin_reviews/list", adminAuth, async (req, res) => {
     const { data: rows, error } = await db.from("task_checkins")
       .select().eq("review_status", "pending").order("created_at", { ascending: false }).limit(200);
     if (error) throw error;
-    const list = await attachReviewInfo(rows || []);
+    // 内容安全拦截的记录不进待审核队列（无法审核通过）
+    const list = await attachReviewInfo((rows || []).filter(c => c.risk_status !== "reject"));
     res.json(ok({ count: list.length, list }));
   } catch (e) {
     console.error("[admin] checkin_reviews list error", e);
@@ -3167,6 +3438,10 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
     if (!checkin) return res.json(fail("打卡记录不存在"));
     if (checkin.review_status === "approved") return res.json(fail("该打卡已审核通过"));
     if (checkin.review_status === "rejected") return res.json(fail("该打卡已审核驳回"));
+    // 内容安全拦截：违规内容禁止审核通过（可驳回）
+    if (act === "approve" && checkin.risk_status === "reject") {
+      return res.json(fail("该打卡内容未通过安全检测，禁止审核通过"));
+    }
 
     const { data: tRows } = await db.from("tasks")
       .select("task_id, title, task_status").eq("task_id", checkin.task_id).limit(1);
@@ -3209,6 +3484,17 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
       });
       logStaffEvent({ req, staff: req.staff, eventType: "review", eventName: `审核通过打卡（任务完成+10分）`, module: "checkin_reviews", apiPath: "/api/checkin_reviews/review", bizId: cid, extra: { task_id: checkin.task_id } });
       notifyAdminReview(req, checkin, task, "approve", "").catch(() => {});
+      // 系统通知：审核通过 → 提交学生 + 家长/家属（审核人自己除外，站内信与订阅消息隔离）
+      notifyReviewResult({
+        appId: req.appId || "miniprogram-kxm",
+        studentStaffId: checkin.created_by,
+        taskTitle: (task && task.title) || "",
+        score: 10,
+        note: "",
+        result: "approve",
+        checkinId: checkin.checkin_id,
+        actorStaffId: staffId,
+      }).catch(() => {});
       res.json(ok(null, "已通过，任务完成 +10 分"));
     } else {
       let s = Number(score);
@@ -3237,6 +3523,17 @@ router.post("/api/checkin_reviews/review", adminAuth, async (req, res) => {
       });
       logStaffEvent({ req, staff: req.staff, eventType: "review", eventName: `审核驳回打卡`, module: "checkin_reviews", apiPath: "/api/checkin_reviews/review", bizId: cid, extra: { task_id: checkin.task_id, score: s } });
       notifyAdminReview(req, checkin, task, "reject", note).catch(() => {});
+      // 系统通知：审核驳回 → 提交学生 + 家长/家属（审核人自己除外，站内信与订阅消息隔离）
+      notifyReviewResult({
+        appId: req.appId || "miniprogram-kxm",
+        studentStaffId: checkin.created_by,
+        taskTitle: (task && task.title) || "",
+        score: s,
+        note: String(note || ""),
+        result: "reject",
+        checkinId: checkin.checkin_id,
+        actorStaffId: staffId,
+      }).catch(() => {});
       res.json(ok(null, "已驳回"));
     }
   } catch (e) {
@@ -3317,6 +3614,63 @@ router.use("/api/subscribe_sends", adminAuth, crudRouter({
   readonly: true,
   appField: "app_id",
   filters: ["send_status", "event_type", "tmpl_id"],
+  orderField: "created_at",
+  enrich: attachRecipient,
+}));
+
+// ==================== 系统通知：通知模板（后台「消息通知 → 通知模板」） ====================
+// 站内信模板（与订阅消息模板完全隔离）：类型(code) × 目标角色(target_role) 各自维护标题/正文模板，
+// 支持占位符 {xxx}（{taskTitle}/{childName}/{studentName}/{score}/{note}/{checkinDate}/{assignerName}/{bizName}）。
+// 仅管理员可新增/编辑/删除（家长/家属/学生即使被授予菜单也只读）。
+const NOTIFY_ROLE_WHITELIST = ["student", "parent", "family"];
+function normalizeNotifyTemplateValues(values, oldRecord) {
+  const v = { ...values };
+  if (v.code !== undefined) v.code = String(v.code).trim().slice(0, 64);
+  if (v.name !== undefined) v.name = String(v.name).trim().slice(0, 64);
+  if (v.target_role !== undefined) v.target_role = String(v.target_role).trim().toLowerCase();
+  if (v.title_tmpl !== undefined) v.title_tmpl = String(v.title_tmpl).slice(0, 128);
+  if (v.content_tmpl !== undefined) v.content_tmpl = String(v.content_tmpl).slice(0, 500);
+  if (v.enabled !== undefined) v.enabled = Number(v.enabled) === 1 ? 1 : 0;
+  if (v.sort !== undefined) v.sort = Math.floor(Number(v.sort) || 0);
+  return v;
+}
+router.use("/api/notify_templates", adminAuth, crudRouter({
+  table: "notify_templates", pk: "template_id",
+  writable: ["code", "name", "target_role", "title_tmpl", "content_tmpl", "enabled", "sort"],
+  search: ["name", "code"],
+  filters: ["code", "target_role", "enabled"],
+  appField: "app_id",
+  pkGenerator: () => nextSeq("template_id"),
+  defaults: (req) => ({ app_id: req.appId || "miniprogram-kxm", enabled: 1, sort: 0 }),
+  onBeforeCreate: async (req, values) => {
+    if ((req.staff && req.staff.role) !== "admin") return "仅管理员可维护通知模板";
+    Object.assign(values, normalizeNotifyTemplateValues(values, null));
+    if (!values.code || !values.name || !values.target_role) return "请填写完整的类型、名称与目标角色";
+    if (!NOTIFY_ROLE_WHITELIST.includes(values.target_role)) return "目标角色无效（student 学生 / parent 主家长 / family 家属）";
+    return null;
+  },
+  onBeforeUpdate: async (req, oldRecord, values) => {
+    if ((req.staff && req.staff.role) !== "admin") return "仅管理员可维护通知模板";
+    Object.assign(values, normalizeNotifyTemplateValues(values, oldRecord));
+    const role = values.target_role !== undefined ? values.target_role : (oldRecord && oldRecord.target_role);
+    if (role && !NOTIFY_ROLE_WHITELIST.includes(role)) return "目标角色无效（student 学生 / parent 主家长 / family 家属）";
+    return null;
+  },
+  onBeforeDelete: async (req, record) => {
+    if ((req.staff && req.staff.role) !== "admin") return "仅管理员可维护通知模板";
+    return null;
+  },
+}));
+
+// ==================== 系统通知：发送记录（后台「消息通知 → 系统通知」，只读审计） ====================
+// 站内信发送记录：谁、何时、收到什么通知、是否已读。按 app 维度隔离。
+router.use("/api/notifications", adminAuth, crudRouter({
+  table: "notifications", pk: "notify_id",
+  writable: [],
+  search: ["title", "content"],
+  filters: ["type", "role", "is_read"],
+  readonly: true,
+  appField: "app_id",
   orderField: "created_at",
   enrich: attachRecipient,
 }));
@@ -3612,7 +3966,7 @@ function buildLearningReminders({
 }
 
 // ==================== 学习仪表盘（Web 后台） ====================
-// 视角解析：管理员默认「全部学生」汇总、可切换到任意单个学生；
+// 视角解析：管理员默认第一个学生、可切换到任意单个学生；
 //          家长/家属默认第一个孩子、仅能切换名下孩子；学生固定本人。
 // 返回：{ staff, role, students(可切换列表), target(目标学生记录|null=全部), scope(家长孩子staff_id数组) }
 async function resolveLearningView(req) {
@@ -3627,9 +3981,13 @@ async function resolveLearningView(req) {
     .map(s => ({ staff_id: String(s.staff_id), nickname: s.staff_nickname || s.staff_username || "学生", username: s.staff_username || "" }));
 
   if (role === "admin") {
+    // 管理员默认第一个学生视角（按 staff_id 升序），可切换到任意单个学生（学生账号为 role=student 的员工）
     const { data, error } = await db.from("staff")
       .select("staff_id, staff_username, staff_nickname, staff_status")
-      .eq("staff_role", "student").order("staff_id", { ascending: true }).limit(2000);
+      .eq("staff_role", "student")
+      .eq("staff_status", 1)
+      .order("staff_id", { ascending: true })
+      .limit(5000);
     if (!error) students = pick(data);
   } else if (role === "parent" || role === "family") {
     let famIds = [];
@@ -3650,14 +4008,13 @@ async function resolveLearningView(req) {
     scope = [Number(staffId)];
   }
 
-  // 目标学生：优先 query.studentId（须在可切换范围内）；未指定/非法则回退默认
+  // 目标学生：优先 query.studentId（须在可切换范围内）；未指定/非法则回退默认第一个学生
   let target = null;
   if (qsid && (role === "admin" || (scope && scope.includes(Number(qsid))))) {
     target = students.find(s => s.staff_id === qsid) || null;
   }
   if (!target) {
-    if (role === "admin") target = null; // 全部
-    else target = students[0] || null;   // 家长/家属默认第一个孩子
+    target = students[0] || null; // 管理员/家长/家属默认第一个学生；学生本人固定本人
   }
   return { staff, role, students, scope, target };
 }
@@ -3680,7 +4037,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
     const { staff, role, students, target } = view;
     const isAdmin = role === "admin";
 
-    // 任务范围（安全审计 S6）：管理员默认全员汇总；选中单个学生时仅统计该学生任务；
+    // 任务范围（安全审计 S6）：管理员默认第一个学生；选中单个学生时仅统计该学生任务；
     // 家长/家属默认第一个孩子（可切换名下孩子），学生固定本人
     let visibleTaskIds = null;
     if (target) {

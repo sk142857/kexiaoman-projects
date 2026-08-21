@@ -585,6 +585,7 @@ export default function CommonCrud({
       title: '操作',
       valueType: 'option',
       fixed: 'right',
+      align: 'center',
       width: opWidth,
       render: (_, record) => {
         const locked = isLocked(record);

@@ -1,17 +1,25 @@
 // pages/collections/collections.js
 const { lp, getRole } = require('../../utils/api');
 
+const PAGE_SIZE = 20;
+
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     list: [],
     showCreate: false,
     name: '',
     description: '',
     submitting: false,
     isAdmin: false,
+    page: 1,
+    hasMore: true,
+    loadingMore: false,
   },
 
   async onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     const app = getApp();
     if (app && app.lpReady) {
       try { await app.lpReady; } catch (_) {}
@@ -23,18 +31,33 @@ Page({
     this._load();
   },
 
-  async _load() {
-    wx.showLoading({ title: '加载中', mask: true });
+  async _load(silent, append) {
+    if (!silent) wx.showLoading({ title: '加载中', mask: true });
     try {
-      const res = await lp.collections();
-      const list = Array.isArray(res) ? res : (res && res.list) || [];
-      this.setData({ list });
+      const page = append ? this.data.page : 1;
+      const res = await lp.collections({ page, pageSize: PAGE_SIZE });
+      const list = (Array.isArray(res) ? res : (res && res.list) || []);
+      this.setData({
+        list: append ? this.data.list.concat(list) : list,
+        page: page + 1,
+        hasMore: !!res.hasMore,
+        loadingMore: false,
+      });
     } catch (e) {
-      wx.hideLoading();
-      wx.showToast({ title: e.msg || '加载失败', icon: 'none' });
-      return;
+      this.setData({ loadingMore: false });
+      if (!silent) {
+        wx.hideLoading();
+        wx.showToast({ title: e.msg || '加载失败', icon: 'none' });
+        return;
+      }
     }
-    wx.hideLoading();
+    if (!silent) wx.hideLoading();
+  },
+
+  onLoadMore() {
+    if (this.data.loadingMore || !this.data.hasMore) return;
+    this.setData({ loadingMore: true });
+    this._load(true, true);
   },
 
   openCreate() { this.setData({ showCreate: true, name: '', description: '' }); },

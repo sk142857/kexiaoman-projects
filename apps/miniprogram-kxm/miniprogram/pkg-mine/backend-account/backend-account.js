@@ -5,6 +5,7 @@ const { trackEvent } = require('../../utils/tracker');
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     first: false,
     username: '',
     password: '',
@@ -14,6 +15,8 @@ Page({
   },
 
   onLoad(options) {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     const first = options && options.first === '1';
     this.setData({ first });
     // 从注册流程带过来的明文密码（仅注册/重置后存在，正常打开为空）

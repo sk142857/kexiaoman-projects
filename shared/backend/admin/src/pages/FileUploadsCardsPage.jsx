@@ -214,14 +214,20 @@ export default function FileUploadsCardsPage() {
           确定删除文件 <b>{record.file_name || record.file_path}</b> 吗？
           <br />
           将<b style={{ color: '#f5222d' }}>物理删除腾讯云存储对象</b>及登记记录，删除后不可恢复。
+          <br />
+          <span style={{ color: '#8c8c8c' }}>提示：正在被任务/打卡/头像等业务数据引用的文件严禁删除，仅能通过删除对应业务数据级联清理。</span>
         </span>
       ),
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
-        const res = await crudApi.batchDelete('file_uploads', [record.file_id]);
-        message.success((res.data && res.data.msg) || '已删除');
+        try {
+          const res = await crudApi.batchDelete('file_uploads', [record.file_id]);
+          message.success((res.data && res.data.msg) || '已删除');
+        } catch (_) {
+          // 后端已拦截提示（如文件正在使用中严禁删除）
+        }
         fetchList();
       },
     });

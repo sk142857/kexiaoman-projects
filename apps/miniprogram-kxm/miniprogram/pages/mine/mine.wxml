@@ -7,7 +7,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="mine-scroll">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="mine-scroll">
     <view class="mine-main">
 
       <!-- 用户卡 -->
@@ -61,9 +61,10 @@
           <text class="menu-label">孩子档案</text>
           <text class="menu-arrow">›</text>
         </view>
-        <view wx:if="{{isParent}}" class="menu-item" bindtap="goShares">
-          <view class="menu-icon menu-icon--purple">🤝</view>
-          <text class="menu-label">家属共享</text>
+        <view class="menu-item" bindtap="goNotifications">
+          <view class="menu-icon menu-icon--rose">📣</view>
+          <text class="menu-label">系统通知</text>
+          <text wx:if="{{notifyUnread > 0}}" class="notify-badge">{{notifyUnread > 99 ? '99+' : notifyUnread}}</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-item" bindtap="goBadges">

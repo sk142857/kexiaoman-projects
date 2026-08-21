@@ -119,14 +119,10 @@ export default function LearningDashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [students, setStudents] = useState([]);
-  // '' = 全部（仅管理员）；家长/家属默认第一个孩子，只能切名下孩子
+  // 管理员/家长/家属默认第一个学生，可下拉切换；学生固定本人
   const [viewStudentId, setViewStudentId] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    let role = '';
-    try { role = (JSON.parse(localStorage.getItem('admin_user') || '{}').role) || ''; } catch (_) {}
-    setIsAdmin(role === 'admin');
     const saved = localStorage.getItem('lp_admin_view_student') || '';
     dashboardApi.learning(saved ? { studentId: saved } : {})
       .then(res => {
@@ -261,16 +257,18 @@ export default function LearningDashboard() {
             <div style={{ minWidth: 190 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 22, fontWeight: 700 }}>{nickname}</div>
+                <span className="learning-student-switch-label">
+                  <UserSwitchOutlined />
+                  视角
+                </span>
                 <Select
-                  value={viewStudentId || (isAdmin ? '' : undefined)}
+                  value={viewStudentId || undefined}
                   onChange={onSwitchStudent}
                   size="small"
-                  style={{ minWidth: 150, maxWidth: 220 }}
-                  options={[
-                    ...(isAdmin ? [{ value: '', label: '全部学生' }] : []),
-                    ...(students || []).map(s => ({ value: s.staff_id, label: s.nickname })),
-                  ]}
-                  prefix={<UserSwitchOutlined />}
+                  className="learning-student-switch"
+                  popupClassName="learning-student-switch-popup"
+                  options={(students || []).map(s => ({ value: s.staff_id, label: s.nickname }))}
+                  suffixIcon={<UserSwitchOutlined />}
                 />
               </div>
               <div style={{ opacity: 0.82, fontSize: 13 }}>{student.username || '欢迎回到学习空间'}</div>

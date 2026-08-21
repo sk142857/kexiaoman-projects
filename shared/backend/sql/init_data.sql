@@ -40,10 +40,13 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (36, 8, '孩子档案', '/module/lp_children', 'SolutionOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (38, 8, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (40, 8, '家庭关系', '/module/lp_family_tree', 'ApartmentOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 4. 消息通知
   (19, 0, '消息通知', '/message', 'BellOutlined', 4, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (32, 19, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (33, 19, '发送记录', '/module/subscribe_sends', 'SendOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (42, 19, '通知模板', '/module/notify_templates', 'FormOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (43, 19, '系统通知', '/module/notifications', 'BellOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 5. 系统监控
   (15, 0, '系统监控', '/ops', 'FundOutlined', 5, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (16, 15, '服务监控', '/module/monitors', 'MonitorOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -51,6 +54,7 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (18, 15, '会话画像', '/module/sessions', 'MobileOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (21, 15, '用户事件', '/module/user_events', 'ThunderboltOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (20, 15, '图片上传记录', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (41, 15, '内容安全', '/module/content_audits', 'SafetyOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 6. 系统设置
   (22, 0, '系统设置', '/system', 'SettingOutlined', 6, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (23, 22, '管理员管理', '/module/staff', 'SafetyOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -111,14 +115,19 @@ INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (61, 'admin', 39, CURRENT_TIMESTAMP),
   (62, 'student', 39, CURRENT_TIMESTAMP),
   (63, 'parent', 39, CURRENT_TIMESTAMP),
-  (64, 'family', 39, CURRENT_TIMESTAMP)
+  (64, 'family', 39, CURRENT_TIMESTAMP),
+  (65, 'admin', 40, CURRENT_TIMESTAMP),
+  (66, 'admin', 41, CURRENT_TIMESTAMP),
+  (67, 'admin', 42, CURRENT_TIMESTAMP),
+  (68, 'admin', 43, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_id = VALUES(menu_id);
 
 -- 4. 数据字典
 INSERT INTO t_dict_types (dict_id, dict_code, dict_name, dict_status, created_at, updated_at) VALUES
   (1, 'subject', '科目', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (2, 'gender', '性别', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (3, 'task_status', '任务状态', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (3, 'task_status', '任务状态', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (4, 'checkin_type', '打卡方式', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE dict_name = VALUES(dict_name);
 
 INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, color, sort, item_status, created_at, updated_at) VALUES
@@ -133,10 +142,36 @@ INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, color, sor
   (9,  'gender', '2', '女', '', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (10, 'task_status', 'todo', '待完成', '#bfbfbf', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (11, 'task_status', 'doing', '进行中', '#1677ff', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (12, 'task_status', 'done', '已完成', '#52c41a', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (12, 'task_status', 'done', '已完成', '#52c41a', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (13, 'checkin_type', 'image', '图文打卡', '#1677ff', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (14, 'checkin_type', 'voice', '语音打卡', '#faad14', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (15, 'checkin_type', 'video', '视频打卡', '#13c2c2', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE item_label = VALUES(item_label), color = VALUES(color);
 
--- 5. 序列初始化（current_value = 种子数据最大编号 + 1；batch = 号段大小，日志类 500，其余 200）
+-- 5. 系统通知模板（类型 × 角色，占位符 {xxx} 由业务变量渲染；后台「消息通知 → 通知模板」可改）
+INSERT INTO t_lp_notify_templates
+  (template_id, app_id, code, name, target_role, title_tmpl, content_tmpl, enabled, sort, created_at, updated_at) VALUES
+  (1,  'miniprogram-kxm', 'checkin_approved',   '打卡审核通过',   'student', '打卡审核通过', '你的打卡「{taskTitle}」已审核通过，获得 {score} 积分，任务已完成，继续保持！', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (2,  'miniprogram-kxm', 'checkin_approved',   '打卡审核通过',   'parent',  '打卡审核通过', '孩子「{childName}」的打卡「{taskTitle}」已审核通过，获得 {score} 积分，任务已完成。', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (3,  'miniprogram-kxm', 'checkin_approved',   '打卡审核通过',   'family',  '打卡审核通过', '孩子「{childName}」的打卡「{taskTitle}」已审核通过，获得 {score} 积分，任务已完成。', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (4,  'miniprogram-kxm', 'checkin_rejected',   '打卡审核不通过', 'student', '打卡审核不通过', '你的打卡「{taskTitle}」未通过审核：{note}。请修改后重新提交。', 1, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (5,  'miniprogram-kxm', 'checkin_rejected',   '打卡审核不通过', 'parent',  '打卡审核不通过', '孩子「{childName}」的打卡「{taskTitle}」未通过审核：{note}。请提醒孩子修改后重新提交。', 1, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (6,  'miniprogram-kxm', 'checkin_rejected',   '打卡审核不通过', 'family',  '打卡审核不通过', '孩子「{childName}」的打卡「{taskTitle}」未通过审核：{note}。请提醒孩子修改后重新提交。', 1, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (7,  'miniprogram-kxm', 'content_violation',  '内容违规',       'student', '内容违规提醒', '你提交的「{bizName}」内容未通过安全检测，涉及违规内容，已被系统拦截，请修改后重新提交。', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (8,  'miniprogram-kxm', 'content_violation',  '内容违规',       'parent',  '内容违规提醒', '孩子「{childName}」提交的「{bizName}」内容未通过安全检测，涉及违规内容，已被系统拦截，请关注并引导孩子。', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (9,  'miniprogram-kxm', 'content_violation',  '内容违规',       'family',  '内容违规提醒', '孩子「{childName}」提交的「{bizName}」内容未通过安全检测，涉及违规内容，已被系统拦截，请关注并引导孩子。', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (10, 'miniprogram-kxm', 'checkin_submitted',  '新打卡待审核',   'parent',  '新打卡待审核', '孩子「{childName}」提交了「{taskTitle}」（{checkinDate}）的打卡，请及时审核。', 1, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (11, 'miniprogram-kxm', 'checkin_submitted',  '新打卡待审核',   'family',  '新打卡待审核', '孩子「{childName}」提交了「{taskTitle}」（{checkinDate}）的打卡，请及时审核。', 1, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (12, 'miniprogram-kxm', 'task_assigned',      '新任务派发',     'student', '新任务派发', '「{assignerName}」给你布置了新任务「{taskTitle}」，记得按时完成哦。', 1, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (13, 'miniprogram-kxm', 'task_done',          '任务完成',       'parent',  '任务完成', '孩子「{childName}」已完成任务「{taskTitle}」，获得 {score} 积分，太棒了！', 1, 6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (14, 'miniprogram-kxm', 'task_done',          '任务完成',       'family',  '任务完成', '孩子「{childName}」已完成任务「{taskTitle}」，获得 {score} 积分，太棒了！', 1, 6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (15, 'miniprogram-kxm', 'task_done',          '任务完成',       'student', '任务完成', '你已完成任务「{taskTitle}」，获得 {score} 积分，太棒了！', 1, 6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ON DUPLICATE KEY UPDATE
+    code = VALUES(code), name = VALUES(name), target_role = VALUES(target_role),
+    title_tmpl = VALUES(title_tmpl), content_tmpl = VALUES(content_tmpl),
+    enabled = VALUES(enabled), sort = VALUES(sort);
+
+-- 6. 序列初始化（current_value = 种子数据最大编号 + 1；batch = 号段大小，日志类 500，其余 200）
 INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, updated_at) VALUES
   ('task_id', '任务ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('task_checkin_id', '任务打卡ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
@@ -145,14 +180,17 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, u
   ('point_log_id', '积分流水ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
   ('subscribe_grant_id', '订阅授权ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('subscribe_send_id', '订阅发送ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
+  ('content_audit_id', '内容审核ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('template_id', '通知模板ID', 16, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('notify_id', '系统通知ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
   ('invite_id', '邀请码ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('child_id', '孩子档案ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('staff_id', '管理员ID', 9002, 9001, 1, 200, CURRENT_TIMESTAMP),
   ('role_id', '角色ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('menu_id', '菜单ID', 40, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('role_menu_id', '角色菜单ID', 65, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('dict_type_id', '字典类型ID', 4, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('dict_item_id', '字典项ID', 13, 1, 1, 200, CURRENT_TIMESTAMP)
+  ('menu_id', '菜单ID', 44, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('role_menu_id', '角色菜单ID', 69, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('dict_type_id', '字典类型ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('dict_item_id', '字典项ID', 16, 1, 1, 200, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE current_value = GREATEST(current_value, VALUES(current_value));
 
 -- 6. 初始化超级管理员（sys_admin / sk0987，bcrypt cost10）

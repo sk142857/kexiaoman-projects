@@ -29,3 +29,43 @@
   flex: 1;
   min-width: 0;
 }
+
+/* ==================== 学习仪表盘：英雄区学生切换器（深色渐变胶囊风格） ==================== */
+.learning-student-switch {
+  min-width: 170px;
+  max-width: 240px;
+}
+.learning-student-switch .ant-select-selector {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+.learning-student-switch .ant-select-selector:hover {
+  background: rgba(255, 255, 255, 0.24) !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+}
+.learning-student-switch .ant-select-selection-item,
+.learning-student-switch .ant-select-selection-placeholder {
+  color: #fff !important;
+  font-weight: 600;
+}
+.learning-student-switch .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.9);
+}
+.learning-student-switch-popup .ant-select-item-option-selected {
+  background: #e6f4ff;
+  font-weight: 600;
+}
+/* 切换器左侧小标签：与英雄区白色系统一 */
+.learning-student-switch-label {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

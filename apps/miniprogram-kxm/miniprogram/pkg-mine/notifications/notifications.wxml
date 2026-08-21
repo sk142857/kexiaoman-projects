@@ -1,0 +1,54 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="系统通知"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll" bindscrolltolower="onReachBottom">
+    <view class="page">
+      <!-- 顶部栏：统计 + 全部已读 -->
+      <view class="toolbar">
+        <text class="toolbar-tip">共 {{list.length}} 条<text wx:if="{{unread > 0}}"> · {{unread}} 条未读</text></text>
+        <view wx:if="{{unread > 0}}" class="read-all" bindtap="onReadAll">全部已读</view>
+      </view>
+
+      <!-- 通知列表（任务模块风格：左边框色 + 标题 + 内容 + 时间 + 阅读状态） -->
+      <view wx:if="{{list.length > 0}}" class="n-list">
+        <view
+          wx:for="{{list}}"
+          wx:key="notify_id"
+          class="n-item {{item.is_read == 1 ? 'n-item--read' : ''}}"
+          hover-class="n-item--active"
+        >
+          <view class="n-bar"></view>
+          <view class="n-body">
+            <view class="n-head">
+              <view class="n-title">{{item.title}}</view>
+              <text wx:if="{{item.typeText}}" class="n-type" style="color: {{item.typeColor}}; background: {{item.typeBg}};">{{item.typeText}}</text>
+              <text wx:if="{{item.is_read == 1}}" class="n-status n-status--read">已读</text>
+              <text wx:else class="n-status n-status--unread">未读</text>
+            </view>
+            <view class="n-content">{{item.content}}</view>
+            <view class="n-foot">
+              <text class="n-time">{{item.timeText}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 空态 -->
+      <empty
+        wx:if="{{list.length === 0 && !loading}}"
+        icon="📣"
+        title="暂无系统通知"
+        desc="审核结果、内容安全等动态会在这里通知你"
+      />
+
+      <view wx:if="{{list.length > 0 && !hasMore}}" class="n-foot">— 没有更多了 —</view>
+    </view>
+  </scroll-view>
+</view>

@@ -8,6 +8,7 @@ const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', s
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     identities: [],
     currentStaffId: '',
     parentNoPin: false,
@@ -16,6 +17,8 @@ Page({
   },
 
   onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     trackEvent('page_view', '身份切换');
     const app = getApp();
     const ready = app && app.lpReady;

@@ -18,12 +18,39 @@ const { nextSeq } = require("../seq");
 const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword } = require("./lpAuth");
 const { logEvent } = require("../events");
 const { invalidateStaffRows } = require("../learningLib");
+const { textCheckNow, submitForAudit } = require("../contentSecurity");
 
 const router = express.Router();
 
 const me = (req) => String((req.lp && req.lp.staffId) || "");
 const myOpenid = (req) => (req.lp && req.lp.openid) || "";
 const myRole = (req) => (req.lp && req.lp.role) || "";
+
+/** 孩子档案文本写时内容安全校验；命中违规返回 { error }，否则返回各字段检测结果（安全关闭/失败时放行） */
+async function auditChildText(req, { name, schoolName }) {
+  let nameCheck = null;
+  let schoolCheck = null;
+  try {
+    if (name) nameCheck = await textCheckNow({ appId: req.appId, content: name, openid: myOpenid(req) });
+    if (schoolName) schoolCheck = await textCheckNow({ appId: req.appId, content: schoolName, openid: myOpenid(req) });
+  } catch (e) {
+    console.error("[lp] 孩子档案内容安全校验失败（放行）", e.message);
+  }
+  if (nameCheck && nameCheck.status === "reject") return { error: "孩子姓名包含违规内容，请修改后重试", nameCheck, schoolCheck };
+  if (schoolCheck && schoolCheck.status === "reject") return { error: "学校名称包含违规内容，请修改后重试", nameCheck, schoolCheck };
+  return { nameCheck, schoolCheck };
+}
+
+/** 孩子档案文本预检结果审计留痕（t_content_audits，biz_type=child） */
+function logChildAudit(req, childId, { nameCheck, schoolCheck, name, schoolName }) {
+  const base = { appId: req.appId, bizType: "child", bizId: childId, mediaType: 1, openid: myOpenid(req) };
+  if (nameCheck && !nameCheck.skipped) {
+    submitForAudit({ ...base, field: "child_name", content: name, status: nameCheck.status, detail: String((nameCheck.data && nameCheck.data.result && nameCheck.data.result.label) || ""), wx_raw: nameCheck.data }).catch(() => {});
+  }
+  if (schoolCheck && !schoolCheck.skipped) {
+    submitForAudit({ ...base, field: "school_name", content: schoolName, status: schoolCheck.status, detail: String((schoolCheck.data && schoolCheck.data.result && schoolCheck.data.result.label) || ""), wx_raw: schoolCheck.data }).catch(() => {});
+  }
+}
 
 /** 当前用户是主家长或平台管理员 */
 function isParentOrAdmin(req) {
@@ -140,11 +167,16 @@ router.post("/family/children/create", async (req, res) => {
     const b = req.body || {};
     const name = String(b.child_name || "").trim().slice(0, 32);
     if (!name) return res.json(fail("请填写孩子姓名"));
+    const schoolName = String(b.school_name || "").trim().slice(0, 64);
 
     const grade = Number(b.grade);
     const classNo = Number(b.class_no);
     if (!Number.isInteger(grade) || grade < 1 || grade > 6) return res.json(fail("年级需为 1-6"));
     if (!Number.isInteger(classNo) || classNo < 1 || classNo > 35) return res.json(fail("班级需为 1-35"));
+
+    // 内容安全：孩子档案文本写时校验（命中违规拒绝；检测失败/关闭放行）
+    const audit = await auditChildText(req, { name, schoolName });
+    if (audit.error) return res.json(fail(audit.error));
 
     const parentId = myRole(req) === "admin" ? Number(b.parent_staff_id) || 0 : Number(me(req));
     if (!parentId) return res.json(fail("缺少主家长账号"));
@@ -161,13 +193,16 @@ router.post("/family/children/create", async (req, res) => {
       child_name: name,
       gender: Number(b.gender) || 0,
       birth_date: String(b.birth_date || "").slice(0, 10) || null,
-      school_name: String(b.school_name || "").slice(0, 64),
+      school_name: schoolName,
       grade,
       class_no: classNo,
       child_status: 1,
       created_at: nowSql(),
       updated_at: nowSql(),
     });
+
+    // 内容安全：预检结果审计留痕
+    logChildAudit(req, childId, { nameCheck: audit.nameCheck, schoolCheck: audit.schoolCheck, name, schoolName });
 
     // 生成学生邀请码
     const inv = await createInvite({ kind: "student", ownerStaffId: student.staff_id, childId, createdBy: Number(me(req)) });
@@ -220,7 +255,20 @@ router.post("/family/children/update", async (req, res) => {
     }
     if (Object.keys(values).length === 1) return res.json(ok(null, "无变更"));
 
+    // 内容安全：本次有变更的文本字段写时校验（命中违规拒绝；检测失败/关闭放行）
+    const audit = await auditChildText(req, {
+      name: b.child_name !== undefined ? String(b.child_name).trim().slice(0, 32) : "",
+      schoolName: b.school_name !== undefined ? String(b.school_name).trim().slice(0, 64) : "",
+    });
+    if (audit.error) return res.json(fail(audit.error));
+
     await db.from("lp_children").update(values).eq("child_id", child.child_id);
+    // 内容安全：预检结果审计留痕
+    logChildAudit(req, child.child_id, {
+      nameCheck: audit.nameCheck, schoolCheck: audit.schoolCheck,
+      name: values.child_name !== undefined ? String(values.child_name) : "",
+      schoolName: values.school_name !== undefined ? String(values.school_name) : "",
+    });
     const { data: fresh, error: freshErr } = await db.from("lp_children").select().eq("child_id", child.child_id).limit(1);
     if (freshErr) throw freshErr;
     res.json(ok(await childBrief(fresh && fresh[0]), "已更新"));

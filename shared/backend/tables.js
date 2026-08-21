@@ -24,6 +24,7 @@ const TABLE_MAP = {
   service_monitor: "t_service_monitor",
   api_trace: "t_api_trace",
   file_uploads: "t_file_uploads",
+  content_audits: "t_content_audits",
   apps: "t_apps",
   staff_apps: "t_staff_apps",
 
@@ -41,6 +42,8 @@ const TABLE_MAP = {
   lp_family_members: "t_lp_family_members",
   subscribe_grants: "t_lp_subscribe_grants",
   subscribe_sends: "t_lp_subscribe_sends",
+  notify_templates: "t_lp_notify_templates",
+  notifications: "t_lp_notifications",
 };
 
 /** 是否已带前缀（物理表名直接透传） */

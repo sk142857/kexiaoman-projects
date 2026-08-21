@@ -1,10 +1,23 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import MonitorDashboard from './pages/MonitorDashboard.jsx';
 import LearningDashboard from './pages/LearningDashboard.jsx';
 import ManagePage from './pages/ManagePage.jsx';
+
+// 路由切换回到页面顶部：ProLayout 混排布局 + 固定顶栏，内容随窗口滚动，
+// 切换菜单后若不复位会停留在上个页面的滚动位置
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    // 兼容内容区域自身滚动的情况（部分页面使用内层滚动容器）
+    document.querySelector('.ant-layout-content')?.scrollTo?.(0, 0);
+    document.querySelector('.ant-pro-layout-content')?.scrollTo?.(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 // token 守卫（布局路由）：无 token 跳登录
 function RequireAuth() {
@@ -30,6 +43,7 @@ function HomeRedirect() {
 export default function App() {
   return (
     <BrowserRouter basename="/admin">
+      <ScrollToTop />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route element={<RequireAuth />}>

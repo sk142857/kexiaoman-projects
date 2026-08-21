@@ -16,7 +16,7 @@ import DetailDrawer from '../components/DetailDrawer.jsx';
 import TimelineDrawer from '../components/TimelineDrawer.jsx';
 import {
   ImageUploader, AssigneeSelect, parseImages, imagesToJson, toThumbUrl,
-  IMG_FALLBACK, fmtDateOnly, fmtDateTime, DictTag, ColorTag,
+  IMG_FALLBACK, fmtDateOnly, fmtDateTime, DictTag, ColorTag, hashColorFor,
 } from '../components/fields.jsx';
 import { MODULES, taskProgressOf } from '../config/modules.jsx';
 import TaskCard, { TaskImages } from '../components/TaskCard.jsx';
@@ -35,6 +35,12 @@ const CHECKIN_TYPE_MAP = {
 const TASK_SOURCE_MAP = {
   web: { label: 'Web后台', color: 'purple' },
   miniprogram: { label: '小程序', color: 'blue' },
+};
+// 内容安全状态（任务/打卡内容机器检测结果）
+const RISK_STATUS_MAP = {
+  pass: { label: '安全', color: 'success' },
+  pending: { label: '检测中', color: 'processing' },
+  reject: { label: '违规', color: 'error' },
 };
 
 /** 读取音频时长（秒），元数据加载失败返回 0 */
@@ -529,13 +535,14 @@ export default function CardTasksPage() {
         ...(ownHidden ? [] : [
           { key: 'edit', icon: <EditOutlined />, disabled: locked, title: lockTip, onClick: () => openEdit(record), children: '编辑' },
           { key: 'copy', icon: <CopyOutlined />, onClick: () => openCopy(record), children: '复制' },
-          { key: 'delete', type: 'primary', danger: true, ghost: true, disabled: locked, title: lockTip, onClick: () => openDeleteConfirm(record), children: '删除' },
+          { key: 'delete', icon: <DeleteOutlined />, type: 'primary', danger: true, ghost: true, disabled: locked, title: lockTip, onClick: () => openDeleteConfirm(record), children: '删除' },
         ]),
       ],
       items: [
         {
           key: 'title',
           label: '任务标题',
+          span: 2,
           children: (
             <div style={{ minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               {record.subject && <DictTag code="subject" value={record.subject} />}
@@ -547,6 +554,7 @@ export default function CardTasksPage() {
         {
           key: 'desc',
           label: '任务描述',
+          span: 2,
           children: (
             <div style={{ minHeight: 88, display: 'flex', alignItems: 'center', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {desc || '-'}
@@ -578,12 +586,13 @@ export default function CardTasksPage() {
           ),
         },
         { key: 'checkinCount', label: '打卡次数', children: `${record.checkin_count || 0} 次` },
+        { key: 'riskStatus', label: '内容安全', children: (() => { const c = RISK_STATUS_MAP[record.risk_status] || {}; return record.risk_status ? <Tag color={c.color}>{c.label || record.risk_status}</Tag> : '-'; })() },
         { key: 'assignee', label: '派发学生', children: assignees },
         {
           key: 'tags',
           label: '任务标签',
           children: tags.length > 0
-            ? <Space size={4} wrap>{tags.map((t, i) => <Tag key={`tag-${i}`} color="purple">{t}</Tag>)}</Space>
+            ? <Space size={4} wrap>{tags.map((t, i) => <Tag key={`tag-${i}`} color={hashColorFor(t)}>{t}</Tag>)}</Space>
             : '-',
         },
         { key: 'taskId', label: '任务编号', children: record.task_id },
@@ -709,6 +718,14 @@ export default function CardTasksPage() {
         style={{ width: 130 }}
         options={[{ value: 'web', label: 'Web后台' }, { value: 'miniprogram', label: '小程序' }]}
         onChange={(v) => onFilterChange('source', v)}
+      />
+      <Select
+        placeholder="内容安全"
+        allowClear
+        value={filterValues.risk_status}
+        style={{ width: 130 }}
+        options={[{ value: 'pass', label: '安全' }, { value: 'pending', label: '检测中' }, { value: 'reject', label: '违规' }]}
+        onChange={(v) => onFilterChange('risk_status', v)}
       />
       <Button onClick={onFilterReset}>重置</Button>
     </Space>

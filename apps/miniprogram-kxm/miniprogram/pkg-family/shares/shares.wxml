@@ -8,7 +8,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="lp-scroll">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
     <view class="page">
       <view class="intro-card">
         <view class="intro-title">🤝 家属共享</view>

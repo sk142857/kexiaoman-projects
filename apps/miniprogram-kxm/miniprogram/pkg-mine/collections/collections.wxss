@@ -17,6 +17,12 @@
 .desc { margin-top: 8rpx; font-size: 26rpx; color: #8a919f; }
 .count { margin-top: 12rpx; font-size: 24rpx; color: #2b6de0; }
 .del { color: #ff4d4f; font-size: 26rpx; }
+.list-foot {
+  padding: 24rpx 0 8rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #b0b6c0;
+}
 .fab {
   position: fixed;
   right: 40rpx;

@@ -62,17 +62,21 @@ INSERT INTO `t_menus` VALUES (31, 8, '绑定管理', '/module/lp_students', 'Lin
 INSERT INTO `t_menus` VALUES (36, 8, '孩子档案', '/module/lp_children', 'SolutionOutlined', 3, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 4, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (38, 8, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 5, 2, 1, '2026-08-14 18:21:48', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (40, 8, '家庭关系', '/module/lp_family_tree', 'ApartmentOutlined', 6, 2, 1, '2026-08-20 12:00:00', '2026-08-20 12:00:00');
 -- 4. 消息通知
 INSERT INTO `t_menus` VALUES (19, 0, '消息通知', '/message', 'BellOutlined', 4, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (32, 19, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 1, 2, 1, '2026-08-13 20:57:01', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (33, 19, '发送记录', '/module/subscribe_sends', 'SendOutlined', 2, 2, 1, '2026-08-13 20:57:01', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (42, 19, '通知模板', '/module/notify_templates', 'FormOutlined', 3, 2, 1, '2026-08-20 15:00:00', '2026-08-20 15:00:00');
+INSERT INTO `t_menus` VALUES (43, 19, '系统通知', '/module/notifications', 'BellOutlined', 4, 2, 1, '2026-08-20 15:00:00', '2026-08-20 15:00:00');
 -- 5. 系统监控
 INSERT INTO `t_menus` VALUES (15, 0, '系统监控', '/ops', 'FundOutlined', 5, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (16, 15, '服务监控', '/module/monitors', 'MonitorOutlined', 1, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (17, 15, '接口链路', '/module/traces', 'ApiOutlined', 2, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (18, 15, '会话画像', '/module/sessions', 'MobileOutlined', 3, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (21, 15, '用户事件', '/module/user_events', 'ThunderboltOutlined', 4, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
-INSERT INTO `t_menus` VALUES (20, 15, '文件上传记录', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (20, 15, '文件管理', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (41, 15, '内容安全', '/module/content_audits', 'SafetyOutlined', 6, 2, 1, '2026-08-20 14:00:00', '2026-08-20 14:00:00');
 -- 6. 系统设置
 INSERT INTO `t_menus` VALUES (22, 0, '系统设置', '/system', 'SettingOutlined', 6, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (23, 22, '管理员管理', '/module/staff', 'SafetyOutlined', 1, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');

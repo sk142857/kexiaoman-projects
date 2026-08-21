@@ -4,6 +4,7 @@ const { trackEvent } = require('../../utils/tracker');
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     level: null,
     streak: null,
     badges: [],
@@ -13,6 +14,8 @@ Page({
   },
 
   async onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     const app = getApp();
     if (app && app.lpReady) {
       try { await app.lpReady; } catch (_) {}

@@ -26,6 +26,12 @@ const TASK_SOURCE_MAP = {
 const STATUS_MAP = { todo: '待完成', doing: '进行中', done: '已完成' };
 const STATUS_COLOR = { todo: 'default', doing: 'processing', done: 'success' };
 const SCORE_OPTIONS = [0, 3, 5, 7, 9, 10].map(v => ({ value: v, label: `${v}分` }));
+// 内容安全状态（打卡内容机器检测结果）
+const RISK_STATUS_MAP = {
+  pass: { label: '安全', color: 'success' },
+  pending: { label: '检测中', color: 'processing' },
+  reject: { label: '违规', color: 'error' },
+};
 
 export default function CheckinReviewsPage() {
   const [loading, setLoading] = useState(false);
@@ -126,6 +132,7 @@ export default function CheckinReviewsPage() {
         { key: 'date', label: '打卡日期', children: record.checkin_date || '-' },
         { key: 'type', label: '打卡方式', children: checkinTypeLabel },
         { key: 'source', label: '打卡来源', children: (() => { const c = TASK_SOURCE_MAP[record.source] || {}; return record.source ? <Tag color={c.color}>{c.label || record.source}</Tag> : '-'; })() },
+        { key: 'riskStatus', label: '内容安全', children: (() => { const c = RISK_STATUS_MAP[record.risk_status] || {}; return record.risk_status ? <Tag color={c.color}>{c.label || record.risk_status}</Tag> : '-'; })() },
         { key: 'submit', label: '提交时间', children: fmtDateTime(record.created_at) },
         {
           key: 'note',

@@ -10,7 +10,7 @@ import {
   StatusTag, PlainText, EmptyText, EmojiAvatar, ImageAvatar, Percent, MemBar,
   BoolTag, SplitTags, MaskId, HttpStatusTag, CostText,
   ImageList, ImageGallery, NineGridImages, TableImages, TableVideo, isVideoRecord, UserCell, UploaderCell,
-  StaffCell, DictTag, AssigneeTags, CoverThumb, SizeText, RatioText, AudioPlayer, fmtDateOnly,
+  StaffCell, DictTag, AssigneeTags, CoverThumb, SizeText, RatioText,   AudioPlayer, fmtDateOnly, ContentMediaPreview, DurationText,
 } from '../components/fields.jsx';
 
 // ==================== 字典映射 ====================
@@ -95,6 +95,37 @@ const FILE_STATUS_MAP = {
   active: { label: '正常', color: 'success' },
   removed: { label: '已删除', color: 'default' },
 };
+// 内容安全审核：检测状态 / 内容类型 / 业务类型（t_content_audits 旁路表）
+const AUDIT_STATUS_MAP = {
+  pending: { label: '检测中', color: 'processing' },
+  pass: { label: '通过', color: 'success' },
+  reject: { label: '命中违规', color: 'error' },
+  risk: { label: '疑似', color: 'warning' },
+  skip: { label: '跳过', color: 'default' },
+};
+// 业务表内容安全状态（t_lp_tasks.risk_status / t_lp_task_checkins.risk_status）
+const RISK_STATUS_MAP = {
+  pass: { label: '安全', color: 'success' },
+  pending: { label: '检测中', color: 'processing' },
+  reject: { label: '违规', color: 'error' },
+};
+const RISK_STATUS_OPTIONS = Object.entries(RISK_STATUS_MAP).map(([value, m]) => ({ value, label: m.label }));
+const AUDIT_MEDIA_MAP = {
+  1: { label: '文本', color: 'blue' },
+  2: { label: '图片', color: 'green' },
+  3: { label: '音频', color: 'warning' },
+  4: { label: '视频', color: 'cyan' },
+};
+const AUDIT_MEDIA_OPTIONS = [1, 2, 3, 4].map(v => ({ value: String(v), label: AUDIT_MEDIA_MAP[v].label }));
+const AUDIT_BIZ_MAP = {
+  task: { label: '任务', color: 'purple' },
+  checkin: { label: '打卡', color: 'geekblue' },
+  profile: { label: '资料', color: 'gold' },
+  child: { label: '孩子档案', color: 'orange' },
+  collection: { label: '合集', color: 'cyan' },
+  review_note: { label: '审核评语', color: 'magenta' },
+  file: { label: '媒体', color: 'default' },
+};
 // 订阅消息模板（业务事件 → 模板ID → 展示名）
 const SUB_TMPL_NAMES = {
   '91HSfOQSSVKHPwT2oNM4NdGuKe9Gw1uY0VkLf_nyJ9I': '审核结果通知',
@@ -121,6 +152,28 @@ const SUB_EVENT_MAP = {
   review_reject: { label: '审核驳回', color: 'error' },
   checkin_remind: { label: '打卡提醒', color: 'processing' },
 };
+// 系统通知（站内信，与订阅消息隔离）：类型 / 目标角色 / 状态
+const NOTIFY_TYPE_MAP = {
+  checkin_approved: { label: '打卡审核通过', color: 'success' },
+  checkin_rejected: { label: '打卡审核不通过', color: 'error' },
+  content_violation: { label: '内容违规', color: 'error' },
+  checkin_submitted: { label: '新打卡待审核', color: 'processing' },
+  task_assigned: { label: '新任务派发', color: 'blue' },
+  task_done: { label: '任务完成', color: 'success' },
+};
+const NOTIFY_TYPE_OPTIONS = Object.entries(NOTIFY_TYPE_MAP).map(([value, m]) => ({ value, label: m.label }));
+const NOTIFY_ROLE_MAP = {
+  student: { label: '学生', color: 'blue' },
+  parent: { label: '主家长', color: 'green' },
+  family: { label: '家属', color: 'orange' },
+  admin: { label: '管理员', color: 'purple' },
+};
+const NOTIFY_ROLE_OPTIONS = [
+  { value: 'student', label: '学生' },
+  { value: 'parent', label: '主家长' },
+  { value: 'family', label: '家属' },
+];
+const NOTIFY_PLACEHOLDER_TIP = '可用占位符：{taskTitle} 任务标题 / {childName} 孩子昵称 / {studentName} 学生昵称 / {score} 积分 / {note} 审核意见 / {checkinDate} 打卡日期 / {assignerName} 布置人昵称 / {bizName} 业务类型（任务/打卡）';
 const EVENT_TYPE_MAP2 = {
   login: { label: '登录', color: 'purple' },
   page_view: { label: '页面访问', color: 'blue' },
@@ -184,9 +237,9 @@ const LOCK_DURATION_OPTIONS = [
   { value: 720, label: '30 天' },
 ];
 const GENDER_MAP = {
-  0: { label: '未知', color: 'default' },
-  1: { label: '男', color: 'blue' },
-  2: { label: '女', color: 'magenta' },
+  0: { label: '保密', color: 'default' },
+  1: { label: '男生', color: 'blue' },
+  2: { label: '女生', color: 'magenta' },
 };
 // 年级中文（孩子档案展示：四（6））
 const GRADE_CN = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
@@ -798,7 +851,7 @@ export const MODULES = {
               rules: [{ required: true, message: '请选择学生账号' }],
             },
             { name: 'child_name', label: '孩子姓名（留空取学生昵称）', type: 'text', span: 12, placeholder: '选填' },
-            { name: 'gender', label: '性别', type: 'select', options: [{ value: 0, label: '未知' }, { value: 1, label: '男' }, { value: 2, label: '女' }], span: 12 },
+            { name: 'gender', label: '性别', type: 'select', options: [{ value: 0, label: '保密' }, { value: 1, label: '男生' }, { value: 2, label: '女生' }], span: 12 },
             { name: 'grade', label: '年级', type: 'select', options: [1, 2, 3, 4, 5, 6].map(g => ({ value: g, label: `${g}年级` })), span: 12, allowClear: true },
             { name: 'class_no', label: '班级', type: 'select', options: Array.from({ length: 35 }, (_, i) => ({ value: i + 1, label: `${i + 1}班` })), span: 12, allowClear: true },
             { name: 'school_name', label: '学校名称', type: 'text', span: 12, placeholder: '选填' },
@@ -988,9 +1041,9 @@ export const MODULES = {
     searchable: ['app_id', 'app_name'],
     searchKey: 'app_name',
     // 密钥明文存表（AppSecret/JWT密钥），列表与详情不展示，仅在编辑表单填写；编辑留空保持原值
-    // 编辑表单分左右布局：左侧基础信息（应用身份/服务域名/提醒规则），右侧安全凭证与订阅（密钥/模板/说明）
+    // 编辑表单统一两列网格布局：基础信息 → 服务与提醒 → 安全凭证与订阅，各区域字段 span 对齐
     formColumns: 2,
-    modalWidth: 920,
+    modalWidth: 860,
     columns: [
       { title: '应用ID', dataIndex: 'app_id', key: 'app_id', width: 150, render: (v) => <PlainText value={v} maxWidth={140} /> },
       { title: '名称', dataIndex: 'app_name', key: 'app_name', width: 120 },
@@ -1016,7 +1069,7 @@ export const MODULES = {
       { name: 'created_at', label: '创建时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
-    // 左侧：基础信息
+    // 两列网格：基础信息 + 服务与提醒 + 安全凭证与订阅
     formFields: [
       { name: 'app_id', label: '应用ID（如 miniprogram-kxm）', type: 'text', rules: [{ required: true }], placeholder: '应用ID不可重复', span: 12 },
       { name: 'app_name', label: '名称', type: 'text', rules: [{ required: true }], span: 12 },
@@ -1026,12 +1079,12 @@ export const MODULES = {
       { name: 'reminder_window', label: '打卡提醒窗口', type: 'text', placeholder: '默认 18:00-22:00', span: 8 },
       { name: 'reminder_days', label: '打卡提醒提前天数', type: 'number', placeholder: '默认 3', span: 8 },
       { name: 'reminder_overdue_days', label: '逾期提醒回溯天数', type: 'number', placeholder: '默认 7', span: 8 },
-      // 右侧：安全凭证与订阅
-      { name: 'app_secret', label: 'AppSecret（code2session）', type: 'password', placeholder: '编辑留空则保持原值', side: 'right', span: 24 },
-      { name: 'jwt_secret', label: 'JWT 签名密钥', type: 'password', placeholder: '编辑留空则保持原值', side: 'right', span: 24 },
-      { name: 'jwt_expires', label: 'JWT 有效期', type: 'text', placeholder: '如 7d', side: 'right', span: 24 },
-      { name: 'subscribe_tmpl_ids', label: '订阅消息模板ID（逗号分隔）', type: 'textarea', placeholder: '如 审核结果通知模板,打卡提醒模板（小程序端「增加订阅次数」会订阅这些模板）', side: 'right', span: 24 },
-      { name: 'app_desc', label: '说明', type: 'textarea', side: 'right', span: 24 },
+      { name: 'app_secret', label: 'AppSecret（code2session）', type: 'password', placeholder: '编辑留空则保持原值', span: 12 },
+      { name: 'jwt_secret', label: 'JWT 签名密钥', type: 'password', placeholder: '编辑留空则保持原值', span: 12 },
+      { name: 'jwt_expires', label: 'JWT 有效期', type: 'text', placeholder: '如 7d', span: 12 },
+      { name: 'subscribe_tmpl_ids', label: '订阅消息模板ID（逗号分隔）', type: 'text', placeholder: '如 审核结果通知模板ID,打卡提醒模板ID', span: 12 },
+      { name: 'content_security', label: '内容安全配置（JSON）', type: 'textarea', placeholder: '{"enabled":true,"scene":2}', span: 24, tip: 'enabled：true=开启内容安全检测（false/留空=关闭，业务不受影响）；scene：检测场景 1资料/2评论/3论坛/4社交日志。非法 JSON 一律视为关闭（fail-safe）' },
+      { name: 'app_desc', label: '说明', type: 'textarea', span: 24 },
     ],
   },
 
@@ -1128,6 +1181,105 @@ export const MODULES = {
       { name: 'errcode', label: '微信 errcode' },
       { name: 'errmsg', label: 'errmsg', type: 'longText', span: 2 },
       { name: 'credit_consumed', label: '消耗次数', type: 'bool', yes: '是', no: '否' },
+      { name: 'created_at', label: '发送时间', type: 'date' },
+    ],
+    formFields: [],
+  },
+
+  // 系统通知模板（站内信，与订阅消息隔离）：类型 × 角色，占位符模板，管理员可改
+  notify_templates: {
+    biz: 'notify_templates',
+    title: '通知模板',
+    entityName: '通知模板',
+    searchable: ['name', 'code'],
+    searchKey: 'name',
+    createDefaults: { enabled: 1, sort: 0 },
+    tableScroll: { x: 980 },
+    // 操作列适当加宽，元素居中（CommonCrud 操作列已统一 align:center）
+    opWidthExtra: 40,
+    filters: [
+      { name: 'code', label: '类型', options: NOTIFY_TYPE_OPTIONS },
+      { name: 'target_role', label: '目标角色', options: NOTIFY_ROLE_OPTIONS },
+      { name: 'enabled', label: '状态', options: [
+        { value: 1, label: '启用' },
+        { value: 0, label: '停用' },
+      ] },
+    ],
+    columns: [
+      { title: 'ID', dataIndex: 'template_id', key: 'template_id', width: 90 },
+      { title: '类型', dataIndex: 'code', key: 'code', width: 150, render: (v) => <StatusTag value={v} map={NOTIFY_TYPE_MAP} /> },
+      { title: '目标角色', dataIndex: 'target_role', key: 'target_role', width: 90, render: (v) => <StatusTag value={v} map={NOTIFY_ROLE_MAP} /> },
+      { title: '标题模板', dataIndex: 'title_tmpl', key: 'title_tmpl', width: 170, render: (v) => <PlainText value={v} maxWidth={160} /> },
+      { title: '正文模板', dataIndex: 'content_tmpl', key: 'content_tmpl', width: 320, render: (v) => <PlainText value={v} maxWidth={310} /> },
+      { title: '状态', dataIndex: 'enabled', key: 'enabled', width: 80, render: (v) => (Number(v) === 1 ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>) },
+      { title: '排序', dataIndex: 'sort', key: 'sort', width: 70 },
+      { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'template_id', label: '模板ID' },
+      { name: 'name', label: '模板名称' },
+      { name: 'code', label: '类型', type: 'tag', map: NOTIFY_TYPE_MAP },
+      { name: 'target_role', label: '目标角色', type: 'tag', map: NOTIFY_ROLE_MAP },
+      { name: 'title_tmpl', label: '标题模板', type: 'longText', span: 2 },
+      { name: 'content_tmpl', label: '正文模板', type: 'longText', span: 2 },
+      { name: 'enabled', label: '状态', type: 'bool', yes: '启用', no: '停用' },
+      { name: 'sort', label: '排序' },
+      { name: 'updated_at', label: '更新时间', type: 'date' },
+    ],
+    formFields: [
+      { name: 'name', label: '模板名称', rules: [{ required: true, message: '请输入模板名称' }] },
+      { name: 'code', label: '通知类型', type: 'select', options: NOTIFY_TYPE_OPTIONS, rules: [{ required: true, message: '请选择通知类型' }] },
+      { name: 'target_role', label: '目标角色', type: 'select', options: NOTIFY_ROLE_OPTIONS, rules: [{ required: true, message: '请选择目标角色' }] },
+      { name: 'title_tmpl', label: '标题模板', type: 'textarea', tip: NOTIFY_PLACEHOLDER_TIP },
+      { name: 'content_tmpl', label: '正文模板', type: 'textarea', tip: NOTIFY_PLACEHOLDER_TIP },
+      { name: 'enabled', label: '状态', type: 'select', options: [
+        { value: 1, label: '启用' },
+        { value: 0, label: '停用' },
+      ] },
+      { name: 'sort', label: '排序', type: 'number' },
+    ],
+  },
+
+  // 系统通知发送记录（站内信，只读审计）：谁收到什么通知、是否已读
+  notifications: {
+    biz: 'notifications',
+    title: '系统通知',
+    entityName: '系统通知',
+    searchable: ['title', 'content'],
+    searchKey: 'title',
+    readonly: true,
+    defaultDays: 7,
+    tableScroll: { x: 1120 },
+    filters: [
+      { name: 'type', label: '类型', options: NOTIFY_TYPE_OPTIONS },
+      { name: 'role', label: '接收角色', options: NOTIFY_ROLE_OPTIONS },
+      { name: 'is_read', label: '状态', options: [
+        { value: 0, label: '未读' },
+        { value: 1, label: '已读' },
+      ] },
+    ],
+    columns: [
+      { title: 'ID', dataIndex: 'notify_id', key: 'notify_id', width: 110 },
+      { title: '接收人', dataIndex: 'staff_id', key: 'staff_id', width: 140, render: (v, r) => <StaffCell staffId={v} nickname={r._recipientNickname} /> },
+      { title: '角色', dataIndex: 'role', key: 'role', width: 80, render: (v) => <StatusTag value={v} map={NOTIFY_ROLE_MAP} /> },
+      { title: '类型', dataIndex: 'type', key: 'type', width: 150, render: (v) => <StatusTag value={v} map={NOTIFY_TYPE_MAP} /> },
+      { title: '标题', dataIndex: 'title', key: 'title', width: 160, render: (v) => <PlainText value={v} maxWidth={150} /> },
+      { title: '内容', dataIndex: 'content', key: 'content', width: 320, render: (v) => <PlainText value={v} maxWidth={310} /> },
+      { title: '已读', dataIndex: 'is_read', key: 'is_read', width: 70, render: (v) => (Number(v) === 1 ? <Tag>已读</Tag> : <Tag color="processing">未读</Tag>) },
+      { title: '发送时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'notify_id', label: '通知ID' },
+      { name: 'staff_id', label: '接收人账号ID' },
+      { name: '_recipientNickname', label: '接收人昵称' },
+      { name: 'role', label: '接收角色', type: 'tag', map: NOTIFY_ROLE_MAP },
+      { name: 'type', label: '类型', type: 'tag', map: NOTIFY_TYPE_MAP },
+      { name: 'title', label: '标题', type: 'longText', span: 2 },
+      { name: 'content', label: '内容', type: 'longText', span: 2 },
+      { name: 'biz_type', label: '业务类型' },
+      { name: 'biz_id', label: '业务ID' },
+      { name: 'is_read', label: '状态', type: 'bool', yes: '已读', no: '未读' },
+      { name: 'read_at', label: '已读时间', type: 'date' },
       { name: 'created_at', label: '发送时间', type: 'date' },
     ],
     formFields: [],
@@ -1369,6 +1521,7 @@ export const MODULES = {
       { name: 'subject', label: '科目', optionsSource: 'dict_items', optionsParams: { dict_code: 'subject' }, optionsMap: { value: 'item_value', label: 'item_label' } },
       { name: 'collection_id', label: '合集', type: 'collection' },
       { name: 'source', label: '发布来源', options: TASK_SOURCE_OPTIONS },
+      { name: 'risk_status', label: '内容安全', options: RISK_STATUS_OPTIONS },
     ],
     columns: [
       { title: '任务ID', dataIndex: 'task_id', key: 'task_id', width: 60, render: (v) => <PlainText value={v} maxWidth={55} /> },
@@ -1383,6 +1536,7 @@ export const MODULES = {
       ) },
       { title: '描述', dataIndex: 'description', key: 'description', width: 220, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '任务状态', dataIndex: 'task_status', key: 'task_status', listSlot: 'content', width: 170, render: (_, r) => renderTaskStatus(_, r, true) },
+      { title: '内容安全', dataIndex: 'risk_status', key: 'risk_status', width: 90, render: (v) => <StatusTag value={v} map={RISK_STATUS_MAP} /> },
       { title: '打卡方式', dataIndex: 'checkin_type', key: 'checkin_type', width: 90, render: (v) => <StatusTag value={v} map={CHECKIN_TYPE_MAP} /> },
       { title: '发布来源', dataIndex: 'source', key: 'source', width: 100, render: (v) => <StatusTag value={v} map={TASK_SOURCE_MAP} /> },
       { title: '派发人员', dataIndex: 'assignee_names', key: 'assignee_names', width: 120, render: (v, r) => <AssigneeTags names={r.assignee_names} /> },
@@ -1393,6 +1547,7 @@ export const MODULES = {
       { name: 'task_id', label: '任务ID', type: 'text' },
       { name: 'title', label: '任务标题', span: 2 },
       { name: 'task_status', label: '任务状态', type: 'tag', map: TASK_STATUS_MAP },
+      { name: 'risk_status', label: '内容安全', type: 'tag', map: RISK_STATUS_MAP },
       { name: 'checkin_type', label: '打卡方式', type: 'tag', map: CHECKIN_TYPE_MAP },
       { name: 'source', label: '发布来源', type: 'tag', map: TASK_SOURCE_MAP },
       { name: 'score', label: '任务评分', type: 'scoreRate' },
@@ -1453,12 +1608,14 @@ export const MODULES = {
     filters: [
       { name: 'checkin_date', label: '打卡日期', type: 'date' },
       { name: 'source', label: '打卡来源', options: TASK_SOURCE_OPTIONS },
+      { name: 'risk_status', label: '内容安全', options: RISK_STATUS_OPTIONS },
     ],
     columns: [
       { title: 'ID', dataIndex: 'checkin_id', key: 'checkin_id', width: 80 },
       { title: '任务ID', dataIndex: 'task_id', key: 'task_id', width: 60, render: (v) => <PlainText value={v} maxWidth={55} /> },
       { title: '任务标题', dataIndex: 'task_title', key: 'task_title', width: 160, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '任务状态', dataIndex: 'task_status', key: 'task_status', listSlot: 'content', width: 170, render: renderTaskStatus },
+      { title: '内容安全', dataIndex: 'risk_status', key: 'risk_status', width: 90, render: (v) => <StatusTag value={v} map={RISK_STATUS_MAP} /> },
       { title: '打卡方式', dataIndex: 'checkin_type', key: 'checkin_type', width: 90, render: (v) => <StatusTag value={v} map={CHECKIN_TYPE_MAP} /> },
       { title: '打卡来源', dataIndex: 'source', key: 'source', width: 100, render: (v) => <StatusTag value={v} map={TASK_SOURCE_MAP} /> },
       { title: '语音', dataIndex: 'voice_url', key: 'voice_url', width: 90, render: (v) => (v ? <AudioPlayer value={v} /> : <EmptyText />) },
@@ -1472,6 +1629,7 @@ export const MODULES = {
       { name: 'task_id', label: '任务ID', type: 'text' },
       { name: 'task_title', label: '任务标题', span: 2 },
       { name: 'task_status', label: '任务状态', type: 'tag', map: TASK_STATUS_MAP },
+      { name: 'risk_status', label: '内容安全', type: 'tag', map: RISK_STATUS_MAP },
       { name: 'checkin_date', label: '打卡日期', type: 'dateOnly' },
       { name: 'checkin_type', label: '打卡方式', type: 'tag', map: CHECKIN_TYPE_MAP },
       { name: 'source', label: '打卡来源', type: 'tag', map: TASK_SOURCE_MAP },
@@ -1703,5 +1861,73 @@ export const MODULES = {
       { name: 'step', label: '步长', type: 'number', span: 12, placeholder: '步长' },
       { name: 'batch', label: '号段大小', type: 'number', span: 12, placeholder: '号段大小（每次领取的 ID 数量）' },
     ],
+  },
+
+  // 内容安全审核记录（只读：微信官方接口机器检测结果旁路表，业务表零改动）
+  content_audits: {
+    biz: 'content_audits',
+    title: '内容安全',
+    entityName: '审核记录',
+    searchable: ['content', 'biz_id'],
+    searchKey: 'content',
+    readonly: true,
+    // 日志类：默认只查最近 7 天，过滤栏可切换其他时间范围
+    defaultDays: 7,
+    tableScroll: { x: 1080 },
+    // 详情抽屉：简单字段 3 列并排，媒体/详情等长字段底部独占整行
+    drawerColumns: 3,
+    drawerWidth: 1000,
+    // 操作列居中（CommonCrud 操作列统一 align:center）
+    filters: [
+      { name: 'status', label: '检测状态', options: [
+        { value: 'pending', label: '检测中' },
+        { value: 'pass', label: '通过' },
+        { value: 'reject', label: '命中违规' },
+        { value: 'risk', label: '疑似' },
+        { value: 'skip', label: '跳过' },
+      ] },
+      { name: 'media_type', label: '内容类型', options: AUDIT_MEDIA_OPTIONS },
+      { name: 'biz_type', label: '业务', options: [
+        { value: 'task', label: '任务' },
+        { value: 'checkin', label: '打卡' },
+        { value: 'profile', label: '资料' },
+        { value: 'child', label: '孩子档案' },
+        { value: 'collection', label: '合集' },
+        { value: 'review_note', label: '审核评语' },
+        { value: 'file', label: '媒体' },
+      ] },
+    ],
+    columns: [
+      { title: '审核ID', dataIndex: 'audit_id', key: 'audit_id', width: 90 },
+      { title: '业务', dataIndex: 'biz_type', key: 'biz_type', width: 84, render: (v) => <StatusTag value={v} map={AUDIT_BIZ_MAP} /> },
+      { title: '业务ID', dataIndex: 'biz_id', key: 'biz_id', width: 130, render: (v) => <PlainText value={v} maxWidth={120} /> },
+      { title: '字段', dataIndex: 'field', key: 'field', width: 100, render: (v) => <PlainText value={v || '-'} maxWidth={90} /> },
+      { title: '类型', dataIndex: 'media_type', key: 'media_type', width: 64, render: (v) => <StatusTag value={String(v)} map={AUDIT_MEDIA_MAP} /> },
+      { title: '媒体预览', dataIndex: 'content', key: 'content', width: 76, align: 'center', render: (v, r) => <ContentMediaPreview record={r} size={52} /> },
+      { title: '状态', dataIndex: 'status', key: 'status', width: 84, render: (v) => <StatusTag value={v} map={AUDIT_STATUS_MAP} /> },
+      { title: '详情', dataIndex: 'detail', key: 'detail', width: 120, render: (v) => <PlainText value={v || ''} maxWidth={110} /> },
+      { title: '耗时', dataIndex: '_duration', key: '_duration', width: 80, render: (_, r) => <DurationText from={r.enqueued_at} to={r.detected_at} /> },
+      { title: '入队时间', dataIndex: 'enqueued_at', key: 'enqueued_at', width: 150 },
+      { title: '检测时间', dataIndex: 'detected_at', key: 'detected_at', width: 150, render: (v) => <PlainText value={v || '-'} maxWidth={140} /> },
+    ],
+    detailFields: [
+      { name: 'audit_id', label: '审核ID' },
+      { name: 'biz_type', label: '业务', type: 'tag', map: AUDIT_BIZ_MAP },
+      { name: 'biz_id', label: '业务ID', type: 'text' },
+      { name: 'field', label: '字段（title/description/checkin_note...）' },
+      { name: 'media_type', label: '内容类型', type: 'tag', map: AUDIT_MEDIA_MAP },
+      { name: 'status', label: '检测状态', type: 'tag', map: AUDIT_STATUS_MAP },
+      { name: 'audit_duration', label: '审核耗时', type: 'duration', from: 'enqueued_at', to: 'detected_at' },
+      { name: 'openid', label: '提交用户 openid', type: 'text', span: 2 },
+      { name: 'retries', label: '重试/轮询次数' },
+      { name: 'content', label: '媒体内容', type: 'mediaPreview', span: 3 },
+      { name: 'content', label: '原始内容 / 媒体路径', type: 'longText', span: 3 },
+      { name: 'detail', label: '检测详情', type: 'longText', span: 3 },
+      { name: 'wx_raw', label: '微信接口原始返回', type: 'json', span: 3 },
+      { name: 'trace_id', label: '微信 trace_id', type: 'text', span: 3 },
+      { name: 'enqueued_at', label: '入队时间', type: 'date' },
+      { name: 'detected_at', label: '检测完成', type: 'date' },
+    ],
+    formFields: [],
   },
 };

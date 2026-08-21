@@ -1,20 +1,41 @@
 // pages/settings/settings.js
-// 设置：后台账号（仅主家长）/ 订阅消息 / 身份 PIN（家长自选保护）/ 重新绑定
-const { getRole, lpAuth } = require('../../utils/api');
+// 设置：后台账号（仅主家长）/ 订阅消息 / 系统通知 / 身份 PIN（家长自选保护）/ 重新绑定
+const { getRole, lpAuth, lp } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     isParent: false,
     pinEnabled: false,   // 当前家长身份是否已开 PIN
+    notifyUnread: 0,     // 系统通知未读数（设置页角标）
   },
 
   onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     const role = getRole();
     const isParent = role === 'parent' || role === 'admin';
     this.setData({ isParent });
     if (isParent) this._loadPinState();
+    this._loadNotifyUnread();
     trackEvent('page_view', '设置');
+  },
+
+  // 系统通知未读数（站内信角标；失败静默置 0，不影响页面）
+  async _loadNotifyUnread() {
+    try {
+      const res = await lp.notificationsUnread();
+      this.setData({ notifyUnread: Number((res && res.count) || 0) });
+    } catch (_) {
+      this.setData({ notifyUnread: 0 });
+    }
+  },
+
+  // 系统通知（站内信列表：查看即已读）
+  goNotifications() {
+    trackEvent('menu_click', '设置-系统通知');
+    wx.navigateTo({ url: '/pkg-mine/notifications/notifications' });
   },
 
   // 查询当前身份的 PIN 状态（t_staff.pin_hash 是否已设置）
@@ -36,6 +57,12 @@ Page({
   goSubscribe() {
     trackEvent('menu_click', '设置-订阅消息');
     wx.navigateTo({ url: '/pkg-mine/subscribe/subscribe' });
+  },
+
+  // 家属共享（仅主家长）
+  goShares() {
+    trackEvent('menu_click', '设置-家属共享');
+    wx.navigateTo({ url: '/pkg-family/shares/shares' });
   },
 
   // 身份 PIN：开启 / 修改 / 关闭（家长自选保护，防止孩子切换家长模式）

@@ -6,76 +6,106 @@
 .child-card {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   background: #ffffff;
-  border-radius: 20rpx;
-  padding: 28rpx 32rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 4rpx 16rpx rgba(31, 35, 41, 0.06);
   border: 2rpx solid transparent;
 }
-/* 默认已由性别后的 tag 提示，平时无边框；仅按中/选中时显示边框 */
+/* 默认孩子卡片：蓝色描边 + 淡蓝背景，突出当前默认 */
 .child-card:active {
-  background: #f7f8fa;
+  background: #f7f9fc;
   border-color: #2b6de0;
 }
-.child-arrow {
-  flex-shrink: 0;
-  margin-left: 12rpx;
-  color: #c0c6cf;
-  font-size: 32rpx;
-}
 .child-avatar {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 50%;
+  width: 108rpx;
+  height: 108rpx;
+  border-radius: 28rpx;
   background: linear-gradient(135deg, #4facfe 0%, #2b6de0 100%);
   color: #ffffff;
-  font-size: 40rpx;
-  font-weight: 600;
+  font-size: 48rpx;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 6rpx 16rpx rgba(43, 109, 224, 0.28);
 }
 .child-main {
   flex: 1;
-  margin-left: 24rpx;
+  margin-left: 28rpx;
   min-width: 0;
 }
 .child-name-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
 }
 .child-name {
-  font-size: 32rpx;
-  font-weight: 600;
+  font-size: 34rpx;
+  font-weight: 700;
   color: #1f2329;
 }
 .child-gender {
-  margin-left: 12rpx;
+  margin-left: 14rpx;
   font-size: 22rpx;
   color: #8a919f;
   background: #f0f2f5;
   border-radius: 8rpx;
-  padding: 4rpx 12rpx;
+  padding: 4rpx 14rpx;
 }
 .child-tag-default {
-  margin-left: 12rpx;
+  margin-left: 14rpx;
   font-size: 22rpx;
   color: #2b6de0;
   background: #e6f4ff;
   border-radius: 8rpx;
-  padding: 4rpx 12rpx;
+  padding: 4rpx 14rpx;
   font-weight: 600;
 }
-.child-meta {
-  margin-top: 8rpx;
-  font-size: 24rpx;
+.child-info {
+  margin-top: 20rpx;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 16rpx;
+}
+.child-info-item {
+  width: 50%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.child-info-label {
+  flex-shrink: 0;
+  font-size: 22rpx;
   color: #8a919f;
+  margin-right: 12rpx;
+}
+.child-info-value {
+  font-size: 24rpx;
+  color: #1f2329;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.child-info-value--code {
+  color: #2b6de0;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+.child-right {
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  display: flex;
+  align-items: center;
+  align-self: center;
+}
+.child-arrow {
+  color: #c0c6cf;
+  font-size: 44rpx;
+  font-weight: 700;
 }
 .foot {
   margin-top: 24rpx;

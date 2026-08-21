@@ -4,23 +4,51 @@
 
 /* ==================== 顶部提示 ==================== */
 .todo-tip {
-  background: #ffffff;
+  background: linear-gradient(135deg, #2b6de0, #5a8cff);
   border-radius: 20rpx;
   padding: 28rpx 32rpx;
   margin-bottom: 24rpx;
-  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  box-shadow: 0 8rpx 24rpx rgba(43, 109, 224, 0.28);
+  color: #ffffff;
+}
+.todo-tip-head {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
 }
 .todo-tip-title {
-  display: block;
-  font-size: 30rpx;
+  font-size: 34rpx;
   font-weight: 700;
-  color: #1f2329;
 }
-.todo-tip-desc {
+.todo-tip-sub {
   display: block;
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #8a919f;
+  opacity: 0.9;
+}
+.todo-stats {
+  margin-top: 24rpx;
+  display: flex;
+  gap: 16rpx;
+}
+.todo-stat {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 16rpx;
+  padding: 20rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+}
+.todo-stat-num {
+  font-size: 40rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+.todo-stat-label {
+  font-size: 22rpx;
+  opacity: 0.9;
 }
 
 /* ==================== 学生待办卡片 ==================== */
@@ -150,6 +178,15 @@
   background: #f9f0ff;
   margin-right: 8rpx;
 }
+.review-badge.sec-warning {
+  color: #d46b08;
+  background: #fff7e6;
+}
+.review-badge.sec-danger {
+  color: #f6685d;
+  background: #fdeeed;
+  margin-right: 8rpx;
+}
 .review-task {
   margin-top: 18rpx;
   display: flex;
@@ -207,6 +244,45 @@
   height: 152rpx;
   border-radius: 12rpx;
   background: #f0f1f3;
+}
+/* 审核页图片：内容安全检测中 → 磨砂加锁（布局不变，仅视觉处理） */
+.review-img-wrap {
+  position: relative;
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+  background: #f0f1f3;
+}
+.review-img-wrap .review-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.review-img--locked {
+  filter: blur(12rpx);
+  transform: scale(1.02);
+}
+.review-img-lock {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  background: rgba(246, 246, 248, 0.32);
+}
+.review-img-lock-icon { font-size: 32rpx; line-height: 1; }
+.review-img-lock-text {
+  font-size: 18rpx;
+  color: #6b7280;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
 }
 .review-actions {
   margin-top: 20rpx;

@@ -35,6 +35,7 @@
         "settings/settings",
         "backend-account/backend-account",
         "subscribe/subscribe",
+        "notifications/notifications",
         "badges/badges",
         "collections/collections",
         "profile-edit/profile-edit"

@@ -8,6 +8,7 @@ const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', s
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     nickname: '',
     avatarChar: '学',
     avatarUrl: '',
@@ -18,15 +19,18 @@ Page({
     role: 'student',
     roleText: '孩子',
     isAdmin: false,
-    isParent: false,    // 主家长（可维护孩子档案/共享）
     isManager: false,   // 家长/家属/管理员（可审核）
     stats: { totalTasks: 0, totalCheckins: 0 },
     level: null,
     streak: { current: 0 },
     identities: [],       // 共用微信多身份（家长 + 孩子 + 家属）
+    notifyUnread: 0,      // 系统通知未读数（菜单徽标）
   },
 
   async onShow() {
+    // 每次展示页面滚动区复位到顶部（新打开的页面不受上一页面滚动位置影响）
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     const app = getApp();
     if (app && app.lpReady) {
       try { await app.lpReady; } catch (_) {}
@@ -43,7 +47,6 @@ Page({
       role,
       roleText: ROLE_TEXT[role] || '孩子',
       isAdmin: role === 'admin',
-      isParent: role === 'parent' || role === 'admin',
       isManager: ['admin', 'parent', 'family'].includes(role),
     });
     this._load();
@@ -87,6 +90,23 @@ Page({
       return;
     }
     wx.hideLoading();
+    this._loadNotifyUnread();
+  },
+
+  // 系统通知未读数（菜单徽标；失败静默置 0，不影响主加载）
+  async _loadNotifyUnread() {
+    try {
+      const res = await lp.notificationsUnread();
+      this.setData({ notifyUnread: Number((res && res.count) || 0) });
+    } catch (_) {
+      this.setData({ notifyUnread: 0 });
+    }
+  },
+
+  // 系统通知入口
+  goNotifications() {
+    trackEvent('menu_click', '点击系统通知');
+    wx.navigateTo({ url: '/pkg-mine/notifications/notifications' });
   },
 
   // 去身份切换页（独立一级菜单：切换子菜单 + 提示文案）
@@ -112,13 +132,7 @@ Page({
     wx.navigateTo({ url: '/pkg-family/children/children' });
   },
 
-  // 家属共享（仅主家长）
-  goShares() {
-    trackEvent('menu_click', '点击家属共享');
-    wx.navigateTo({ url: '/pkg-family/shares/shares' });
-  },
-
-  // 设置（后台账号 / 订阅消息 / 解除绑定）
+  // 设置（后台账号 / 家属共享 / 订阅消息 / 解除绑定）
   goSettings() {
     trackEvent('menu_click', '点击设置');
     wx.navigateTo({ url: '/pkg-mine/settings/settings' });

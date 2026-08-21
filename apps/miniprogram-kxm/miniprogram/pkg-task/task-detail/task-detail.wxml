@@ -8,7 +8,7 @@
       placeholder="{{true}}"
     />
   </view>
-  <scroll-view scroll-y class="lp-scroll">
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
     <view class="page">
   <empty wx:if="{{!task}}" icon="📭" title="暂无任务数据" />
 
@@ -26,6 +26,7 @@
       <view class="meta">
         <t-tag wx:if="{{task.subject}}" class="tag-gap" size="small" variant="light" theme="primary">{{task.subject}}</t-tag>
         <t-tag wx:if="{{task.collection_name}}" class="tag-gap" size="small" variant="outline" theme="default">{{task.collection_name}}</t-tag>
+        <t-tag wx:if="{{taskSecBadge}}" class="tag-gap" size="small" variant="light" theme="{{taskSecTagTheme}}">{{taskSecBadge}}</t-tag>
         <t-tag wx:if="{{checkinType === 'voice'}}" class="tag-gap" size="small" variant="light" theme="warning">语音打卡</t-tag>
         <t-tag wx:elif="{{checkinType === 'video'}}" class="tag-gap" size="small" variant="light" theme="primary">视频打卡</t-tag>
         <t-tag wx:elif="{{checkinType === 'image'}}" class="tag-gap" size="small" variant="outline" theme="default">图文打卡</t-tag>
@@ -40,7 +41,13 @@
         <t-tag wx:for="{{task.tags}}" wx:key="index" class="tag-gap" size="small" variant="outline" theme="default">#{{item}}</t-tag>
       </view>
       <view wx:if="{{images.length}}" class="imgs">
-        <image wx:for="{{images}}" wx:key="index" class="img" src="{{item}}" mode="aspectFill" lazy-load bindtap="preview" data-url="{{item}}" />
+        <view wx:for="{{images}}" wx:key="index" class="img-wrap">
+          <image class="img {{taskImageStates[index] === 'reviewing' ? 'img--locked' : ''}}" src="{{item}}" mode="aspectFill" lazy-load bindtap="preview" data-url="{{item}}" data-index="{{index}}" />
+          <view wx:if="{{taskImageStates[index] === 'reviewing'}}" class="img-lock">
+            <view class="img-lock-icon">🔒</view>
+            <view class="img-lock-text">安全审核中</view>
+          </view>
+        </view>
       </view>
       <view wx:if="{{creatorName && createdTime}}" class="created-info">
         <image wx:if="{{creatorAvatar}}" class="creator-avatar" src="{{creatorAvatar}}" mode="aspectFill" />
@@ -77,7 +84,9 @@
           </view>
           <view class="ck-head-right">
             <view class="ck-status" style="color: {{item.reviewColor}}; background: {{item.reviewBg}};">{{item.reviewText}}</view>
+            <view wx:if="{{item.secBadge}}" class="ck-sec-badge" style="color: {{item.secColor}}; background: {{item.secBg}};">{{item.secBadge}}</view>
             <view wx:if="{{item.scoreText}}" class="ck-score">{{item.scoreText}}</view>
+            <view wx:if="{{item.canDelete}}" class="ck-del" bindtap="onDeleteCheckin" data-id="{{item.checkin_id}}"><t-icon name="delete" size="36rpx" /></view>
           </view>
         </view>
 
@@ -94,7 +103,11 @@
         <view wx:elif="{{item.images.length}}" class="ck-media">
           <view class="ck-imgs">
             <view wx:for="{{item.images}}" wx:for-item="img" wx:for-index="i" wx:key="index" class="ck-img-wrap">
-              <image class="ck-img" src="{{img}}" mode="aspectFill" lazy-load data-index="{{i}}" data-cid="{{item.checkin_id}}" bindtap="previewCheckin" />
+              <image class="ck-img {{item.imageStates[i] === 'reviewing' ? 'ck-img--locked' : ''}}" src="{{img}}" mode="aspectFill" lazy-load data-index="{{i}}" data-cid="{{item.checkin_id}}" bindtap="previewCheckin" />
+              <view wx:if="{{item.imageStates[i] === 'reviewing'}}" class="ck-img-lock">
+                <view class="ck-img-lock-icon">🔒</view>
+                <view class="ck-img-lock-text">安全审核中</view>
+              </view>
               <view wx:if="{{i === 3 && item.totalImages > 4}}" class="ck-img-more">+{{item.totalImages - 4}}</view>
             </view>
           </view>
@@ -115,9 +128,6 @@
             <image wx:if="{{item.submitter_avatar}}" class="ck-submitter-avatar" src="{{item.submitter_avatar}}" mode="aspectFill" />
             <view wx:else class="ck-submitter-avatar ck-submitter-avatar--char">{{item.submitter_initial}}</view>
             <text class="ck-time">{{item.submitter_name}} 于 {{item.submitTime}}{{item.sourceText ? ' ' + item.sourceText + '提交' : ' 提交'}}</text>
-          </view>
-          <view class="ck-actions">
-            <text wx:if="{{item.canDelete}}" class="ck-del" bindtap="onDeleteCheckin" data-id="{{item.checkin_id}}">删除</text>
           </view>
         </view>
       </view>

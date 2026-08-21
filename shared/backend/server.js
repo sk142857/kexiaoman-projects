@@ -19,6 +19,7 @@ const { startReminder } = require("./reminder");
 const { traceMiddleware } = require("./trace");
 const { resolveApp, ensureAppInDb } = require("./apps");
 const { normalizeOpenid } = require("./appAuth");
+const { startAuditWorker } = require("./contentSecurity");
 
 const app = express();
 
@@ -141,4 +142,6 @@ app.listen(PORT, () => {
   startMonitor();
   // 打卡提醒定时任务（每天提醒窗口内扫描发送，进程内定时器）
   startReminder();
+  // 内容安全 worker（旁路检测；开关关闭时全链路短路，不影响业务）
+  startAuditWorker();
 });

@@ -10,11 +10,11 @@ const GRADES = [
 ];
 const CLASSES = Array.from({ length: 35 }, (_, i) => ({ value: i + 1, label: `${i + 1}班` }));
 const GENDERS = [
-  { value: 0, label: '未知' },
-  { value: 1, label: '男' },
-  { value: 2, label: '女' },
+  { value: 0, label: '保密' },
+  { value: 1, label: '男生' },
+  { value: 2, label: '女生' },
 ];
-const GENDER_TEXT = { 0: '未知', 1: '男', 2: '女' };
+const GENDER_TEXT = { 0: '保密', 1: '男生', 2: '女生' };
 
 Page({
   data: {

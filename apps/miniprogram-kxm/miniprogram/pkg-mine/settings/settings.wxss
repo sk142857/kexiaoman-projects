@@ -34,6 +34,7 @@
 .menu-icon--green { background: #e6faf4; }
 .menu-icon--rose { background: #fff1f0; }
 .menu-icon--amber { background: #fff7e6; }
+.menu-icon--purple { background: #f5f0ff; }
 .menu-label {
   flex: 1;
   font-size: 28rpx;
@@ -61,6 +62,19 @@
 }
 .identity-status--on {
   color: #2b6de0;
+}
+.notify-badge {
+  flex-shrink: 0;
+  min-width: 36rpx;
+  height: 36rpx;
+  padding: 0 12rpx;
+  border-radius: 18rpx;
+  background: #f53f3f;
+  color: #ffffff;
+  font-size: 22rpx;
+  line-height: 36rpx;
+  text-align: center;
+  margin-right: 12rpx;
 }
 
 .foot {

@@ -7,6 +7,7 @@ const GRADE_CN = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
 
 Page({
   data: {
+    scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     loading: true,
     children: [],
     canManage: false,   // 主家长/管理员：可编辑/邀请码/删除；家属仅查看 + 切换默认
@@ -17,6 +18,8 @@ Page({
   },
 
   onShow() {
+    this.setData({ scrollTop: 1 });
+    wx.nextTick(() => this.setData({ scrollTop: 0 }));
     trackEvent('page_view', '孩子档案');
     this._load();
   },
@@ -27,13 +30,17 @@ Page({
     try {
       const ctx = await family.context();
       const role = ctx.role;
-      const children = (ctx.children || []).map(c => ({
-        ...c,
-        avatarChar: String(c.child_name || '孩').charAt(0),
-        gradeText: GRADE_CN[c.grade] ? `${GRADE_CN[c.grade]}（${c.class_no}）` : (c.grade ? `${c.grade}（${c.class_no}）` : ''),
-        genderText: c.gender === 1 ? '男' : c.gender === 2 ? '女' : '未知',
-        isCurrent: !!c.student_staff_id && String(c.student_staff_id) === String(currentId),
-      }));
+      const children = (ctx.children || []).map((c, idx) => {
+        // 默认值展示逻辑：无显式默认孩子时，首个孩子即为有效默认（与首页展示保持一致）
+        const effectiveCurrent = currentId || ((ctx.children || [])[0] && (ctx.children || [])[0].student_staff_id);
+        return {
+          ...c,
+          avatarChar: String(c.child_name || '孩').charAt(0),
+          gradeText: GRADE_CN[c.grade] ? `${GRADE_CN[c.grade]}（${c.class_no}）` : (c.grade ? `${c.grade}（${c.class_no}）` : ''),
+          genderText: c.gender === 1 ? '男生' : c.gender === 2 ? '女生' : '保密',
+          isCurrent: !!c.student_staff_id && String(c.student_staff_id) === String(effectiveCurrent),
+        };
+      });
       this.setData({ children, canManage: role === 'parent' || role === 'admin', loading: false });
     } catch (e) {
       wx.showToast({ title: e.msg || '加载失败', icon: 'none' });

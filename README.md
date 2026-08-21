@@ -144,12 +144,12 @@
 
 `/dashboard/learning` 支持按学生视角查看：
 
-- **管理员**：默认「全部学生」汇总，可下拉切换到任意单个学生（统计该学生派发+创建的任务与打卡）。
+- **管理员**：默认第一个学生，可下拉切换到任意单个学生（统计该学生派发+创建的任务与打卡）。
 - **家长/家属**：默认第一个孩子，仅能切换**名下孩子**（`lp_children` 关系），越权切换自动回退。
 - **学生**：固定本人。
 - 切换选择存 `localStorage`（`lp_admin_view_student`），刷新后保持。
-- 后端接口：`/api/admin/dashboard/learning?studentId=xxx`（`studentId` 留空=默认视角）；
-  响应含 `students`（可切换列表）与 `viewStudentId`（当前视角，空串=全部）。
+- 后端接口：`/api/admin/dashboard/learning?studentId=xxx`（`studentId` 留空=默认第一个学生）；
+  响应含 `students`（可切换列表）与 `viewStudentId`（当前视角，空串=无可切换学生）。
 
 ## 内容审核机制
 
@@ -159,6 +159,26 @@
 - **待审核记录严禁操作**：打卡被拦截（前后端双重校验），仅允许删除；已驳回的内容可编辑后重新提交，重新进入审核流程。
 - **后台审核**：管理后台「打卡审核」支持按审核状态筛选，提供 **通过 / 驳回** 操作；审核通过后才正常展示。
 - **存量数据**：审核系统上线前已有的记录需执行 `UPDATE ... SET review_status='approved'` 回填（此类数据修复统一以 `upgrade_*.sql` 增量脚本执行，规范见 `shared/backend/sql/README.md`）。
+
+> 上面的「打卡业务审核」是**人工审核**，与下面的「内容安全」是两码事，互不依赖、正交叠加。
+
+## 内容安全（机器检测，旁路管线）
+
+任务/打卡/头像昵称/合集等全部 UGC 的文本与媒体，通过**微信官方内容安全接口**做机器检测，与业务链路完全隔离：
+
+- **业务状态即时回写**：业务表 `t_lp_tasks` / `t_lp_task_checkins` 承载 `risk_status`（`pass` 通过 / `pending` 检测中 / `reject` 违规），worker 检测完成后**立即回写**业务状态；读路径按「`risk_status` && 业务状态（任务状态/打卡审核状态）」双重门槛展示。
+- **判级策略**：仅微信接口 `result.label=100` 视为通过，其余（含疑似 review）一律 `reject` 拦截。
+- **旁路侧表 + 业务归属**：审核记录留痕于 `t_content_audits`（含微信接口原始返回 `wx_raw`）。**媒体审核行在业务创建时重绑归属**：`biz_type` 记录真实业务（`task`/`checkin`），`biz_id` 记录业务记录 ID（任务/打卡 ID），`media_type` 区分文本/图片/音频/视频——上传先登记（未归属），打卡/任务创建时经 `rebindAudit` 归属到具体业务记录。业务表只增 `risk_status` 一列，其余结构零改动。
+- **开关**：`t_apps.content_security` 存 JSON（如 `{"enabled":true,"scene":2}`），关闭 = 全链路短路，接口出参与接入前一致，前端不显示任何安全角标。
+- **覆盖点**：媒体在 `logUpload`（`storage.js`，上传唯一收口）登记时自动入队（图/语音/视频/头像全覆盖）；任务文本在创建/编辑时入队；打卡正文在提交时入队；**昵称/头像、孩子档案（姓名/学校）走写时同步校验**（命中违规直接拒绝修改，检测失败/关闭放行，预检结果落 `t_content_audits` 审计留痕）。
+- **读时门控**：`mergeAudit` 按记录 `risk_status` 派生 `display`（`audit_rejected` 违规全量脱敏 / `audit_reviewing` 检测中内容可见+图片磨砂加锁），前端只渲染、零判断。
+- **审核联动**：`risk_status='reject'` 的打卡不进待审核队列，小程序与后台 Web 的「审核通过」均被拦截（可驳回）。
+- **检测方式**：文本 `msgSecCheck` v2；图片 `imgSecCheck`（≤1MB，sharp 预压）；音频 `mediaCheckAsync`（异步轮询）；视频 ffmpeg 抽 3 帧走图片检测（绕过 20MB 限制）。
+- **媒体压缩路径漂移**：图片/视频后台压缩后 `repointAudit` 把审核记录重指到新路径，结果随文件走、不重复检测。
+
+**部署**：依次执行 `upgrade_037_content_audit.sql`（侧表）、`upgrade_039_content_security_menu.sql`（后台只读菜单）、`upgrade_040_content_audit_raw.sql`（`wx_raw` 列）、`upgrade_041_risk_status.sql`（业务表 `risk_status`），重新部署云托管；worker 启动时自动对账存量 `pending` 记录。后台「系统设置 → 小程序配置」开启 `content_security.enabled` 后，「系统监控 → 内容安全」可查看全部检测记录。
+
+
 
 ## 图片上传
 
