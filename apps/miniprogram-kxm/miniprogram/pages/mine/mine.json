@@ -2,6 +2,7 @@
   "navigationBarTextStyle": "black",
   "disableScroll": true,
   "usingComponents": {
-    "t-navbar": "tdesign-miniprogram/navbar/navbar"
+    "t-navbar": "tdesign-miniprogram/navbar/navbar",
+    "t-badge": "tdesign-miniprogram/badge/badge"
   }
 }

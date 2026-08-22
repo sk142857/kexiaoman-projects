@@ -17,7 +17,7 @@ const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
 const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword } = require("./lpAuth");
 const { logEvent } = require("../events");
-const { invalidateStaffRows } = require("../learningLib");
+const { invalidateStaffRows, cachedStaffRows } = require("../learningLib");
 const { textCheckNow, submitForAudit } = require("../contentSecurity");
 
 const router = express.Router();
@@ -76,41 +76,59 @@ async function childOwned(req, childId, { forWrite = true } = {}) {
   return null;
 }
 
-/** 组装孩子档案返回体（含当前可用的学生邀请码） */
-async function childBrief(child) {
-  const code = await currentInviteForChild(child.child_id);
-  let nickname = "";
-  if (child.student_staff_id) {
-    const s = await staffById(child.student_staff_id).catch(() => null);
-    if (s) nickname = s.staff_nickname || "";
-  }
-  return {
-    child_id: String(child.child_id),
-    student_staff_id: child.student_staff_id ? String(child.student_staff_id) : "",
-    child_name: child.child_name || "",
-    gender: child.gender != null ? Number(child.gender) : 0,
-    birth_date: child.birth_date ? String(child.birth_date).slice(0, 10) : "",
-    school_name: child.school_name || "",
-    grade: child.grade != null ? Number(child.grade) : 0,
-    class_no: child.class_no != null ? Number(child.class_no) : 0,
-    student_nickname: nickname,
-    invite_code: code ? code.invite_code : "",
-    invite_status: code ? code.status : "",
-    invite_id: code ? String(code.invite_id) : "",
-    created_at: child.created_at,
-  };
+/** 批量组装孩子档案返回体（含当前可用的学生邀请码）：一次 IN 取邀请码 + 员工昵称，避免逐孩子 N+1 */
+async function childrenBrief(children) {
+  const list = children || [];
+  if (list.length === 0) return [];
+  const childIds = [...new Set(list.map(c => Number(c.child_id)).filter(Boolean))];
+  const staffIds = [...new Set(list.map(c => Number(c.student_staff_id)).filter(Boolean))];
+
+  const [invRes, staffMap] = await Promise.all([
+    childIds.length > 0
+      ? db.from("lp_invites")
+          .select("invite_id, invite_code, kind, status, child_id, created_at")
+          .eq("kind", "student").in("child_id", childIds)
+          .order("created_at", { ascending: false }).limit(childIds.length * 10)
+      : Promise.resolve({ data: [], error: null }),
+    cachedStaffRows(staffIds),
+  ]);
+  if (invRes.error) throw invRes.error;
+  // 每个孩子：available 优先，否则取最新一条（已按 created_at 倒序）
+  const byChild = {};
+  (invRes.data || []).forEach(r => {
+    const k = String(r.child_id);
+    (byChild[k] = byChild[k] || []).push(r);
+  });
+  Object.keys(byChild).forEach(k => {
+    const rows = byChild[k];
+    byChild[k] = rows.find(r => r.status === "available") || rows[0];
+  });
+
+  return list.map(child => {
+    const code = byChild[String(child.child_id)] || null;
+    const s = child.student_staff_id ? (staffMap[String(child.student_staff_id)] || {}) : {};
+    return {
+      child_id: String(child.child_id),
+      student_staff_id: child.student_staff_id ? String(child.student_staff_id) : "",
+      child_name: child.child_name || "",
+      gender: child.gender != null ? Number(child.gender) : 0,
+      birth_date: child.birth_date ? String(child.birth_date).slice(0, 10) : "",
+      school_name: child.school_name || "",
+      grade: child.grade != null ? Number(child.grade) : 0,
+      class_no: child.class_no != null ? Number(child.class_no) : 0,
+      student_nickname: s.staff_nickname || "",
+      invite_code: code ? code.invite_code : "",
+      invite_status: code ? code.status : "",
+      invite_id: code ? String(code.invite_id) : "",
+      created_at: child.created_at,
+    };
+  });
 }
 
-/** 查某个孩子的当前有效学生邀请码（available 优先，无则返回最新 bound/revoked 记录） */
-async function currentInviteForChild(childId) {
-  if (!childId) return null;
-  const { data, error } = await db.from("lp_invites")
-    .select("invite_id, invite_code, kind, status, created_at")
-    .eq("kind", "student").eq("child_id", Number(childId))
-    .order("created_at", { ascending: false }).limit(10);
-  if (error) throw error;
-  const rows = data || [];
-  return rows.find(r => r.status === "available") || rows[0] || null;
+/** 单个孩子档案（复用批量逻辑） */
+async function childBrief(child) {
+  const arr = await childrenBrief([child]);
+  return arr[0];
 }
 
 // ==================== 我的家庭上下文 ====================
@@ -130,7 +148,7 @@ router.get("/family/context", async (req, res) => {
         .order("created_at", { ascending: true }).limit(100);
       if (error) throw error;
       const staff = await staffById(Number(me(req)));
-      context.children = await Promise.all((data || []).map(childBrief));
+      context.children = await childrenBrief(data || []);
       context.parent_account = staff ? { username: staff.staff_username, nickname: staff.staff_nickname } : null;
     } else if (role === "family") {
       const { data: members, error: mErr } = await db.from("lp_family_members")
@@ -143,13 +161,13 @@ router.get("/family/context", async (req, res) => {
           .order("created_at", { ascending: true }).limit(200);
         if (cErr) throw cErr;
         context.member_of = owners.map(o => String(o));
-        context.children = await Promise.all((children || []).map(childBrief));
+        context.children = await childrenBrief(children || []);
       }
     } else if (role === "admin") {
       const { data, error } = await db.from("lp_children")
         .select().eq("child_status", 1).order("created_at", { ascending: true }).limit(200);
       if (error) throw error;
-      context.children = await Promise.all((data || []).map(childBrief));
+      context.children = await childrenBrief(data || []);
     }
 
     res.json(ok(context));
@@ -392,12 +410,7 @@ router.get("/family/shares", async (req, res) => {
       .order("created_at", { ascending: false }).limit(100);
     if (error) throw error;
     const memberIds = [...new Set((data || []).map(r => r.bound_staff_id).filter(v => v > 0))];
-    const memberMap = {};
-    if (memberIds.length > 0) {
-      const { data: staffs } = await db.from("staff")
-        .select("staff_id, staff_nickname, staff_username").in("staff_id", memberIds).limit(memberIds.length);
-      (staffs || []).forEach(s => { memberMap[String(s.staff_id)] = s; });
-    }
+    const memberMap = await cachedStaffRows(memberIds);
     res.json(ok({
       list: (data || []).map(r => ({
         invite_id: String(r.invite_id),

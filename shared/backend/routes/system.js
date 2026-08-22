@@ -29,7 +29,7 @@ router.post("/clearAll", async (req, res) => {
 router.get("/traceList", async (req, res) => {
   try {
     const { data: rows, error } = await db.from("api_trace")
-      .select()
+      .select("request_id, api_path, api_method, server_cost_ms, server_code, http_status, client_fingerprint, client_cost_ms, start_time, end_time, trace_status, req_params, created_at")
       .eq("openid", req.openid)
       .order("created_at", { ascending: false })
       .limit(50);

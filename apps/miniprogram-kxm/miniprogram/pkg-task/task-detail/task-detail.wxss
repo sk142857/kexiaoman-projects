@@ -74,7 +74,6 @@
   align-items: center;
 }
 .foot-deadline {
-  color: #e37318;
   flex-shrink: 0;
 }
 .imgs {
@@ -118,13 +117,13 @@
   align-items: center;
   justify-content: center;
   gap: 8rpx;
-  background: rgba(246, 246, 248, 0.32);
+  background: rgba(31, 35, 41, 0.45);
 }
-.img-lock-icon { font-size: 40rpx; line-height: 1; }
+.img-lock-icon { font-size: 40rpx; line-height: 1; color: #ffffff; }
 .img-lock-text {
   font-size: 20rpx;
-  color: #6b7280;
-  background: rgba(255, 255, 255, 0.75);
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.35);
   padding: 4rpx 14rpx;
   border-radius: 999rpx;
 }
@@ -281,13 +280,13 @@
   align-items: center;
   justify-content: center;
   gap: 6rpx;
-  background: rgba(246, 246, 248, 0.32);
+  background: rgba(31, 35, 41, 0.45);
 }
-.ck-img-lock-icon { font-size: 34rpx; line-height: 1; }
+.ck-img-lock-icon { font-size: 34rpx; line-height: 1; color: #ffffff; }
 .ck-img-lock-text {
   font-size: 18rpx;
-  color: #6b7280;
-  background: rgba(255, 255, 255, 0.75);
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.35);
   padding: 2rpx 10rpx;
   border-radius: 999rpx;
 }

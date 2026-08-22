@@ -2,6 +2,7 @@
 const { lp, getViewStudent } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 const { secBadgeMeta } = require('../../utils/display');
+const { ensureDict, statusMeta } = require('../../utils/dict');
 
 const STATUS_TABS = [
   { value: '', label: '全部' },
@@ -10,11 +11,6 @@ const STATUS_TABS = [
   { value: 'done', label: '已完成' },
 ];
 
-const STATUS_THEME = {
-  todo: { text: '待完成', color: '#f6685d', bg: '#fdeeed', border: '#fbc6c1' },
-  doing: { text: '进行中', color: '#e37318', bg: '#fdf1e4', border: '#f6cda8' },
-  done: { text: '已完成', color: '#16a87a', bg: '#e6faf4', border: '#b3eedd' },
-};
 const STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
 // 发布来源：web（Web后台）/ miniprogram（小程序）
 const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
@@ -57,7 +53,7 @@ Page({
 
   // 任务行展示层派生（状态/进度/角标/来源），列表与滚动加载复用
   _decorate(t) {
-    const theme = STATUS_THEME[t.task_status] || STATUS_THEME.todo;
+    const meta = statusMeta('task_status', t.task_status);
     const secMeta = secBadgeMeta(t);
     return {
       ...t,
@@ -66,10 +62,9 @@ Page({
       secTagTheme: secMeta ? secMeta.tagTheme : '',
       // 进度为独立字段（后端维护），缺失时按状态兜底（待完成默认 1%）
       progress: t.progress >= 0 ? Number(t.progress) : (STATUS_PROGRESS[t.task_status] || 1),
-      statusText: theme.text,
-      statusColor: theme.color,
-      statusBg: theme.bg,
-      statusBorder: theme.border,
+      statusText: meta.label,
+      statusColor: meta.color,
+      statusStyle: meta.style,
       scoreColor: t.score >= 8 ? '#16a87a' : t.score >= 5 ? '#67c23a' : '#b0b6c0',
       sourceText: SOURCE_TEXT[t.source] || (t.source === 'web' ? 'Web后台' : '小程序'),
     };
@@ -78,6 +73,7 @@ Page({
   async _load(silent, append) {
     if (!silent) wx.showLoading({ title: '加载中', mask: true });
     try {
+      await ensureDict().catch(() => {});
       const tab = STATUS_TABS[this.data.active];
       const page = append ? this.data.page : 1;
       const { list, hasMore } = await lp.tasks({ status: tab.value, page, pageSize: PAGE_SIZE }, getViewStudent());

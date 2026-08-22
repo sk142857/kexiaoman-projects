@@ -3,6 +3,8 @@
   "disableScroll": true,
   "usingComponents": {
     "t-navbar": "tdesign-miniprogram/navbar/navbar",
-    "t-progress": "tdesign-miniprogram/progress/progress"
+    "t-progress": "tdesign-miniprogram/progress/progress",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-tag": "tdesign-miniprogram/tag/tag"
   }
 }

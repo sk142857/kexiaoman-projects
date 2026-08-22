@@ -51,13 +51,14 @@ export const parseImages = (value) => {
 /** 路径数组 → JSON 数组字符串（空数组为 '[]'，供表单/入库使用） */
 export const imagesToJson = (paths) => JSON.stringify(parseImages(paths));
 
-// ==================== 图片加载失败占位图（灰底图片图标，避免破图） ====================
+// ==================== 图片加载失败占位图（灰底白色图片图标，避免破图） ====================
+// 背景 #c6c6c6、图标白色 #ffffff：区别于页面/卡片背景灰，图标在灰底上清晰可辨
 export const IMG_FALLBACK = "data:image/svg+xml;utf8," + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">' +
-  '<rect width="120" height="120" fill="#f5f5f5"/>' +
-  '<rect x="34" y="26" width="52" height="40" rx="4" fill="none" stroke="#d9d9d9" stroke-width="3"/>' +
-  '<circle cx="46" cy="38" r="4" fill="#d9d9d9"/>' +
-  '<path d="M38 58 l15 -11 12 9 8 -6 14 12" fill="none" stroke="#d9d9d9" stroke-width="3" stroke-linejoin="round"/>' +
+  '<rect width="120" height="120" fill="#c6c6c6"/>' +
+  '<rect x="34" y="26" width="52" height="40" rx="4" fill="none" stroke="#ffffff" stroke-width="3"/>' +
+  '<circle cx="46" cy="38" r="4" fill="#ffffff"/>' +
+  '<path d="M38 58 l15 -11 12 9 8 -6 14 12" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>' +
   '</svg>'
 );
 

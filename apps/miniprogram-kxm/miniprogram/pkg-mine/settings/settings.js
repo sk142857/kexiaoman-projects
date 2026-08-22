@@ -1,6 +1,6 @@
 // pages/settings/settings.js
-// 设置：后台账号（仅主家长）/ 订阅消息 / 系统通知 / 身份 PIN（家长自选保护）/ 重新绑定
-const { getRole, lpAuth, lp } = require('../../utils/api');
+// 设置：后台账号（仅主家长）/ 订阅消息 / 身份 PIN（家长自选保护）/ 重新绑定
+const { getRole, lpAuth } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
@@ -8,7 +8,7 @@ Page({
     scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     isParent: false,
     pinEnabled: false,   // 当前家长身份是否已开 PIN
-    notifyUnread: 0,     // 系统通知未读数（设置页角标）
+    appVersion: 'v1.0.1',   // 小程序版本号（关于版本展示；无值时兜底）
   },
 
   onShow() {
@@ -16,26 +16,20 @@ Page({
     wx.nextTick(() => this.setData({ scrollTop: 0 }));
     const role = getRole();
     const isParent = role === 'parent' || role === 'admin';
-    this.setData({ isParent });
+    this.setData({ isParent, appVersion: this._appVersion() });
     if (isParent) this._loadPinState();
-    this._loadNotifyUnread();
     trackEvent('page_view', '设置');
   },
 
-  // 系统通知未读数（站内信角标；失败静默置 0，不影响页面）
-  async _loadNotifyUnread() {
+  // 当前小程序版本号（发布版/体验版/开发版一致；开发工具中可能为空，兜底 v1.0.0）
+  _appVersion() {
     try {
-      const res = await lp.notificationsUnread();
-      this.setData({ notifyUnread: Number((res && res.count) || 0) });
+      const acct = wx.getAccountInfoSync();
+      const v = acct && acct.miniProgram && acct.miniProgram.version;
+      return v ? `v${v}` : 'v1.0.0';
     } catch (_) {
-      this.setData({ notifyUnread: 0 });
+      return 'v1.0.0';
     }
-  },
-
-  // 系统通知（站内信列表：查看即已读）
-  goNotifications() {
-    trackEvent('menu_click', '设置-系统通知');
-    wx.navigateTo({ url: '/pkg-mine/notifications/notifications' });
   },
 
   // 查询当前身份的 PIN 状态（t_staff.pin_hash 是否已设置）

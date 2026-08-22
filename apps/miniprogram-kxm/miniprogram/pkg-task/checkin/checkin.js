@@ -3,8 +3,8 @@
 // 打卡方式由任务决定：image 图文（备注+图片）/ voice 语音（备注+录音）/ video 视频（备注+视频，≤1GB）
 const { lp } = require('../../utils/api');
 const { chooseAndUploadImages, fileUrl, relPath } = require('../../utils/image');
-const voice = require('../../utils/voice');
-const video = require('../../utils/video');
+const voice = require('../utils/voice');
+const video = require('../utils/video');
 const { trackEvent } = require('../../utils/tracker');
 
 function todayStr() {

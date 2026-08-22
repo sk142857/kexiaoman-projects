@@ -93,14 +93,23 @@ const AuditMediaArea = ({ record }) => {
       </div>
     );
   }
-  // 文本 / 其他：内容片段（与图片/视频同尺寸正方形，放大字体、黑色系、水平垂直居中，超长省略）
+  // 文本 / 其他：小红书风格内容区（轻量暖色底 + 左上角引号符号「"」 + 左对齐文字）
   const text = String(path || record && record.detail || '').trim();
   return (
-    <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: '#fafafa' }}>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box' }}>
+    <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: '#fdf6ec', overflow: 'hidden' }}>
+      <span
+        style={{
+          position: 'absolute', left: 10, top: -8, fontSize: 76, lineHeight: 1,
+          color: '#f0c9a5', fontWeight: 700, fontFamily: 'Georgia, "Times New Roman", serif',
+          userSelect: 'none', pointerEvents: 'none',
+        }}
+      >
+        "
+      </span>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '26px 22px 14px', boxSizing: 'border-box' }}>
         <span
           style={{
-            fontSize: 18, lineHeight: 1.6, fontWeight: 600, color: '#1f1f1f', wordBreak: 'break-all', textAlign: 'center',
+            fontSize: 16, lineHeight: 1.7, fontWeight: 500, color: '#6d5a45', wordBreak: 'break-all', textAlign: 'left',
             overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 6, maxWidth: '100%',
           }}
         >

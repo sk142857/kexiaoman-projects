@@ -286,6 +286,11 @@ export const MODULES = {
     review: true,
     reviewField: 'profile_review_status',
     reviewEndpoint: 'reviewProfile',
+    // 删除小程序用户：与员工删除同等最高权限，全量级联清理其绑定账号及业务数据
+    deleteTip: async (record) => {
+      const name = record.nickname || record.user_uid || record.openid || '';
+      return `删除小程序用户「${name}」将级联清理解除其绑定的账号（学生/家长/家属）及其名下任务、打卡、积分等所有数据，不可恢复。\n确定删除吗？`;
+    },
     // 丰富列较多，允许横向滚动
     tableScroll: { x: 1260 },
     filters: [
@@ -513,31 +518,29 @@ export const MODULES = {
     title: '管理员管理',
     searchable: ['staff_username', 'staff_nickname'],
     searchKey: 'staff_username',
-    // 删除前严格风控核验：先查名下关联数据，存在任务/打卡/合集时提示必须先删除任务（后端同样硬拦截）
+    // 删除前先查名下关联数据，弹窗完整展示级联清理范围（后端同样执行全量级联删除）
     deleteTip: async (record) => {
       let stats = {};
       try {
         const res = await crudApi.staffDeleteStats(record.staff_id);
         stats = res.data || {};
       } catch (_) {}
-      const biz = [];
-      if (stats.task_count) biz.push(`${stats.task_count} 个任务`);
-      if (stats.checkin_count) biz.push(`${stats.checkin_count} 条打卡`);
-      if (stats.collection_count) biz.push(`${stats.collection_count} 个合集`);
-      if (biz.length > 0) {
-        let msg = `该账号名下存在 ${biz.join('、')}，出于数据安全限制无法直接删除。请先在「任务管理」中删除关联任务/打卡/合集后再删除该账号。`;
-        const tasks = Array.isArray(stats.task_list) ? stats.task_list : [];
-        if (tasks.length > 0) {
-          msg += `\n关联任务：${tasks.map(t => `任务 ${t.task_id}「${t.title || '无标题'}」`).join('；')}${stats.task_count > tasks.length ? '（仅展示前 5 个）' : ''}`;
-        }
-        return msg;
+      const lines = [];
+      if (stats.task_count) lines.push(`${stats.task_count} 个任务（含其打卡与图片）`);
+      if (stats.checkin_count) lines.push(`${stats.checkin_count} 条打卡`);
+      if (stats.collection_count) lines.push(`${stats.collection_count} 个合集`);
+      if (stats.bind_count) lines.push(`绑定关系 ${stats.bind_count} 条`);
+      if (stats.child_count) lines.push(`孩子档案 ${stats.child_count} 个`);
+      if (stats.family_count) lines.push(`家属关系 ${stats.family_count} 条`);
+      if (stats.sub_grant_count) lines.push(`订阅授权 ${stats.sub_grant_count} 条`);
+      const name = record.staff_nickname || record.staff_username || '';
+      let msg = `删除账号「${name}」将级联清理解除其名下所有记录，不可恢复。`;
+      if (lines.length > 0) {
+        msg += `\n将一并清理：${lines.join('、')}；以及邀请码、积分、徽章、系统通知、小程序授权等关联数据。`;
+      } else {
+        msg += `\n将一并清理其邀请码、积分、徽章、系统通知、小程序授权等关联数据。`;
       }
-      const extra = [];
-      if (stats.bind_count) extra.push(`绑定 ${stats.bind_count} 个小程序用户`);
-      if (stats.child_count) extra.push(`孩子档案 ${stats.child_count} 个`);
-      if (stats.family_count) extra.push(`家属关系 ${stats.family_count} 条`);
-      const tail = extra.length ? `（删除后同步作废关联邀请码并清理绑定关系：${extra.join('、')}）` : '（删除后同步作废其关联邀请码）';
-      return `删除账号「${record.staff_nickname || record.staff_username || ''}」后不可恢复${tail}，确定删除吗？`;
+      return `${msg}\n确定删除吗？`;
     },
     columns: [
       { title: 'ID', dataIndex: 'staff_id', key: 'staff_id', width: 80 },

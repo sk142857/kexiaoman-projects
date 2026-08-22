@@ -6,6 +6,7 @@ const { lp, getRole, setViewStudent } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 const { fileUrl, previewUrl } = require('../../utils/image');
 const { secBadgeMeta } = require('../../utils/display');
+const { ensureDict, statusMeta } = require('../../utils/dict');
 
 const MANAGER_ROLES = ['admin', 'parent', 'family'];
 // 来源：web（Web后台）/ miniprogram（小程序）
@@ -58,8 +59,15 @@ Page({
   _decorate(it) {
     const nickname = (it.student && it.student.nickname) || '';
     const secMeta = secBadgeMeta(it);
+    const taskMeta = statusMeta('task_status', it.task_status);
+    const checkinMeta = statusMeta('checkin_type', it.checkin_type);
     return {
       ...it,
+      // 任务状态/打卡方式统一取色（数据字典）
+      statusText: taskMeta.label,
+      statusStyle: taskMeta.style,
+      checkinText: checkinMeta.label,
+      checkinStyle: checkinMeta.style,
       // 内容安全角标（安全关闭/失败时无 display 字段 → 空，走旧逻辑）
       secBadge: secMeta ? secMeta.text : '',
       secTagTheme: secMeta ? secMeta.tagTheme : '',
@@ -80,6 +88,7 @@ Page({
   async _load(silent, append) {
     if (!silent) this.setData({ loading: true });
     try {
+      await ensureDict().catch(() => {});
       const page = append ? this.data.page : 1;
       const res = await lp.todos({ page, pageSize: PAGE_SIZE });
       const rows = (res.list || []).map(it => this._decorate(it));
@@ -140,7 +149,7 @@ Page({
     if (!item) return;
     wx.showModal({
       title: '审核通过',
-      content: `确认通过「${item.task_title}」的打卡？任务将自动标记为已完成并得 10 分。`,
+      content: `确认通过「${item.task_title}」的打卡？审核通过后该打卡得 10 分。`,
       confirmText: '通过',
       cancelText: '再想想',
       success: (r) => {

@@ -4,7 +4,7 @@ const { retryPendingRequest, hasPendingRequest } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 const AUTO_COUNTDOWN = 5;       // 每次自动重连前的倒计时（秒）
-const MAX_AUTO_ATTEMPTS = 6;    // 自动重连上限，超出后转手动
+const MAX_AUTO_ATTEMPTS = 3;    // 自动重连上限：3 次失败后停下等待手动触发，点击后重置轮数继续循环
 
 Page({
   data: {
@@ -48,10 +48,12 @@ Page({
     }, 1000);
   },
 
+  // 手动重试：重置轮数并立即触发一次，成功后返回原页面；失败则回到倒计时自动重连循环
   onManualRetry() {
     if (this.data.status === 'connecting') return;
     this._clearTimers();
-    this._doRetry(false);
+    this.setData({ attempts: 0 });
+    this._doRetry(true);
   },
 
   async _doRetry(isAuto) {

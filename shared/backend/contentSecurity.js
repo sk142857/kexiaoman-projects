@@ -201,7 +201,6 @@ async function mergeAudit(records, cfg) {
     if (!(await securityEnabled(cfg.appId))) return records;
     const texts = cfg.texts || [];
     const media = cfg.media || [];
-    const bizIdFn = cfg.bizId || ((r) => r.id);
     const bizType = String(cfg.bizType || "");
     if (!bizType) return records;
 
@@ -221,12 +220,10 @@ async function mergeAudit(records, cfg) {
       }
     }
 
-    // 2) pending 记录：逐张图片查侧表状态（媒体审核行已归属本业务记录，content=路径）
+    // 2) pending 记录：逐张图片查侧表状态（媒体审核行 content=路径，按 biz_type+content 唯一定位）
     if (pendingRecs.length > 0) {
       const pathSet = new Set();
-      const bizIds = new Set();
       pendingRecs.forEach((r) => {
-        bizIds.add(String(bizIdFn(r)));
         media.forEach((m) => {
           if (!m.get) return;
           const v = m.get(r);
@@ -234,17 +231,18 @@ async function mergeAudit(records, cfg) {
         });
       });
       const statusMap = {};
-      for (const chunk of chunkArr([...pathSet], 400)) {
+      // 分块并行查询，每块 limit 收敛（不再 5000 + 全局排序），去重取每个 content 最新一行
+      await Promise.all(chunkArr([...pathSet], 200).map(async (chunk) => {
         const { data, error } = await db.from("content_audits")
           .select("content, status")
-          .eq("biz_type", bizType).in("content", chunk).in("biz_id", [...bizIds])
-          .order("audit_id", { ascending: false }).limit(5000);
+          .eq("biz_type", bizType).in("content", chunk)
+          .order("audit_id", { ascending: false }).limit(chunk.length * 3);
         if (error) throw error;
         const seen = new Set();
         (data || []).forEach((row) => {
           if (!seen.has(row.content)) { seen.add(row.content); statusMap[row.content] = row.status; }
         });
-      }
+      }));
       pendingRecs.forEach((r) => {
         media.forEach((m) => {
           const v = m.get(r);
@@ -390,12 +388,15 @@ async function syncRecordRisk({ bizType, bizId, appId }) {
     if (!bizType || bizId == null) return;
     if (bizType !== "task" && bizType !== "checkin") return;
     const bid = String(bizId);
-    const { data } = await db.from("content_audits")
-      .select("status").eq("biz_type", bizType).eq("biz_id", bid).limit(5000);
-    const statuses = (data || []).map((r) => r.status);
+    // 短路判断：任一 reject/risk → reject；否则任一 pending → pending；否则 pass（3 次 limit(1) 并行，不拉全量状态）
+    const [rejRes, riskRes, pendRes] = await Promise.all([
+      db.from("content_audits").select("status").eq("biz_type", bizType).eq("biz_id", bid).eq("status", "reject").limit(1),
+      db.from("content_audits").select("status").eq("biz_type", bizType).eq("biz_id", bid).eq("status", "risk").limit(1),
+      db.from("content_audits").select("status").eq("biz_type", bizType).eq("biz_id", bid).eq("status", "pending").limit(1),
+    ]);
     let risk = "pass";
-    if (statuses.includes("reject") || statuses.includes("risk")) risk = "reject";
-    else if (statuses.includes("pending")) risk = "pending";
+    if ((rejRes.data && rejRes.data[0]) || (riskRes.data && riskRes.data[0])) risk = "reject";
+    else if (pendRes.data && pendRes.data[0]) risk = "pending";
     const table = bizType === "task" ? "tasks" : "task_checkins";
     const keyCol = bizType === "task" ? "task_id" : "checkin_id";
     const num = Number(bid);

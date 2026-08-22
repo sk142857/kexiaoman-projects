@@ -14,6 +14,54 @@
   border-radius: 16rpx;
   padding: 22rpx 24rpx;
 }
+
+.child-guide {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24rpx;
+  background: linear-gradient(135deg, #fff7e6, #fff1d6);
+  border: 2rpx solid #ffe1b3;
+  border-radius: 16rpx;
+  padding: 24rpx;
+}
+.child-guide-icon {
+  flex-shrink: 0;
+  width: 80rpx;
+  height: 80rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44rpx;
+  background: #ffffff;
+  border-radius: 20rpx;
+}
+.child-guide-main {
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+.child-guide-title {
+  font-size: 32rpx;
+  line-height: 44rpx;
+  font-weight: 600;
+  color: #1f2329;
+}
+.child-guide-desc {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  color: #8a6a2f;
+}
+.child-guide-btn {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  padding: 14rpx 28rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #fa8c16, #f6685d);
+  border-radius: 999rpx;
+}
 .current-label {
   display: flex;
   align-items: center;
@@ -34,8 +82,9 @@
   white-space: nowrap;
 }
 .current-arrow {
-  color: #8a919f;
-  font-size: 36rpx;
+  color: #b0b6c0;
+  font-size: 44rpx;
+  font-weight: 700;
   line-height: 44rpx;
 }
 
@@ -92,10 +141,37 @@
   gap: 16rpx;
 }
 .streak-item {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
   background: rgba(255, 255, 255, 0.18);
   border-radius: 12rpx;
-  padding: 10rpx 16rpx;
+  padding: 10rpx 8rpx;
   font-size: 24rpx;
+}
+.level-foot {
+  margin-top: 24rpx;
+}
+.level-share {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  width: 100%;
+  margin: 0;
+  padding: 18rpx 0;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 26rpx;
+  border: none;
+  border-radius: 16rpx;
+  line-height: 1.4;
+}
+.level-share::after {
+  border: none;
+}
+.level-share--hover {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .section {
@@ -256,8 +332,8 @@
 .recent-arrow {
   flex-shrink: 0;
   margin-left: 12rpx;
-  color: #c0c6cf;
-  font-size: 32rpx;
+  color: #b0b6c0;
+  font-size: 44rpx;
   font-weight: 700;
 }
 .recent-meta {
@@ -274,14 +350,6 @@
   border-radius: 8rpx;
   padding: 4rpx 12rpx;
 }
-.recent-type {
-  font-size: 22rpx;
-  border-radius: 8rpx;
-  padding: 4rpx 12rpx;
-}
-.recent-type--image { color: #2b6de0; background: #eef4ff; }
-.recent-type--voice { color: #d46b08; background: #fff7e6; }
-.recent-type--video { color: #08979c; background: #e6fffb; }
 .recent-note {
   margin-top: 10rpx;
   font-size: 24rpx;

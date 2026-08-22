@@ -3,6 +3,7 @@ const { lp, getViewStudent, getRole } = require('../../utils/api');
 const { fileUrl, previewUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 const { secBadgeMeta } = require('../../utils/display');
+const { ensureDict, statusMeta } = require('../../utils/dict');
 
 const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成' };
 const REVIEW_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
@@ -72,16 +73,21 @@ Page({
   async _load() {
     wx.showLoading({ title: '加载中', mask: true });
     try {
+      await ensureDict().catch(() => {});
       const res = await lp.taskDetail(this.data.id, getViewStudent());
       const task = res.task || null;
       const isDone = !!(task && task.task_status === 'done');
       const own = !!(task && String(task.created_by) === this.data.staffId);
       const taskSecMeta = secBadgeMeta(task);
+      const taskStatusMeta = statusMeta('task_status', task && task.task_status);
+      const checkinMeta = statusMeta('checkin_type', (task && task.checkin_type) || 'image');
       const checkins = (res.checkins || []).map(c => {
         const st = c.review_status || 'approved';
         const theme = REVIEW_THEME[st] || REVIEW_THEME.approved;
-        // 未审核通过（待审核/已驳回）内容脱敏：正文 ****、图片/语音/视频占位，防止未审核信息被截图传播
-        const masked = st === 'pending' || st === 'rejected';
+        // 仅内容安全违规（risk_status=reject）才脱敏：正文 ****、图片/语音/视频占位。
+        // 业务驳回（review_status=rejected）只是业务审核不通过，并非内容违规，须正常展示内容，
+        // 配合审核说明（review_note）让用户明确知道问题所在（后端已过滤 risk=reject 记录，此处兜底防御）。
+        const masked = c.risk_status === 'reject';
         // 内容安全角标：业务已审核通过时展示（安全关闭/失败时无 display 字段 → 空，走旧逻辑）
         const secMeta = masked ? null : secBadgeMeta(c);
         const totalImages = masked ? 0 : (c.images || []).length;
@@ -89,16 +95,16 @@ Page({
         return {
           ...c,
           masked,
-          maskText: st === 'rejected' ? '该打卡未通过审核，内容暂不展示' : '该打卡正在审核中，内容暂不展示',
+          maskText: '该内容未通过安全检测，暂不展示',
           secBadge: secMeta ? secMeta.text : '',
           secColor: secMeta ? secMeta.color : '',
           secBg: secMeta ? secMeta.bg : '',
           checkin_note: masked ? '****' : (c.checkin_note || ''),
-          // 列表展示用预览图缩略（省流量），lightbox 用原图
-          images: masked ? [] : (c.images || []).slice(0, 4).map(p => previewUrl(p)),
-          fullImages: masked ? [] : (c.images || []).slice(0, 4).map(fileUrl),
+          // 列表展示用预览图缩略（省流量）：9 宫格展示，超过 9 张时第 9 张叠加「+N」角标；lightbox 预览全部原图
+          images: masked ? [] : (c.images || []).slice(0, 9).map(p => previewUrl(p)),
+          fullImages: masked ? [] : (c.images || []).map(fileUrl),
           // 逐张图片内容安全状态（后端派生）：reviewing=检测中→磨砂加锁，ok=正常
-          imageStates: masked ? [] : (c.images || []).slice(0, 4).map((p, i) => (c.images_states && c.images_states[i]) || 'ok'),
+          imageStates: masked ? [] : (c.images || []).slice(0, 9).map((p, i) => (c.images_states && c.images_states[i]) || 'ok'),
           totalImages,
           dateDay: dateParts.day,
           dateMonth: dateParts.month,
@@ -131,9 +137,15 @@ Page({
         creatorChar: String((task && task.creator_name) || '创').slice(0, 1),
         createdTime: fmtFull(task && task.created_at),
         checkinType: (task && task.checkin_type) || 'image',
+        taskStatusText: taskStatusMeta.label,
+        taskStatusStyle: taskStatusMeta.style,
+        checkinTypeText: checkinMeta.label,
+        checkinTypeStyle: checkinMeta.style,
         taskSecBadge: taskSecMeta ? taskSecMeta.text : '',
         taskSecTagTheme: taskSecMeta ? taskSecMeta.tagTheme : '',
         sourceText: SOURCE_TEXT[(task && task.source)] || (task && task.source === 'web' ? 'Web后台' : '小程序'),
+        // 发布时间行：发布来源并入其中（如「张三 于 2026-09-01 10:02:09 Web后台发布」），不再单独展示角标
+        creatorText: `${(task && (task.creator_name || '创建者')) || '创建者'} 于 ${fmtFull(task && task.created_at)}${SOURCE_TEXT[(task && task.source)] ? ' ' + (SOURCE_TEXT[(task && task.source)] || '') + '发布' : ' 创建'}`,
         // 已完成任务仅可查看：学生隐藏编辑/删除/打卡；家长/家属/管理员不受限
         canManage: this.data.isManager || (own && !isDone),
         canCheckin: !this.data.isManager && !isDone,
@@ -154,8 +166,9 @@ Page({
       wx.showToast({ title: '内容安全检测中，通过后可查看原图', icon: 'none' });
       return;
     }
-    const url = previewUrl(e.currentTarget.dataset.url);
-    const urls = this.data.images.map(previewUrl);
+    const urls = this.data.images;
+    const url = urls[index];
+    if (!url) return;
     wx.previewImage({ urls, current: url });
   },
 
@@ -167,7 +180,7 @@ Page({
       wx.showToast({ title: '内容安全检测中，通过后可查看原图', icon: 'none' });
       return;
     }
-    const urls = ((item && item.fullImages) || []).map(previewUrl);
+    const urls = (item && item.fullImages) || [];
     const url = urls[index];
     if (!url) return;
     wx.previewImage({ urls, current: url });

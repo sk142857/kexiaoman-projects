@@ -51,8 +51,8 @@ const RISK_STATUS_MAP = {
 const REVIEW_STATUS_HEX = { pending: '#faad14', approved: '#52c41a', rejected: '#ff4d4f' };
 const RISK_STATUS_HEX = { pass: '#52c41a', pending: '#1677ff', reject: '#ff4d4f' };
 
-// 打卡媒体区：与「文件管理」图片观感一致（268px 正方形），不随卡片列宽拉伸
-// 图片/视频/语音均为 268×268 正方形：图片默认展示前 2 张（更多时右上角显示数量，点击预览可查看全部），视频整幅播放，语音居中播放
+// 打卡媒体区：图片/视频/语音均为 268×268 正方形
+// 图片默认展示前 2 张，每张独立 268×268（更多时右上角显示数量，点击预览可查看全部），视频整幅播放，语音居中播放
 const MEDIA_SIZE = 268;
 const CheckinMediaArea = ({ record }) => {
   if (record.checkin_type === 'image') {
@@ -60,55 +60,46 @@ const CheckinMediaArea = ({ record }) => {
     if (imgs.length === 0) return null;
     const show = imgs.slice(0, 2);
     return (
-      <div style={{ position: 'relative', width: MEDIA_SIZE, height: MEDIA_SIZE, background: '#fafafa', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Image.PreviewGroup>
-          <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-            {show.map((p, i) => (
+          {show.map((p, i) => (
+            <div key={`img-wrap-${i}`} style={{ position: 'relative', width: MEDIA_SIZE, height: MEDIA_SIZE }}>
               <Image
-                key={`img-${i}`}
-                wrapperStyle={{ width: '50%', height: '100%', flexShrink: 0 }}
+                width={MEDIA_SIZE}
+                height={MEDIA_SIZE}
                 src={toThumbUrl(p, 900) || toImageUrl(p)}
                 fallback={IMG_FALLBACK}
                 preview={{ mask: false, src: toImageUrl(p) }}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                style={{ objectFit: 'cover', display: 'block', background: '#fafafa', borderRadius: 8, border: '2px solid #eeeeee', boxSizing: 'border-box' }}
               />
-            ))}
-          </div>
+              {/* 多于 2 张时，数量角标固定在第二张图片右上角 */}
+              {i === 1 && imgs.length > 2 && (
+                <div style={{ position: 'absolute', right: 6, top: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 12, padding: '2px 10px', borderRadius: 999, pointerEvents: 'none' }}>
+                  {imgs.length} 张
+                </div>
+              )}
+            </div>
+          ))}
           {/* 第 3 张起注册进 PreviewGroup（隐藏），点击预览可左右切换查看全部 */}
           {imgs.slice(2).map((p, i) => (
             <Image key={`more-${i}`} src={toThumbUrl(p, 900)} fallback={IMG_FALLBACK} width={0} height={0} style={{ display: 'none' }} preview={{ mask: false, src: toImageUrl(p) }} />
           ))}
         </Image.PreviewGroup>
-        {imgs.length > 2 && (
-          <div style={{ position: 'absolute', right: 6, top: 6, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 12, padding: '2px 10px', borderRadius: 999, pointerEvents: 'none' }}>
-            {imgs.length} 张
-          </div>
-        )}
       </div>
     );
   }
   if (record.checkin_type === 'video' && record.video_url) {
     const url = toImageUrl(record.video_url);
     const posterUrl = record.video_cover ? toImageUrl(record.video_cover) : '';
-    const duration = Number(record.video_duration);
-    const size = Number(record.video_size);
-    const sizeText = size > 0 ? (size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)}MB` : `${Math.round(size / 1024)}KB`) : '';
     return (
-      <div>
-        <div style={{ position: 'relative', width: MEDIA_SIZE, height: MEDIA_SIZE, background: '#000', borderRadius: 8, overflow: 'hidden' }}>
-          <video
-            controls
-            preload="metadata"
-            src={url}
-            poster={posterUrl || undefined}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
-        </div>
-        {(duration > 0 || sizeText) && (
-          <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 4 }}>
-            {[duration > 0 ? `时长 ${duration} 秒` : '', sizeText ? `压缩后 ${sizeText}` : ''].filter(Boolean).join(' · ')}
-          </div>
-        )}
+      <div style={{ position: 'relative', width: MEDIA_SIZE, height: MEDIA_SIZE, background: '#000', borderRadius: 8, overflow: 'hidden' }}>
+        <video
+          controls
+          preload="metadata"
+          src={url}
+          poster={posterUrl || undefined}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
       </div>
     );
   }
@@ -339,7 +330,14 @@ export default function CheckinCardsPage() {
           key: 'note',
           label: '打卡内容',
           span: 2,
-          children: record.checkin_note ? <div style={{ minHeight: 60, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{record.checkin_note}</div> : '-',
+          // 默认 2 行高度，内容左对齐、垂直居中，超长省略
+          children: record.checkin_note ? (
+            <div style={{ height: 44, display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
+              <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, lineHeight: '22px', maxHeight: 44, overflow: 'hidden', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {record.checkin_note}
+              </span>
+            </div>
+          ) : '-',
         },
         { key: 'taskId', label: '任务编号', children: record.task_id },
         { key: 'creator', label: '打卡人', children: name },

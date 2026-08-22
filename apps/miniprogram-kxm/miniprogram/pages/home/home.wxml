@@ -18,6 +18,16 @@
     </view>
   </view>
 
+  <!-- 家长/管理员尚未创建孩子档案：首页顶部引导创建 -->
+  <view wx:if="{{needChildPrompt}}" class="child-guide" bindtap="goAddChild">
+    <view class="child-guide-icon">👶</view>
+    <view class="child-guide-main">
+      <view class="child-guide-title">添加孩子档案</view>
+      <view class="child-guide-desc">创建孩子档案后，即可查看学习情况并生成孩子邀请码</view>
+    </view>
+    <view class="child-guide-btn">去创建</view>
+  </view>
+
   <block>
     <!-- 等级卡片 -->
     <view class="level-card">
@@ -47,6 +57,12 @@
         <view class="streak-item">🔥 连击 {{streak.current}} 天</view>
         <view class="streak-item">🏆 最长 {{streak.max}} 天</view>
         <view class="streak-item">{{stats.todayCheckedIn ? '✅ 今日已打卡' : '⏳ 今日未打卡'}}</view>
+      </view>
+      <view class="level-foot">
+        <button class="level-share" open-type="share" hover-class="level-share--hover" aria-label="分享课小满">
+          <t-icon name="share" size="30rpx" />
+          <text>把课小满分享给家人</text>
+        </button>
       </view>
     </view>
 
@@ -118,7 +134,7 @@
           </view>
           <view class="recent-meta">
             <text class="recent-date">{{item.checkin_date}}</text>
-            <text class="recent-type recent-type--{{item.checkin_type}}">{{item.checkinTypeText}}</text>
+            <t-tag class="tag-gap" size="small" shape="round" style="{{item.checkinTypeStyle}}">{{item.checkinTypeText}}</t-tag>
             <text wx:if="{{item.secBadge}}" class="recent-sec {{item.secTagTheme === 'danger' ? 'sec-danger' : 'sec-warning'}}">{{item.secBadge}}</text>
           </view>
           <view class="recent-note">{{item.note || '（无备注）'}}</view>

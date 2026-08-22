@@ -35,10 +35,15 @@
 .menu-icon--rose { background: #fff1f0; }
 .menu-icon--amber { background: #fff7e6; }
 .menu-icon--purple { background: #f5f0ff; }
+.menu-icon--gray { background: #f2f3f5; }
 .menu-label {
   flex: 1;
   font-size: 28rpx;
   color: #1f2329;
+}
+.menu-value {
+  font-size: 24rpx;
+  color: #8a919f;
 }
 .menu-label-col {
   flex: 1;
@@ -52,7 +57,8 @@
   color: #8a919f;
 }
 .menu-arrow {
-  font-size: 32rpx;
+  font-size: 44rpx;
+  font-weight: 700;
   color: #b0b6c0;
 }
 .identity-status {
@@ -62,19 +68,6 @@
 }
 .identity-status--on {
   color: #2b6de0;
-}
-.notify-badge {
-  flex-shrink: 0;
-  min-width: 36rpx;
-  height: 36rpx;
-  padding: 0 12rpx;
-  border-radius: 18rpx;
-  background: #f53f3f;
-  color: #ffffff;
-  font-size: 22rpx;
-  line-height: 36rpx;
-  text-align: center;
-  margin-right: 12rpx;
 }
 
 .foot {

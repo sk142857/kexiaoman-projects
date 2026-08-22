@@ -3,7 +3,7 @@
  * 任务/打卡/合集 关联查询、任务派发、学习仪表盘统计（等级/连击/徽章/提醒）
  */
 const { db } = require("./db");
-const { nowSql, formatDate } = require("./utils");
+const { nowSql, formatDate, withLock } = require("./utils");
 const { nextSeq } = require("./seq");
 const { cache, cached, invalidatePrefix } = require("./cache");
 
@@ -309,7 +309,7 @@ const POINT_REASON_MAP = {
   admin_adjust: "管理员调整",
 };
 
-/** 写积分流水（幂等由调用方按业务语义保证；失败仅记日志不阻断主流程） */
+/** 写积分流水（幂等由调用方按业务语义保证；失败仅记日志不阻断主流程），并同步更新余额快照 */
 async function logPoints({ staffId, points, reason, refType = "", refId = 0, note = "", createdBy = 0 }) {
   try {
     const logId = await nextSeq("point_log_id");
@@ -325,6 +325,7 @@ async function logPoints({ staffId, points, reason, refType = "", refId = 0, not
       created_at: nowSql(),
     });
     if (error) throw error;
+    await syncPointBalance(Number(staffId), Number(points));
     return logId;
   } catch (e) {
     console.error("[learningLib] logPoints error", e);
@@ -332,8 +333,43 @@ async function logPoints({ staffId, points, reason, refType = "", refId = 0, not
   }
 }
 
-/** 学生积分余额 = 账本累加（无流水返回 0） */
+/** 同步积分余额快照：读改写（进程内互斥，避免并发丢计数；余额表缺失时静默跳过，读侧回退流水求和） */
+async function syncPointBalance(staffId, delta) {
+  const sid = Number(staffId) || 0;
+  const d = Number(delta) || 0;
+  if (!sid || !d) return;
+  try {
+    await withLock(`point:bal:${sid}`, async () => {
+      const { data } = await db.from("point_balances").select("balance").eq("staff_id", sid).limit(1);
+      const cur = (data && data[0] && Number(data[0].balance)) || 0;
+      const next = cur + d;
+      if (data && data[0]) {
+        await db.from("point_balances").update({ balance: next, updated_at: nowSql() }).eq("staff_id", sid);
+      } else {
+        await db.from("point_balances").insert({ staff_id: sid, balance: next, updated_at: nowSql() });
+      }
+    });
+  } catch (e) {
+    console.error("[learningLib] syncPointBalance error", e.message);
+  }
+}
+
+/** 学生积分余额：优先读余额快照（单行）；余额表不可用/无记录时回退账本求和 */
 async function staffPoints(staffId) {
+  const sid = Number(staffId);
+  if (!sid) return 0;
+  try {
+    const { data, error } = await db.from("point_balances").select("balance").eq("staff_id", sid).limit(1);
+    if (!error && data && data[0] && Number(data[0].balance) !== 0) return Number(data[0].balance) || 0;
+    if (!error) return 0;
+    return await sumPointLogs(sid);
+  } catch (_) {
+    return 0;
+  }
+}
+
+/** 账本求和回退（余额表缺失/未回填时用） */
+async function sumPointLogs(staffId) {
   try {
     const { data, error } = await db.from("point_logs")
       .select("points").eq("staff_id", Number(staffId)).limit(10000);
@@ -344,11 +380,21 @@ async function staffPoints(staffId) {
   }
 }
 
-/** 批量学生积分余额：{ staff_id(string) -> balance }（未命中的学生补 0） */
+/** 批量学生积分余额：{ staff_id(string) -> balance }（未命中的学生补 0；余额表缺失时回退账本求和） */
 async function staffPointsMap(staffIds) {
   const ids = [...new Set((staffIds || []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
   const map = {};
   if (ids.length === 0) return map;
+  try {
+    const { data, error } = await db.from("point_balances")
+      .select("staff_id, balance").in("staff_id", ids).limit(ids.length);
+    if (!error && Array.isArray(data)) {
+      data.forEach(r => { map[String(r.staff_id)] = Number(r.balance) || 0; });
+      ids.forEach(id => { if (map[String(id)] === undefined) map[String(id)] = 0; });
+      return map;
+    }
+  } catch (_) { /* 余额表不可用，回退账本求和 */ }
+  // 回退：账本聚合求和
   try {
     const { data, error } = await db.from("point_logs")
       .select("staff_id, points").in("staff_id", ids).limit(10000);
@@ -398,6 +444,32 @@ async function taskDoneRecipients(task) {
   return [Number(task.created_by)].filter(Boolean);
 }
 
+/**
+ * 任务完成判定（按孩子独立完成）：所有参与人（有派发人则全部派发孩子，否则创建人）
+ * 均已有 ≥1 条审核通过的打卡（排除内容安全违规）才算任务完成。
+ * 用于：审核通过一条打卡时判断是否整任务可转 done，避免误把未完成孩子的打卡一并关闭。
+ */
+async function taskAllRecipientsDone(taskId) {
+  try {
+    const { data: tRows } = await db.from("tasks")
+      .select("task_id, created_by").eq("task_id", Number(taskId)).limit(1);
+    const task = tRows && tRows[0];
+    if (!task) return false;
+    const recipients = await taskDoneRecipients(task);
+    if (recipients.length === 0) return false;
+    const { data: cRows } = await db.from("task_checkins")
+      .select("created_by")
+      .eq("task_id", task.task_id)
+      .eq("review_status", "approved")
+      .in("risk_status", ["pass", "pending"])
+      .limit(1000);
+    const doneIds = new Set((cRows || []).map(c => Number(c.created_by)));
+    return recipients.every(id => doneIds.has(Number(id)));
+  } catch (_) {
+    return false;
+  }
+}
+
 /** 任务状态流转自动加减分：完成 +30 / 回退 -30（幂等：按 old→new 状态变迁判定，重复调用同变迁不重复计） */
 async function applyTaskStatusPoints(task, oldStatus, newStatus, actorStaffId = 0) {
   if (!task) return;
@@ -431,36 +503,42 @@ async function deductCheckinDeleted(checkin, actorStaffId = 0) {
 
 // ==================== 成就徽章解锁记录（t_lp_badge_unlocks） ====================
 // 徽章从「每次现算」升级为「解锁落库」：仪表盘计算时把新解锁徽章写入本表并记录解锁时间。
+// 读取结果做进程内缓存（TTL 60s），写库后失效，避免高频 dashboard 重复查库。
+const BADGE_UNLOCK_TTL = 60 * 1000;
+
 /** 将新解锁徽章落库（幂等），返回该学生全量 { badge_key -> unlocked_at }，供响应附加解锁时间 */
 async function syncBadgeUnlocks(staffId, unlockedKeys) {
-  const map = {};
   const keys = [...new Set((unlockedKeys || []).map(String).filter(Boolean))];
   const sid = Number(staffId);
-  if (!sid || keys.length === 0) return map;
-  try {
+  if (!sid || keys.length === 0) return {};
+  const cacheKey = `badgeUnlocks:${sid}`;
+  const load = async () => {
+    const map = {};
     const { data, error } = await db.from("badge_unlocks")
       .select("badge_key, unlocked_at").eq("staff_id", sid).limit(500);
     if (!error && Array.isArray(data)) {
       data.forEach(r => { map[r.badge_key] = r.unlocked_at; });
     }
+    return map;
+  };
+  try {
+    let map = await cached(cacheKey, load, BADGE_UNLOCK_TTL);
     const missing = keys.filter(k => !map[k]);
-    for (const k of missing) {
-      try {
-        await db.from("badge_unlocks").insert({ staff_id: sid, badge_key: k, unlocked_at: nowSql() });
-        map[k] = nowSql();
-      } catch (_) { /* 并发重复插入忽略，重读 */ }
-    }
     if (missing.length > 0) {
-      const { data: fresh, error: fErr } = await db.from("badge_unlocks")
-        .select("badge_key, unlocked_at").eq("staff_id", sid).limit(500);
-      if (!fErr && Array.isArray(fresh)) {
-        fresh.forEach(r => { map[r.badge_key] = r.unlocked_at; });
+      const at = nowSql();
+      for (const k of missing) {
+        try {
+          await db.from("badge_unlocks").insert({ staff_id: sid, badge_key: k, unlocked_at: at });
+        } catch (_) { /* 并发重复插入忽略 */ }
       }
+      cache.delete(cacheKey);
+      map = await cached(cacheKey, load, BADGE_UNLOCK_TTL);
     }
+    return map;
   } catch (e) {
     console.error("[learningLib] syncBadgeUnlocks error", e);
+    return {};
   }
-  return map;
 }
 
 /** 删除任务回扣：已完成 -30（收款人同加分方）+ 该任务已通过打卡每人 -10 */
@@ -582,6 +660,7 @@ module.exports = {
   staffPointsMap,
   recentPointLogs,
   taskDoneRecipients,
+  taskAllRecipientsDone,
   applyTaskStatusPoints,
   awardCheckinApproved,
   deductCheckinDeleted,

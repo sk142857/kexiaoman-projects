@@ -158,19 +158,16 @@
   color: #b0b6c0;
 }
 
-/* 未读通知徽标 */
-.notify-badge {
+/* 未读通知徽标：包一层 view，避免 Skyline 下自定义组件作为 flex 子项时垂直居中失效 */
+.menu-notify-badge {
   flex-shrink: 0;
-  min-width: 36rpx;
-  height: 36rpx;
-  padding: 0 12rpx;
-  border-radius: 18rpx;
-  background: #f53f3f;
-  color: #ffffff;
-  font-size: 22rpx;
-  line-height: 36rpx;
-  text-align: center;
+  display: flex;
+  align-items: center;
   margin-right: 8rpx;
+}
+/* 覆盖 TDesign Badge 根节点 align-items:start，保证数字在徽标内垂直居中 */
+.menu-notify-badge .notify-badge {
+  align-items: center;
 }
 
 .foot {

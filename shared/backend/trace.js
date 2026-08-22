@@ -166,13 +166,17 @@ async function writeTraceAsync(metric) {
 /** 前端上报：用 request_id 补全 client_cost */
 async function reportTrace(requestId, clientCostMs) {
   if (!requestId || clientCostMs == null) return;
-  await db.from("api_trace")
-    .update({
-      client_cost_ms: Number(clientCostMs),
-      client_at: nowSql(),
-      trace_status: "complete",
-    })
-    .eq("request_id", requestId);
+  try {
+    await db.from("api_trace")
+      .update({
+        client_cost_ms: Number(clientCostMs),
+        client_at: nowSql(),
+        trace_status: "complete",
+      })
+      .eq("request_id", requestId);
+  } catch (e) {
+    console.error("[trace] 补全失败 requestId=" + requestId, e.message || e);
+  }
 }
 
 module.exports = { traceMiddleware, reportTrace, sanitize };

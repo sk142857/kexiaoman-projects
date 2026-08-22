@@ -53,6 +53,8 @@ Page({
           typeText: t.text || '',
           typeColor: t.color || '',
           typeBg: t.bg || '',
+          // 左边框色与业务场景一致（审核通过/驳回/违规/新任务等），与已读未读无关
+          barColor: t.color || '#8a919f',
         };
       });
       this.setData({

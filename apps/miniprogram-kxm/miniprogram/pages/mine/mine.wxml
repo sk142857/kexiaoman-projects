@@ -64,7 +64,9 @@
         <view class="menu-item" bindtap="goNotifications">
           <view class="menu-icon menu-icon--rose">📣</view>
           <text class="menu-label">系统通知</text>
-          <text wx:if="{{notifyUnread > 0}}" class="notify-badge">{{notifyUnread > 99 ? '99+' : notifyUnread}}</text>
+          <view class="menu-notify-badge">
+            <t-badge wx:if="{{notifyUnread > 0}}" count="{{notifyUnread}}" max-count="99" t-class="notify-badge" />
+          </view>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-item" bindtap="goBadges">

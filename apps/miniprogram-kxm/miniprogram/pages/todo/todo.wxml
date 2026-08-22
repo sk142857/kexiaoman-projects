@@ -49,12 +49,11 @@
           <view class="todo-body">
             <view class="todo-title">{{item.title}}</view>
             <view class="todo-meta">
-              <text wx:if="{{item.task_status === 'doing'}}" class="todo-tag doing">进行中</text>
-              <text wx:elif="{{item.task_status === 'todo'}}" class="todo-tag todo">待完成</text>
+              <t-tag class="tag-gap" size="small" shape="round" style="{{item.statusStyle}}">{{item.statusText}}</t-tag>
               <text wx:if="{{item.subject}}" class="todo-tag">{{item.subject}}</text>
               <text wx:if="{{item.sourceText === 'Web后台'}}" class="todo-tag web">Web后台发布</text>
-              <text wx:if="{{item.checkin_type === 'voice'}}" class="todo-tag voice">语音打卡</text>
-              <text wx:if="{{item.deadline}}" class="todo-deadline">截止 {{item.deadline}}</text>
+              <t-tag wx:if="{{item.checkin_type === 'voice'}}" class="tag-gap" size="small" shape="round" style="{{item.checkinStyle}}">{{item.checkinText}}</t-tag>
+              <text wx:if="{{item.deadline}}" class="todo-deadline" style="color: {{item.task_status === 'done' ? '#b0b6c0' : '#f6685d'}};">截止 {{item.deadline}}</text>
             </view>
             <view class="todo-foot">
               <text class="todo-go">去处理 ›</text>
@@ -113,8 +112,8 @@
             </view>
           </view>
           <view class="review-actions">
-            <t-button class="review-btn" theme="danger" variant="outline" size="small" bindtap="onReject" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核不通过</t-button>
-            <t-button class="review-btn" theme="primary" variant="base" size="small" bindtap="onApprove" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核通过</t-button>
+            <t-button class="review-btn" theme="danger" variant="outline" bindtap="onReject" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核不通过</t-button>
+            <t-button class="review-btn" theme="primary" variant="base" bindtap="onApprove" data-id="{{item.checkin_id}}" disabled="{{submitting}}">审核通过</t-button>
           </view>
         </view>
       </block>

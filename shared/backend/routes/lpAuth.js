@@ -29,6 +29,7 @@ const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
 const { ensureUser, genUniqueNickname } = require("../appAuth");
 const { getAppConfig } = require("../apps");
+const { cached } = require("../cache");
 
 const router = express.Router();
 
@@ -396,24 +397,28 @@ async function createLpAccount({ role, nickname, openid }) {
 async function familyScope(staffId, role) {
   staffId = String(staffId);
   if (role === "student") return [staffId];
-  if (role === "parent") {
-    const { data, error } = await db.from("lp_children")
-      .select("student_staff_id").eq("parent_staff_id", Number(staffId)).eq("child_status", 1).limit(200);
-    if (error) throw error;
-    return (data || []).map(c => String(c.student_staff_id)).filter(Boolean);
-  }
-  if (role === "family") {
-    const { data: members, error: mErr } = await db.from("lp_family_members")
-      .select("owner_staff_id").eq("member_staff_id", Number(staffId)).eq("member_status", 1).limit(50);
-    if (mErr) throw mErr;
-    const owners = (members || []).map(m => Number(m.owner_staff_id)).filter(Boolean);
-    if (owners.length === 0) return [];
-    const { data, error } = await db.from("lp_children")
-      .select("student_staff_id").in("parent_staff_id", owners).eq("child_status", 1).limit(500);
-    if (error) throw error;
-    return (data || []).map(c => String(c.student_staff_id)).filter(Boolean);
-  }
-  return null; // admin 全部
+  if (role !== "parent" && role !== "family") return null; // admin 全部
+  // 家庭关系读多写少，短 TTL（15s）缓存；解绑/禁用由绑定校验（bind）实时拦截，scope 缓存不引入越权
+  return cached(`familyScope:${staffId}:${role}`, async () => {
+    if (role === "parent") {
+      const { data, error } = await db.from("lp_children")
+        .select("student_staff_id").eq("parent_staff_id", Number(staffId)).eq("child_status", 1).limit(200);
+      if (error) throw error;
+      return (data || []).map(c => String(c.student_staff_id)).filter(Boolean);
+    }
+    if (role === "family") {
+      const { data: members, error: mErr } = await db.from("lp_family_members")
+        .select("owner_staff_id").eq("member_staff_id", Number(staffId)).eq("member_status", 1).limit(50);
+      if (mErr) throw mErr;
+      const owners = (members || []).map(m => Number(m.owner_staff_id)).filter(Boolean);
+      if (owners.length === 0) return [];
+      const { data, error } = await db.from("lp_children")
+        .select("student_staff_id").in("parent_staff_id", owners).eq("child_status", 1).limit(500);
+      if (error) throw error;
+      return (data || []).map(c => String(c.student_staff_id)).filter(Boolean);
+    }
+    return null;
+  }, 15 * 1000);
 }
 
 // ==================== 登录（拿小程序会话 token，与业务身份解耦） ====================
@@ -905,8 +910,26 @@ async function lpAuth(req, res, next) {
       return res.status(401).json({ code: 401, msg: "登录已过期，请重新登录", data: null });
     }
 
+    // 数据上报 / 链路补全（collectSession / collectEvent / reportTrace）：仅需有效会话身份即可记录，
+    // 未绑定/被锁定的用户（如在身份选择页）也允许上报，不拦截（前端即发即忘）
+    const ap = req.path || "";
+    const isReport = ap.endsWith("/collectSession") || ap.endsWith("/collectEvent") || ap.endsWith("/reportTrace");
+
+    // 业务身份由「会话 openid + 活动身份 staffId ↔ 绑定」实时解析，绑定换绑即时生效
+    // 多身份：token 携带当前活动身份 staffId，本 openid 须有对该 staff 的有效绑定
+    const activeStaffId = Number(decoded.staffId) || 0;
+
+    // 锁定检查与绑定校验相互独立，并行执行（上报接口无需绑定校验，跳过）
+    const [lockRec, bindRes] = await Promise.all([
+      userLockedUntil(openid),
+      isReport
+        ? Promise.resolve({ data: [], error: null })
+        : db.from("lp_students")
+            .select().eq("app_id", LP_APP.app_id).eq("openid", openid)
+            .eq("staff_id", activeStaffId).eq("bound_status", 1).limit(1),
+    ]);
+
     // 账号级锁定（后台按 user_id 锁定 t_users）：锁定期内实时拦截，作废即刻生效
-    const lockRec = await userLockedUntil(openid);
     if (lockRec) {
       return res.status(403).json({
         code: 403,
@@ -917,10 +940,7 @@ async function lpAuth(req, res, next) {
       });
     }
 
-    // 数据上报 / 链路补全（collectSession / collectEvent / reportTrace）：仅需有效会话身份即可记录，
-    // 未绑定/被锁定的用户（如在身份选择页）也允许上报，不拦截（前端即发即忘）
-    const ap = req.path || "";
-    if (ap.endsWith("/collectSession") || ap.endsWith("/collectEvent") || ap.endsWith("/reportTrace")) {
+    if (isReport) {
       req.lp = { staffId: "", openid, role: "", scope: null };
       req.lpRole = "";
       req.app = LP_APP;
@@ -928,16 +948,8 @@ async function lpAuth(req, res, next) {
       return next();
     }
 
-    // 业务身份由「会话 openid + 活动身份 staffId ↔ 绑定」实时解析，绑定换绑即时生效
-    // 多身份：token 携带当前活动身份 staffId，本 openid 须有对该 staff 的有效绑定
-    const activeStaffId = Number(decoded.staffId) || 0;
     let bind = null;
-    try {
-      const { data } = await db.from("lp_students")
-        .select().eq("app_id", LP_APP.app_id).eq("openid", openid)
-        .eq("staff_id", activeStaffId).eq("bound_status", 1).limit(1);
-      bind = (data && data[0]) || null;
-    } catch (_) { /* 查询失败按未绑定处理 */ }
+    try { bind = (bindRes.data && bindRes.data[0]) || null; } catch (_) { bind = null; }
 
     let staff = null;
     if (bind) {

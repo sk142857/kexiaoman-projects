@@ -170,12 +170,11 @@ function request(path, opts = {}) {
       console.warn(`[lp] service cold-start/transient, auto retry in ${delay}ms`, path);
       setTimeout(fn, delay);
     };
-    // 重试耗尽 → 保留请求快照并跳「服务唤醒」提示页（redirect=false 时不跳页，仅失败返回）
+    // 重试耗尽 → 保留请求快照并跳「服务唤醒」提示页。
+    // 冷启动/服务不可用与登录态无关，一律保存快照并跳提示页；redirect 仅约束 401/403 的 reLaunch 身份页
     const giveUp = () => {
-      if (redirect) {
-        savePendingRequest(path, { method, data, auth, redirect });
-        redirectToServiceError();
-      }
+      savePendingRequest(path, { method, data, auth, redirect });
+      redirectToServiceError();
       reject({ code: -1, msg: '服务暂时不可用，请稍后重试', transient: true });
     };
     const attempt = (triesLeft) => {
@@ -389,6 +388,12 @@ export const lp = {
   notificationsUnread: () => request('/api/lp/notifications/unread'),
   /** 系统通知：标记已读 { id } 单条 / { all:true } 全部 */
   notificationsRead: (data) => request('/api/lp/notifications/read', { method: 'POST', data }),
+
+  /** TabBar 角标聚合：{ notifications, todos }（custom-tab-bar 渲染 Badge 用，一次请求取全部角标数） */
+  badges: () => request('/api/lp/badges'),
+
+  /** 数据字典（任务状态/打卡方式等），codes 数组或逗号分隔字符串 → { code: [{ value, label, color }] } */
+  dicts: (codes) => request('/api/lp/dicts', { data: { codes: Array.isArray(codes) ? codes.join(',') : (codes || '') } }),
 
   /** 批量图片上传（base64 JSON，逐张直调后端，避开单次请求体过大） → 相对路径列表 */
   upload: (biz, files) => request('/api/lp/upload', { method: 'POST', data: { biz, files } }),

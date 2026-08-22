@@ -35,6 +35,7 @@ const TABLE_MAP = {
   task_collections: "t_lp_task_collections",
   task_timeline: "t_lp_task_timeline",
   point_logs: "t_lp_point_logs",
+  point_balances: "t_lp_point_balances",
   badge_unlocks: "t_lp_badge_unlocks",
   lp_students: "t_lp_students",
   lp_invites: "t_lp_invites",

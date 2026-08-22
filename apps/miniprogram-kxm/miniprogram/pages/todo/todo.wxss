@@ -90,25 +90,12 @@
   border-radius: 8rpx;
   padding: 4rpx 12rpx;
 }
-.todo-tag.voice {
-  color: #d46b08;
-  background: #fff7e6;
-}
 .todo-tag.web {
   color: #722ed1;
   background: #f9f0ff;
 }
-.todo-tag.todo {
-  color: #f6685d;
-  background: #fdeeed;
-}
-.todo-tag.doing {
-  color: #e37318;
-  background: #fdf1e4;
-}
 .todo-deadline {
   font-size: 24rpx;
-  color: #8a919f;
 }
 .todo-foot {
   margin-top: 18rpx;
@@ -207,7 +194,8 @@
 .review-task-arrow {
   margin-left: 12rpx;
   color: #b0b6c0;
-  font-size: 32rpx;
+  font-size: 44rpx;
+  font-weight: 700;
 }
 .review-note {
   margin-top: 16rpx;
@@ -274,13 +262,13 @@
   align-items: center;
   justify-content: center;
   gap: 6rpx;
-  background: rgba(246, 246, 248, 0.32);
+  background: rgba(31, 35, 41, 0.45);
 }
-.review-img-lock-icon { font-size: 32rpx; line-height: 1; }
+.review-img-lock-icon { font-size: 32rpx; line-height: 1; color: #ffffff; }
 .review-img-lock-text {
   font-size: 18rpx;
-  color: #6b7280;
-  background: rgba(255, 255, 255, 0.75);
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.35);
   padding: 2rpx 10rpx;
   border-radius: 999rpx;
 }

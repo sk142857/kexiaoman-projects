@@ -10,13 +10,14 @@
  */
 const express = require("express");
 const { db, countRows } = require("../db");
+const { cached } = require("../cache");
 const { ok, fail } = require("../response");
 const { nowSql, formatDate, genId, withLock } = require("../utils");
 const { nextSeq } = require("../seq");
 const { uploadImage, logUpload, bindBizId, removeFiles, dupSharedImages, compressVideo, compressImageAsync, storageFileExists, VIDEO_MAX_SIZE } = require("../storage");
 const { submitForAudit, mergeAudit, syncRecordRisk, rebindAudit, textCheckNow, imageCheckNow } = require("../contentSecurity");
 const { logTaskEvent } = require("../taskTimeline");
-const { logEvent } = require("../events");
+const { logEvent, logSession } = require("../events");
 const { getAppConfig } = require("../apps");
 const { reportTrace } = require("../trace");
 const { sendReviewNotification } = require("../subscribeLib");
@@ -30,6 +31,7 @@ const {
   CHECKIN_TYPE_ALLOWED, normalizeCheckinType,
   TASK_SOURCE_ALLOWED, TASK_SOURCE_DEFAULT, normalizeTaskSource,
   staffPoints, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted,
+  taskAllRecipientsDone,
   syncBadgeUnlocks,
 } = require("../learningLib");
 
@@ -123,6 +125,31 @@ async function taskInScope(req, task) {
 // 只读、无业务计算，仅依赖 lpAuth 中间件已完成的「绑定 + 员工在职」实时校验。
 router.get("/session", async (req, res) => {
   res.json(ok({ role: req.lpRole, staffId: req.lp.staffId }));
+});
+
+// ==================== 数据字典 ====================
+// 前端标签统一取色：任务状态（task_status）/ 打卡方式（checkin_type）等字典项，
+// 返回 item_value/item_label/color，后台「数据字典」调整 color 后全局同步。
+router.get("/dicts", async (req, res) => {
+  try {
+    const codes = String((req.query && req.query.codes) || "task_status,checkin_type")
+      .split(",").map(s => String(s || "").trim().slice(0, 32)).filter(Boolean);
+    const uniq = [...new Set(codes)];
+    const rows = await Promise.all(uniq.map(async code => ({
+      code,
+      items: (await cachedDictItems(code)).map(it => ({
+        value: it.item_value,
+        label: it.item_label,
+        color: it.color || "",
+      })),
+    })));
+    const map = {};
+    rows.forEach(r => { map[r.code] = r.items; });
+    res.json(ok(map));
+  } catch (e) {
+    console.error("[lp] dicts error", e);
+    res.json(fail("服务异常", 500));
+  }
 });
 
 // ==================== 我的资料 ====================
@@ -256,10 +283,9 @@ router.get("/admin/students", async (req, res) => {
       statMap[String(id)] = { total: 0, todo: 0, doing: 0, done: 0, pendingReview: 0 };
     });
     if (staffIds.length > 0) {
-      const [assignR, ownR, pendR] = await Promise.all([
+      const [assignR, ownR] = await Promise.all([
         db.from("task_assignees").select("task_id, staff_id").in("staff_id", staffIds).limit(10000),
-        db.from("tasks").select("task_id, task_status, created_by").in("created_by", staffIds).limit(10000),
-        db.from("task_checkins").select("created_by").eq("review_status", "pending").in("created_by", staffIds).limit(10000),
+        db.from("tasks").select("task_id, created_by").in("created_by", staffIds).limit(10000),
       ]);
       const taskIds = new Set();
       const byStaff = {};
@@ -287,9 +313,16 @@ router.get("/admin/students", async (req, res) => {
           else if (st === "done") c.done += 1;
         });
       });
-      (pendR.data || []).forEach(c => {
-        const s = statMap[String(c.created_by)];
-        if (s) s.pendingReview += 1;
+      // 待审核打卡数：按学生精确 count（学生数少，并行执行；避免拉全量打卡行再 JS 计数）
+      const pendCounts = await Promise.all(staffIds.map(async (sid) => {
+        try {
+          const count = await countRows("task_checkins", "checkin_id", (q) => q.eq("review_status", "pending").eq("created_by", sid));
+          return { sid, count };
+        } catch (_) { return { sid, count: 0 }; }
+      }));
+      pendCounts.forEach(({ sid, count }) => {
+        const s = statMap[String(sid)];
+        if (s) s.pendingReview = count;
       });
     }
 
@@ -321,6 +354,18 @@ async function myTaskIds(staffId) {
   return [...set].map(x => Number(x));
 }
 
+/** 判断 staffId 是否有权访问 taskId（派发给我 or 我创建）：单行直查，避免拉全量 id 列表再 includes */
+async function canAccessTask(staffId, taskId) {
+  const sid = Number(staffId);
+  const tid = Number(taskId);
+  if (!sid || !tid) return false;
+  const [aRes, oRes] = await Promise.all([
+    db.from("task_assignees").select("task_id").eq("task_id", tid).eq("staff_id", sid).limit(1),
+    db.from("tasks").select("task_id").eq("task_id", tid).eq("created_by", sid).limit(1),
+  ]);
+  return !!((aRes.data && aRes.data[0]) || (oRes.data && oRes.data[0]));
+}
+
 // ==================== 任务列表（学生：派发给我+我创建；管理员：视角学生） ====================
 router.get("/tasks", async (req, res) => {
   try {
@@ -339,11 +384,13 @@ router.get("/tasks", async (req, res) => {
       if (keyword) q = q.or(`title.like.%${String(keyword).replace(/[(),]/g, "").slice(0, 100)}%`);
       return q;
     };
-    const total = await countRows("tasks", "task_id", applyFilters);
-
-    const { data: rows, error } = await applyFilters(db.from("tasks").select())
-      .order("created_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
+    const [total, listRes] = await Promise.all([
+      countRows("tasks", "task_id", applyFilters),
+      applyFilters(db.from("tasks").select())
+        .order("created_at", { ascending: false })
+        .range(offset, offset + pageSize - 1),
+    ]);
+    const { data: rows, error } = listRes;
     if (error) throw error;
 
     let list = rows || [];
@@ -400,8 +447,7 @@ router.get("/tasks/detail", async (req, res) => {
     const { id } = req.query;
     if (!id) return res.json(fail("缺少任务 ID"));
     const staffId = Number(await viewStaffId(req));
-    const ids = await myTaskIds(staffId);
-    if (!ids.includes(Number(id))) return res.json(fail("无权访问该任务", 403));
+    if (!(await canAccessTask(staffId, Number(id)))) return res.json(fail("无权访问该任务", 403));
 
     const [tRes, cRes] = await Promise.all([
       db.from("tasks").select().eq("task_id", Number(id)).limit(1),
@@ -908,10 +954,13 @@ router.get("/checkins", async (req, res) => {
       if (date) q = q.eq("checkin_date", String(date).slice(0, 10));
       return q;
     };
-    const total = await countRows("task_checkins", "checkin_id", applyFilters);
-    const { data: rows, error } = await applyFilters(db.from("task_checkins").select())
-      .order("checkin_date", { ascending: false })
-      .range(offset, offset + pageSize - 1);
+    const [total, listRes] = await Promise.all([
+      countRows("task_checkins", "checkin_id", applyFilters),
+      applyFilters(db.from("task_checkins").select())
+        .order("checkin_date", { ascending: false })
+        .range(offset, offset + pageSize - 1),
+    ]);
+    const { data: rows, error } = listRes;
     if (error) throw error;
 
     const taskIds = [...new Set((rows || []).map(r => r.task_id).filter(Boolean))];
@@ -967,8 +1016,7 @@ router.post("/checkins/create", async (req, res) => {
     const tid = Number(taskId);
     if (!tid) return res.json(fail("缺少任务 ID"));
 
-    const ids = await myTaskIds(String(staffId));
-    if (!ids.includes(tid)) return res.json(fail("无权操作该任务", 403));
+    if (!(await canAccessTask(staffId, tid))) return res.json(fail("无权操作该任务", 403));
 
     const { data: rows, error } = await db.from("tasks")
       .select("task_id, title, task_status, checkin_count, checkin_type").eq("task_id", tid).limit(1);
@@ -1188,10 +1236,14 @@ async function studentTodos(req, res) {
   let total = 0;
   if (ids.length > 0) {
     const applyFilters = (q) => q.in("task_id", ids).in("task_status", ["todo", "doing"]).in("risk_status", ["pass", "pending"]);
-    total = await countRows("tasks", "task_id", applyFilters);
-    const { data: rows, error } = await applyFilters(db.from("tasks").select())
-      .order("created_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
+    const [totalCount, listRes] = await Promise.all([
+      countRows("tasks", "task_id", applyFilters),
+      applyFilters(db.from("tasks").select())
+        .order("created_at", { ascending: false })
+        .range(offset, offset + pageSize - 1),
+    ]);
+    total = totalCount;
+    const { data: rows, error } = listRes;
     if (error) throw error;
     // 待办 = 未完成的任务（待完成 + 进行中），已完成的不展示
     const all = (rows || []).filter(t => t.task_status === "todo" || t.task_status === "doing");
@@ -1252,10 +1304,13 @@ async function managerTodos(req, res) {
     if (scope !== null) q = q.in("created_by", scope.map(Number).filter(n => Number.isInteger(n) && n > 0));
     return q;
   };
-  const total = await countRows("task_checkins", "checkin_id", applyFilters);
-  const { data: rows, error } = await applyFilters(db.from("task_checkins").select())
-    .order("created_at", { ascending: false })
-    .range(offset, offset + pageSize - 1);
+  const [total, listRes] = await Promise.all([
+    countRows("task_checkins", "checkin_id", applyFilters),
+    applyFilters(db.from("task_checkins").select())
+      .order("created_at", { ascending: false })
+      .range(offset, offset + pageSize - 1),
+  ]);
+  const { data: rows, error } = listRes;
   if (error) throw error;
   const list0 = (rows || []).filter(c => c.risk_status !== "reject");
   const taskIds = [...new Set(list0.map(c => Number(c.task_id)).filter(Boolean))];
@@ -1385,7 +1440,7 @@ router.post("/todos/review", async (req, res) => {
     const task = tRows && tRows[0];
 
     if (act === "approve") {
-      // 审核通过 = 任务完成 + 自动获得 10 分
+      // 审核通过 = 该学生打卡通过 +10 分；任务是否完成由「全部参与人是否都已通过」判定（按孩子独立完成）
       await db.from("task_checkins").update({
         review_status: "approved",
         review_score: 10,
@@ -1393,30 +1448,48 @@ router.post("/todos/review", async (req, res) => {
         reviewer: staffId,
         reviewed_at: nowSql(),
       }).eq("checkin_id", cid);
-      if (task) {
-        await db.from("tasks").update({ task_status: "done", score: 10, progress: 100, updated_at: nowSql() })
-          .eq("task_id", task.task_id);
-      }
-      // 积分账本：打卡审核通过 +10；任务本次转完成 +30（幂等：按状态变迁判定）
-      awardCheckinApproved(checkin, staffId).catch(() => {});
-      if (task) applyTaskStatusPoints(task, task.task_status, "done", staffId).catch(() => {});
-      // 同任务其余待审核打卡自动关闭（该任务已从待办列表移除）
+      // 同任务同学生的其余待审核打卡自动关闭（该学生任务已完成，重复提交不再处理）；
+      // 其他孩子的打卡保留待审，各自独立审核，不再一并关闭
       const { data: pendRows } = await db.from("task_checkins")
-        .select("checkin_id").eq("task_id", checkin.task_id).eq("review_status", "pending").limit(200);
+        .select("checkin_id").eq("task_id", checkin.task_id).eq("created_by", checkin.created_by).eq("review_status", "pending").limit(200);
       const pendIds = (pendRows || []).map(p => p.checkin_id).filter(id => Number(id) !== Number(cid));
       if (pendIds.length > 0) {
         await db.from("task_checkins").update({
           review_status: "rejected",
-          review_note: "该任务已审核通过，本条打卡不再处理",
+          review_note: "该学生本任务已审核通过，本条重复打卡不再处理",
           reviewer: staffId,
           reviewed_at: nowSql(),
         }).in("checkin_id", pendIds);
       }
+      // 任务完成态：全部参与人（派发孩子/创建人）都已通过 → 任务完成；否则保持进行中
+      const allDone = await taskAllRecipientsDone(checkin.task_id);
+      const oldStatus = task ? task.task_status : "";
+      let finalStatus = oldStatus;
+      if (allDone) {
+        if (oldStatus !== "done") {
+          await db.from("tasks").update({ task_status: "done", score: 10, progress: 100, updated_at: nowSql() })
+            .eq("task_id", checkin.task_id);
+          finalStatus = "done";
+        }
+        // 积分账本：打卡审核通过 +10；任务全部完成 +30（幂等：按状态变迁判定）
+        awardCheckinApproved(checkin, staffId).catch(() => {});
+        if (task) applyTaskStatusPoints(task, oldStatus, "done", staffId).catch(() => {});
+      } else {
+        if (oldStatus === "todo") {
+          await db.from("tasks").update({ task_status: "doing", progress: 50, updated_at: nowSql() })
+            .eq("task_id", checkin.task_id);
+          finalStatus = "doing";
+        }
+        // 打卡审核通过 +10（任务未完成，暂不加任务完成分）
+        awardCheckinApproved(checkin, staffId).catch(() => {});
+      }
       logTaskEvent({
         taskId: checkin.task_id, checkinId: cid, bizType: "task_checkin", eventType: "review_approve",
         eventName: "审核通过",
-        summary: `管理员审核通过打卡，任务「${task ? task.title : ""}」完成并得 10 分`,
-        payload: { checkin_id: cid, task_status: "done", score: 10, closed_pending: pendIds.length },
+        summary: allDone
+          ? `管理员审核通过打卡，任务「${task ? task.title : ""}」全部完成并得 10 分`
+          : `管理员审核通过打卡「${task ? task.title : ""}」+10 分，等待其他孩子完成`,
+        payload: { checkin_id: cid, task_status: finalStatus, score: 10, closed_pending: pendIds.length },
         staffId,
       });
       notifyReviewResultLegacy(req, checkin, task, "approve", "").catch(() => {});
@@ -1431,7 +1504,7 @@ router.post("/todos/review", async (req, res) => {
         checkinId: checkin.checkin_id,
         actorStaffId: staffId,
       }).catch(() => {});
-      res.json(ok(null, "已通过，任务完成 +10 分"));
+      res.json(ok(null, allDone ? "已通过，任务完成 +10 分" : "已通过 +10 分"));
     } else {
       let s = Number(score);
       if (!Number.isFinite(s)) s = 0;
@@ -1443,12 +1516,15 @@ router.post("/todos/review", async (req, res) => {
         reviewer: staffId,
         reviewed_at: nowSql(),
       }).eq("checkin_id", cid);
+      // 兜底：若任务显示已完成但实际仍有未完成孩子（旧数据/异常态），驳回后回退为进行中
       if (task && task.task_status === "done") {
-        // 兜底：已完成任务若仍有待审核打卡，驳回时回退为进行中
-        await db.from("tasks").update({ task_status: "doing", progress: 50, updated_at: nowSql() })
-          .eq("task_id", task.task_id);
-        // 积分账本：已完成任务回退 -30
-        applyTaskStatusPoints(task, "done", "doing", staffId).catch(() => {});
+        const stillDone = await taskAllRecipientsDone(checkin.task_id);
+        if (!stillDone) {
+          await db.from("tasks").update({ task_status: "doing", progress: 50, updated_at: nowSql() })
+            .eq("task_id", task.task_id);
+          // 积分账本：已完成任务回退 -30
+          applyTaskStatusPoints(task, "done", "doing", staffId).catch(() => {});
+        }
       }
       logTaskEvent({
         taskId: checkin.task_id, checkinId: cid, bizType: "task_checkin", eventType: "review_reject",
@@ -1709,16 +1785,75 @@ router.post("/notifications/read", async (req, res) => {
   }
 });
 
+// ==================== TabBar 角标聚合 ====================
+// 一次请求返回底部主菜单各 tab 的角标数，供 custom-tab-bar 渲染 Badge：
+//   notifications：系统通知未读数（「我的」tab）
+//   todos：待办数（「待办」tab）——学生=未完成任务；家长/家属/管理员=本家庭待审核打卡
+// 每项单独容错：单项统计失败置 0，不影响其余角标与主流程。
+// 高频轮询（custom-tab-bar 30s 一次 + 每次切页），结果做短 TTL（5s）缓存削峰，
+// 并将 notifications/todos 两路统计并行执行，减少串行 RDB 往返延迟。
+const BADGE_CACHE_TTL = 5000;
+
+async function unreadNotifications(staffId) {
+  try {
+    const { count, error } = await db.from("notifications")
+      .select("notify_id", { count: "exact" })
+      .eq("staff_id", staffId).eq("is_read", 0).limit(1);
+    return (!error && typeof count === "number" && count >= 0) ? count : 0;
+  } catch (_) { return 0; }
+}
+
+async function pendingTodos(req, staffId, scope) {
+  try {
+    if (isManager(req)) {
+      // 空 scope（家长/家属名下无孩子）直接为 0，避免空数组 in() 报错
+      if (scope !== null && scope.length === 0) return 0;
+      return await countRows("task_checkins", "checkin_id", (q) => {
+        q = q.eq("review_status", "pending").neq("risk_status", "reject");
+        if (scope !== null) q = q.in("created_by", scope.map(Number).filter(n => Number.isInteger(n) && n > 0));
+        return q;
+      });
+    }
+    const ids = await myTaskIds(staffId);
+    if (ids.length === 0) return 0;
+    return await countRows("tasks", "task_id", (q) =>
+      q.in("task_id", ids).in("task_status", ["todo", "doing"]).in("risk_status", ["pass", "pending"]));
+  } catch (_) { return 0; }
+}
+
+router.get("/badges", async (req, res) => {
+  try {
+    const staffId = Number(me(req));
+    const role = (req.lp && req.lp.role) || "";
+    const scope = myScope(req);
+    const cacheKey = `badge:${staffId}:${role}:${scope === null ? "all" : (scope || []).join(",")}`;
+    const result = await cached(cacheKey, async () => {
+      const [notifications, todos] = await Promise.all([
+        unreadNotifications(staffId),
+        pendingTodos(req, staffId, scope),
+      ]);
+      return { notifications, todos };
+    }, BADGE_CACHE_TTL);
+    res.json(ok(result));
+  } catch (e) {
+    console.error("[lp] badges error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 
 // ==================== 合集（查询任意登录用户；创建/编辑/删除仅管理员） ====================
 router.get("/collections", async (req, res) => {
   try {
     const { page, pageSize, offset } = pageInfo(req);
     const applyFilters = (q) => q.eq("collection_status", 1);
-    const total = await countRows("task_collections", "collection_id", applyFilters);
-    const { data: rows, error } = await applyFilters(db.from("task_collections").select())
-      .order("collection_id", { ascending: true })
-      .range(offset, offset + pageSize - 1);
+    const [total, listRes] = await Promise.all([
+      countRows("task_collections", "collection_id", applyFilters),
+      applyFilters(db.from("task_collections").select())
+        .order("collection_id", { ascending: true })
+        .range(offset, offset + pageSize - 1),
+    ]);
+    const { data: rows, error } = listRes;
     if (error) throw error;
     const list0 = rows || [];
     if (list0.length === 0) return res.json(ok({ list: [], total, page, pageSize, hasMore: false }));
@@ -1870,10 +2005,21 @@ router.post("/upload", async (req, res) => {
 });
 
 // ==================== 学习仪表盘（小程序端；管理员=视角学生） ====================
-router.get("/dashboard", async (req, res) => {
+// 高频入口（首页每次 onShow/下拉刷新），结果做短 TTL（10s）缓存削峰；
+// 徽章解锁/积分余额均已快照化，缓存期间短暂延迟对用户无感。
+const DASH_CACHE_TTL = 10000;
+
+async function buildDashboard(req, staffId) {
+  // 当前视角学员信息（管理员/家长/家属查看孩子时，卡片抬头展示被查看的孩子本人）
+  let viewed = null;
   try {
-    const staffId = Number(await viewStaffId(req));
-    const ids = await myTaskIds(String(staffId));
+    const { data: vRows } = await db.from("staff")
+      .select("staff_id, staff_nickname, staff_username")
+      .eq("staff_id", staffId).limit(1);
+    const v = vRows && vRows[0];
+    if (v) viewed = { staff_id: String(v.staff_id), nickname: v.staff_nickname || v.staff_username || "同学" };
+  } catch (_) { /* 取不到名字时回退默认文案 */ }
+  const ids = await myTaskIds(String(staffId));
 
     const taskQ = ids.length > 0 ? db.from("tasks").select().in("task_id", ids).in("risk_status", ["pass", "pending"]).limit(2000) : Promise.resolve({ data: [], error: null });
     const checkinQ = ids.length > 0 ? db.from("task_checkins").select().in("task_id", ids).limit(2000) : Promise.resolve({ data: [], error: null });
@@ -1925,7 +2071,7 @@ router.get("/dashboard", async (req, res) => {
     tasks.forEach(t => { const s = String(t.subject || "").trim() || "未分类"; subjectMap[s] = (subjectMap[s] || 0) + 1; });
     const subjectDist = Object.entries(subjectMap).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
     const statusDist = [
-      { name: "待完成", value: todoCount, color: "#bfbfbf" },
+      { name: "待完成", value: todoCount, color: "#f5222d" },
       { name: "进行中", value: doingCount, color: "#1677ff" },
       { name: "已完成", value: doneCount, color: "#52c41a" },
     ].filter(x => x.value > 0);
@@ -2024,18 +2170,26 @@ router.get("/dashboard", async (req, res) => {
       ],
     });
 
-    res.json(ok({
-      stats: { totalTasks, todoCount, doingCount, doneCount, totalCheckins, todayCheckins, todayCheckedIn, completionRate },
-      level,
-      streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
-      badges: badgesWithTime,
-      days,
-      subjectDist,
-      statusDist,
-      taskRank,
-      reminders,
-      recentCheckinList,
-    }));
+  return {
+    staff: viewed || { staff_id: String(staffId), nickname: "同学" },
+    stats: { totalTasks, todoCount, doingCount, doneCount, totalCheckins, todayCheckins, todayCheckedIn, completionRate },
+    level,
+    streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
+    badges: badgesWithTime,
+    days,
+    subjectDist,
+    statusDist,
+    taskRank,
+    reminders,
+    recentCheckinList,
+  };
+}
+
+router.get("/dashboard", async (req, res) => {
+  try {
+    const staffId = Number(await viewStaffId(req));
+    const result = await cached(`dash:${staffId}`, () => buildDashboard(req, staffId), DASH_CACHE_TTL);
+    res.json(ok(result));
   } catch (e) {
     console.error("[lp] dashboard error", e);
     res.json(fail("服务异常", 500));
@@ -2043,80 +2197,33 @@ router.get("/dashboard", async (req, res) => {
 });
 
 // ==================== 接口链路：前端上报补全耗时 ====================
-router.post("/reportTrace", async (req, res) => {
-  try {
-    const { requestId, clientCostMs } = req.body || {};
-    if (!requestId || clientCostMs == null) return res.json(fail("缺少参数"));
-    await reportTrace(requestId, clientCostMs);
-    res.json(ok(null, "已记录"));
-  } catch (e) {
-    console.error("[lp] reportTrace error", e);
-    res.json(fail("服务异常", 500));
-  }
+router.post("/reportTrace", (req, res) => {
+  const { requestId, clientCostMs } = req.body || {};
+  if (!requestId || clientCostMs == null) return res.json(fail("缺少参数"));
+  reportTrace(requestId, clientCostMs);
+  res.json(ok(null, "已记录"));
 });
 
 // ==================== 数据上报（session / 事件，写入共享 user_sessions / user_events） ====================
 // 课小满无云服务，session/事件经 /api/lp/* 上报；身份取 LP JWT（req.lp.openid），app_id=miniprogram-kxm
-router.post("/collectSession", async (req, res) => {
-  try {
-    const s = req.body.session || {};
-    await db.from("user_sessions").insert({
-      session_id: s.session_id || genId(),
-      openid: myOpenid(req),
-      app_id: req.appId || "miniprogram-kxm",
-      brand: s.brand || "",
-      model: s.model || "",
-      platform: s.platform || "",
-      os_version: s.system || "",
-      cpu_type: s.cpu_type || "",
-      wechat_version: s.wechat_version || "",
-      sdk_version: s.sdk_version || "",
-      renderer: s.renderer || "",
-      network_type: s.network_type || "",
-      env_version: s.env_version || "",
-      app_version: s.app_version || "",
-      launch_scene: s.launch_scene || 0,
-      model_level: s.model_level || "",
-      referrer_info: s.referrer_info || "",
-      auth_notification: s.auth_notification ? 1 : 0,
-      auth_album: s.auth_album ? 1 : 0,
-      auth_camera: s.auth_camera ? 1 : 0,
-      auth_location: s.auth_location ? 1 : 0,
-      auth_mic: s.auth_mic ? 1 : 0,
-      dark_mode: s.dark_mode ? 1 : 0,
-      screen_w: s.screen_w || 0,
-      screen_h: s.screen_h || 0,
-      battery_level: s.battery_level != null ? Number(s.battery_level) : -1,
-      is_charging: s.is_charging ? 1 : 0,
-      payload: JSON.stringify(s),
-    });
-    res.json(ok(null, "已上报"));
-  } catch (e) {
-    console.error("[lp] collectSession error", e);
-    res.json(fail("服务异常", 500));
-  }
+router.post("/collectSession", (req, res) => {
+  logSession({ appId: req.appId, openid: myOpenid(req), session: req.body.session || {} });
+  res.json(ok(null, "已上报"));
 });
 
-router.post("/collectEvent", async (req, res) => {
-  try {
-    const { eventType, eventName, pagePath, bizId, extra } = req.body || {};
-    if (!eventType || !eventName) return res.json(fail("缺少事件参数"));
-    await db.from("user_events").insert({
-      event_id: genId(),
-      openid: myOpenid(req),
-      app_id: req.appId || "miniprogram-kxm",
-      event_type: String(eventType).slice(0, 24),
-      event_name: String(eventName).slice(0, 64),
-      page_path: String(pagePath || "").slice(0, 128),
-      biz_id: String(bizId || "").slice(0, 64),
-      extra: extra ? JSON.stringify(extra) : null,
-      client_at: nowSql(),
-    });
-    res.json(ok(null, "已记录"));
-  } catch (e) {
-    console.error("[lp] collectEvent error", e);
-    res.json(fail("服务异常", 500));
-  }
+router.post("/collectEvent", (req, res) => {
+  const { eventType, eventName, pagePath, bizId, extra } = req.body || {};
+  if (!eventType || !eventName) return res.json(fail("缺少事件参数"));
+  logEvent({
+    appId: req.appId,
+    openid: myOpenid(req),
+    eventType,
+    eventName,
+    pagePath,
+    bizId,
+    extra,
+  });
+  res.json(ok(null, "已记录"));
 });
 
 // ==================== 工具 ====================

@@ -439,7 +439,8 @@ CREATE TABLE t_lp_task_checkins (
   KEY idx_created_by (created_by),
   KEY idx_date (checkin_date),
   KEY idx_created_at (created_at),
-  KEY idx_review_status (review_status)
+  KEY idx_review_status (review_status),
+  KEY idx_review_created (review_status, created_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习任务打卡';
 -- 学习积分账本表（主键由序列 point_log_id 发放；积分=流水累加，审核通过/任务完成加分，删除/回退自动回扣）
 DROP TABLE IF EXISTS t_lp_point_logs;
@@ -458,6 +459,15 @@ CREATE TABLE t_lp_point_logs (
   KEY idx_ref (ref_type, ref_id),
   KEY idx_reason (reason)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习积分账本';
+
+-- 学习积分余额快照表（logPoints 写流水时同步累加；读余额由「拉全量流水求和」降为单行查询）
+DROP TABLE IF EXISTS t_lp_point_balances;
+CREATE TABLE t_lp_point_balances (
+  staff_id   BIGINT   NOT NULL COMMENT '学生 staff_id',
+  balance    INT      NOT NULL DEFAULT 0 COMMENT '积分余额（流水累加快照）',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (staff_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习积分余额快照';
 
 -- 成就徽章解锁记录表（徽章从现算升级为解锁落库：仪表盘计算时记录新解锁徽章及解锁时间，可审计可展示）
 DROP TABLE IF EXISTS t_lp_badge_unlocks;

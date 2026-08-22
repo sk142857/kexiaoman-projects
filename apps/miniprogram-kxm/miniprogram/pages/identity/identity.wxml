@@ -120,7 +120,7 @@
     <view class="done">
       <view class="done-icon"><t-icon name="check-circle-filled" size="120rpx" /></view>
       <view class="done-title">{{(identity === 'parent' && parentMode === 'create') ? '创建成功' : '绑定成功'}}</view>
-      <view class="done-desc">{{identity === 'parent' && parentMode === 'create' ? '家庭账号已创建，请先添加至少一个孩子档案，生成孩子邀请码' : identity === 'parent' ? '已绑定主家长账号，可查看与维护孩子档案' : identity === 'family' ? '欢迎加入家庭，随时查看孩子的学习情况' : '欢迎加入课小满，开始你的学习之旅'}}</view>
+      <view class="done-desc">{{identity === 'parent' && parentMode === 'create' ? '账号创建成功\n进入首页添加孩子档案' : identity === 'parent' ? '家长账号绑定成功\n可查看孩子档案' : identity === 'family' ? '已加入家庭\n可查看孩子学习情况' : '已加入课小满\n开始学习'}}</view>
 
       <!-- 共用微信风险提示：多身份 + 家长未设 PIN -->
       <view wx:if="{{riskPrompt}}" class="pin-warn">
@@ -167,10 +167,10 @@
           <t-button class="btn" variant="outline" block bindtap="goPin">开启 PIN 锁</t-button>
         </view>
         <view class="footer-main">
-          <t-button class="btn" theme="primary" block bindtap="onFinish">{{identity === 'parent' ? '去创建孩子档案' : '进入首页'}}</t-button>
+          <t-button class="btn" theme="primary" block bindtap="onFinish">进入首页</t-button>
         </view>
       </view>
-      <t-button wx:else class="btn" theme="primary" block bindtap="onFinish">{{identity === 'parent' ? '去创建孩子档案' : '进入首页'}}</t-button>
+      <t-button wx:else class="btn" theme="primary" block bindtap="onFinish">进入首页</t-button>
     </block>
   </view>
 </view>

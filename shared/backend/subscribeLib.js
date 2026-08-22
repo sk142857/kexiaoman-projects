@@ -197,7 +197,7 @@ async function sendReviewNotification({ appId, openid, staffId, checkinId, taskI
     event_type: accept ? "review_approve" : "review_reject",
     biz_type: "task_checkin",
     biz_id: String(checkinId || taskId || ""),
-    page: taskId ? `pages/task-detail/task-detail?id=${Number(taskId) || ""}` : "",
+    page: taskId ? `pkg-task/task-detail/task-detail?id=${Number(taskId) || ""}` : "",
   };
 
   if (!openid) {
@@ -256,7 +256,7 @@ async function sendCheckinRemind({ appId, openid, staffId, taskId, taskTitle, de
     event_type: "checkin_remind",
     biz_type: "task",
     biz_id: String(taskId || ""),
-    page: taskId ? `pages/task-detail/task-detail?id=${Number(taskId) || ""}` : "",
+    page: taskId ? `pkg-task/task-detail/task-detail?id=${Number(taskId) || ""}` : "",
   };
 
   if (!openid) {

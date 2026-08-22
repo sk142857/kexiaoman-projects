@@ -1,6 +1,6 @@
 /**
  * 系统服务监控模块
- * 每 10 分钟采集一次：服务器配置（CPU核/总内存/规格）、内存（heap/RSS/external）、CPU 使用率、句柄数等
+ * 每 15 分钟采集一次：服务器配置（CPU核/总内存/规格）、内存（heap/RSS/external）、CPU 使用率、句柄数等
  * 写入 service_monitor 表，并打印到云托管日志
  */
 const os = require("os");
@@ -176,9 +176,9 @@ async function collect() {
   }
 }
 
-/** 启动监控定时器（每 10 分钟） */
-function startMonitor(intervalMs = 10 * 60 * 1000) {
-  // 启动时立即采集一次，之后每 10 分钟
+/** 启动监控定时器（每 15 分钟） */
+function startMonitor(intervalMs = 15 * 60 * 1000) {
+  // 启动时立即采集一次，之后每 15 分钟
   setTimeout(() => {
     collect();
   }, 3000);

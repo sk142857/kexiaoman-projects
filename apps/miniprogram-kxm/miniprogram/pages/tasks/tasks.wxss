@@ -53,10 +53,6 @@
 }
 .task-status {
   flex-shrink: 0;
-  font-size: 22rpx;
-  padding: 6rpx 16rpx;
-  border-radius: 999rpx;
-  border: 2rpx solid transparent;
 }
 .task-meta {
   margin-top: 14rpx;
@@ -98,7 +94,6 @@
 }
 .deadline {
   font-size: 24rpx;
-  color: #8a919f;
 }
 .task-progress {
   margin-top: 18rpx;

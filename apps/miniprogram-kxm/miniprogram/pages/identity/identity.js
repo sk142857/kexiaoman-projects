@@ -208,13 +208,9 @@ Page({
     });
   },
 
-  // 完成步：家长去创建孩子档案（后台账号可在「我的→设置」随时查看），其余进首页
+  // 完成步：统一进入首页；家长尚未创建孩子档案时，首页会给出引导提示（避免直接 reLaunch 到孩子档案页导致返回无栈可退）
   onFinish() {
-    if (this.data.identity === 'parent') {
-      wx.reLaunch({ url: '/pkg-family/children/children' });
-    } else {
-      wx.reLaunch({ url: '/pages/home/home' });
-    }
+    wx.reLaunch({ url: '/pages/home/home' });
   },
 
   // 绑定成功后启动全局会话心跳（后台解除邀请码时前端即时被踢出）

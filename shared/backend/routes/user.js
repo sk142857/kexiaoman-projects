@@ -10,7 +10,7 @@ const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql } = require("../utils");
 const { logEvent } = require("../events");
-const { ensureUser, buildProfile, avatarCharFromNickname, InitError } = require("../appAuth");
+const { ensureUser, ensureUserCore, buildProfile, avatarCharFromNickname, InitError } = require("../appAuth");
 
 const router = express.Router();
 
@@ -19,13 +19,8 @@ const appIdOf = (req) => (req.appId || (req.app && req.app.app_id) || "miniprogr
 // ==================== 获取用户资料（静默注册 + 登录事件） ====================
 router.get("/getProfile", async (req, res) => {
   try {
-    // 判断是否首次注册（登录前不存在 → 静默注册新用户）
-    const { data: before, error: beforeErr } = await db.from("users")
-      .select("user_id").eq("openid", req.openid).eq("app_id", appIdOf(req)).limit(1);
-    if (beforeErr) throw beforeErr;
-    const isFirst = !before || before.length === 0;
-
-    const u = await ensureUser(req.app, req.openid);
+    // 静默注册/查询一次完成，created 标识是否首次（避免为判断 isFirst 重复查询 users）
+    const { user: u, created: isFirst } = await ensureUserCore(req.app, req.openid);
     const profile = buildProfile(u);
 
     // 登录/首次注册事件入库（fire-and-forget，失败静默）

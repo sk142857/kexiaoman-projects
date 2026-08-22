@@ -35,16 +35,15 @@
           <text class="menu-label">订阅消息</text>
           <text class="menu-arrow">›</text>
         </view>
-        <view class="menu-item" bindtap="goNotifications">
-          <view class="menu-icon menu-icon--purple">📣</view>
-          <text class="menu-label">系统通知</text>
-          <text wx:if="{{notifyUnread > 0}}" class="notify-badge">{{notifyUnread > 99 ? '99+' : notifyUnread}}</text>
-          <text class="menu-arrow">›</text>
-        </view>
         <view class="menu-item" bindtap="onRebind">
           <view class="menu-icon menu-icon--rose">🔑</view>
           <text class="menu-label">重新绑定</text>
           <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item">
+          <view class="menu-icon menu-icon--gray">ℹ️</view>
+          <text class="menu-label">关于版本</text>
+          <text class="menu-value">{{appVersion}}</text>
         </view>
       </view>
 

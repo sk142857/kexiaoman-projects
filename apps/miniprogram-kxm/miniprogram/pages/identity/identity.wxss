@@ -225,6 +225,7 @@
   color: #8a919f;
   line-height: 1.6;
   text-align: center;
+  white-space: pre-line;
 }
 
 /* 共用微信风险提示（多身份 + 家长未设 PIN） */

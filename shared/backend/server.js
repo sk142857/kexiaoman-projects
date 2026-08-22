@@ -138,7 +138,7 @@ app.use((req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[cloudrun] kxm-service listening on port ${PORT}`);
-  // 每 10 分钟采集一次服务监控（内存/CPU/句柄），写入 service_monitor 表
+  // 每 15 分钟采集一次服务监控（内存/CPU/句柄），写入 service_monitor 表；启动时先采集一次
   startMonitor();
   // 打卡提醒定时任务（每天提醒窗口内扫描发送，进程内定时器）
   startReminder();

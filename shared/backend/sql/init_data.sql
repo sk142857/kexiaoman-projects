@@ -140,7 +140,7 @@ INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, color, sor
   (7,  'gender', '0', '保密', '', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (8,  'gender', '1', '男', '', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (9,  'gender', '2', '女', '', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (10, 'task_status', 'todo', '待完成', '#bfbfbf', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (10, 'task_status', 'todo', '待完成', '#f5222d', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (11, 'task_status', 'doing', '进行中', '#1677ff', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (12, 'task_status', 'done', '已完成', '#52c41a', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (13, 'checkin_type', 'image', '图文打卡', '#1677ff', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),

@@ -149,7 +149,8 @@
   color: #2b6de0;
 }
 .menu-arrow {
-  font-size: 32rpx;
+  font-size: 44rpx;
+  font-weight: 700;
   color: #b0b6c0;
 }
 

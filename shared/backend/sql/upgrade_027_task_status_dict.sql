@@ -6,14 +6,14 @@
 -- 前置条件：无
 -- 说明：
 --   1. 术语统一：todo 由「未开始/未完成」统一为「待完成」
---   2. task_status 字典补齐 color：todo=#bfbfbf 灰 / doing=#1677ff 蓝 / done=#52c41a 绿
+--   2. task_status 字典补齐 color：todo=#f5222d 红 / doing=#1677ff 蓝 / done=#52c41a 绿
 --   3. 需同步更新 init_data.sql（保持字典种子一致）
 -- ============================================================
 
 SET @base := (SELECT IFNULL(MAX(item_id), 0) FROM t_dict_items);
 
 INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, color, sort, item_status, created_at, updated_at) VALUES
-  (@base + 1, 'task_status', 'todo',  '待完成', '#bfbfbf', 1, 1, NOW(), NOW()),
+  (@base + 1, 'task_status', 'todo',  '待完成', '#f5222d', 1, 1, NOW(), NOW()),
   (@base + 2, 'task_status', 'doing', '进行中', '#1677ff', 2, 1, NOW(), NOW()),
   (@base + 3, 'task_status', 'done',  '已完成', '#52c41a', 3, 1, NOW(), NOW())
   ON DUPLICATE KEY UPDATE item_label = VALUES(item_label), color = VALUES(color), sort = VALUES(sort), item_status = VALUES(item_status);

@@ -101,6 +101,14 @@ function normalizeOpenid(rawOpenid, wechatAppid) {
  * @param {string} openid 已规范化的 openid
  */
 async function ensureUser(app, openid) {
+  return (await ensureUserCore(app, openid)).user;
+}
+
+/**
+ * 静默注册/查询用户（返回是否新建，避免调用方为判断 isFirst 重复查询 users）
+ * @returns {Promise<{user: object, created: boolean}>}
+ */
+async function ensureUserCore(app, openid) {
   const appId = (app && app.app_id) || "miniprogram-kxm";
   const lookupList = [openid];
 
@@ -123,7 +131,7 @@ async function ensureUser(app, openid) {
         await db.from("users").update({ user_uid: uid }).eq("user_id", u.user_id);
         u.user_uid = uid;
       }
-      return u;
+      return { user: u, created: false };
     }
   }
 
@@ -137,7 +145,7 @@ async function ensureUser(app, openid) {
     user_status: 1,
   };
   await db.from("users").insert(user);
-  return user;
+  return { user, created: true };
 }
 
 /** 记录登录/首次进入事件（登录逻辑共用的埋点） */
@@ -153,4 +161,4 @@ function logLoginEvent({ app, openid, userId, pagePath }) {
   });
 }
 
-module.exports = { InitError, avatarCharFromNickname, genRandomNickname, genUniqueNickname, genUniqueUserUid, buildProfile, normalizeOpenid, ensureUser, logLoginEvent };
+module.exports = { InitError, avatarCharFromNickname, genRandomNickname, genUniqueNickname, genUniqueUserUid, buildProfile, normalizeOpenid, ensureUser, ensureUserCore, logLoginEvent };

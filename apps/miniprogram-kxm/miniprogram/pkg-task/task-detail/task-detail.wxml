@@ -18,20 +18,15 @@
       <view class="card-head">
         <view class="title">{{task.title}}</view>
         <view class="status">
-          <t-tag size="small" theme="{{task.task_status === 'todo' ? 'danger' : task.task_status === 'doing' ? 'primary' : 'success'}}" variant="light">
-            {{task.task_status === 'todo' ? '待完成' : task.task_status === 'doing' ? '进行中' : '已完成'}}
-          </t-tag>
+          <t-tag size="small" shape="round" style="{{taskStatusStyle}}">{{taskStatusText}}</t-tag>
         </view>
       </view>
       <view class="meta">
         <t-tag wx:if="{{task.subject}}" class="tag-gap" size="small" variant="light" theme="primary">{{task.subject}}</t-tag>
         <t-tag wx:if="{{task.collection_name}}" class="tag-gap" size="small" variant="outline" theme="default">{{task.collection_name}}</t-tag>
         <t-tag wx:if="{{taskSecBadge}}" class="tag-gap" size="small" variant="light" theme="{{taskSecTagTheme}}">{{taskSecBadge}}</t-tag>
-        <t-tag wx:if="{{checkinType === 'voice'}}" class="tag-gap" size="small" variant="light" theme="warning">语音打卡</t-tag>
-        <t-tag wx:elif="{{checkinType === 'video'}}" class="tag-gap" size="small" variant="light" theme="primary">视频打卡</t-tag>
-        <t-tag wx:elif="{{checkinType === 'image'}}" class="tag-gap" size="small" variant="outline" theme="default">图文打卡</t-tag>
+        <t-tag class="tag-gap" size="small" shape="round" style="{{checkinTypeStyle}}">{{checkinTypeText}}</t-tag>
         <t-tag wx:if="{{task.score > 0}}" class="tag-gap" size="small" variant="light" theme="{{task.score >= 5 ? 'success' : 'warning'}}">评分 {{task.score}}分</t-tag>
-        <t-tag wx:if="{{sourceText}}" class="tag-gap" size="small" variant="outline" theme="default">{{sourceText}}发布</t-tag>
       </view>
       <view class="task-progress">
         <task-progress percent="{{task.progress}}" height="16" />
@@ -52,11 +47,11 @@
       <view wx:if="{{creatorName && createdTime}}" class="created-info">
         <image wx:if="{{creatorAvatar}}" class="creator-avatar" src="{{creatorAvatar}}" mode="aspectFill" />
         <view wx:else class="creator-avatar creator-avatar--char">{{creatorChar}}</view>
-        <text class="created-text">{{creatorName}} 于 {{createdTime}} 创建</text>
+        <text class="created-text">{{creatorText}}</text>
       </view>
       <view class="foot">
         <text class="foot-checkin">打卡 {{task.checkin_count}} 次</text>
-        <text wx:if="{{task.deadline}}" class="foot-deadline">截止 {{task.deadline}}</text>
+        <text wx:if="{{task.deadline}}" class="foot-deadline" style="color: {{isDone ? '#b0b6c0' : '#f6685d'}};">截止 {{task.deadline}}</text>
       </view>
     </view>
 
@@ -108,7 +103,7 @@
                 <view class="ck-img-lock-icon">🔒</view>
                 <view class="ck-img-lock-text">安全审核中</view>
               </view>
-              <view wx:if="{{i === 3 && item.totalImages > 4}}" class="ck-img-more">+{{item.totalImages - 4}}</view>
+              <view wx:if="{{i === 8 && item.totalImages > 9}}" class="ck-img-more">+{{item.totalImages - 9}}</view>
             </view>
           </view>
         </view>
