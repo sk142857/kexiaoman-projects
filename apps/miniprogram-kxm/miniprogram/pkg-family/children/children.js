@@ -1,6 +1,6 @@
 // pages/children/children.js
-// 孩子档案列表：点卡片弹出原生 action-sheet 提供操作菜单（设为默认/编辑/复制码/重新生成/删除）
-const { family, getViewStudent, setViewStudent } = require('../../utils/api');
+// 孩子档案列表：点卡片弹出原生 action-sheet 提供操作菜单（以孩子身份进入/设为默认/编辑/复制码/重新生成/删除）
+const { family, lp, getViewStudent, setViewStudent, persistLogin, setIdentities, setActiveStaffId, clearViewStudent } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 const GRADE_CN = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
@@ -63,6 +63,12 @@ Page({
     const items = [];
     const actions = [];
 
+    // 家长/管理员：一键以孩子身份进入（自动绑定孩子账号到本微信，不影响孩子本人账号使用）
+    if (this.data.canManage && child.student_staff_id) {
+      items.push({ label: '以孩子身份进入' });
+      actions.push(() => this._enterAsChild(child));
+    }
+
     if (!child.isCurrent && child.student_staff_id) {
       items.push({ label: '设为默认孩子' });
       actions.push(() => this._setCurrent(child));
@@ -96,6 +102,27 @@ Page({
   },
 
   noop() {},
+
+  // 一键以孩子身份进入：自动绑定孩子账号到当前微信（不消耗邀请码），
+  // 孩子本人在其它手机绑定的账号完全不受影响，各自独立使用。
+  async _enterAsChild(child) {
+    wx.showLoading({ title: '切换中', mask: true });
+    try {
+      const res = await lp.switchToChild(child.student_staff_id);
+      persistLogin(res);
+      if (res.identities) setIdentities(res.identities);
+      if (res.activeStaffId) setActiveStaffId(res.activeStaffId);
+      // 进入孩子身份后清除「查看某学生」残留，回首页按孩子身份加载
+      clearViewStudent();
+      trackEvent('button_click', '孩子档案-以孩子身份进入', { childId: child.child_id, staffId: child.student_staff_id });
+      wx.hideLoading();
+      wx.showToast({ title: `已进入「${child.child_name || '孩子'}」身份`, icon: 'success' });
+      setTimeout(() => wx.reLaunch({ url: '/pages/home/home' }), 400);
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: e.msg || '切换失败', icon: 'none' });
+    }
+  },
 
   // 设为默认孩子（只支持一个默认，首页展示该孩子数据）
   _setCurrent(child) {

@@ -65,9 +65,3 @@
   width: 100%;
   max-width: 560rpx;
 }
-.se-link {
-  margin-top: 32rpx;
-  color: #5c6470;
-  font-size: 26rpx;
-  padding: 8rpx 24rpx;
-}

@@ -61,12 +61,11 @@
           <text class="menu-label">孩子档案</text>
           <text class="menu-arrow">›</text>
         </view>
-        <view class="menu-item" bindtap="goNotifications">
-          <view class="menu-icon menu-icon--rose">📣</view>
-          <text class="menu-label">系统通知</text>
-          <view class="menu-notify-badge">
-            <t-badge wx:if="{{notifyUnread > 0}}" count="{{notifyUnread}}" max-count="99" t-class="notify-badge" />
-          </view>
+        <!-- 学习管理：合集 / 科目（主家长/家属/个人维护，家庭共享） -->
+        <view wx:if="{{isManager || isPersonal}}" class="menu-item" bindtap="goLearningManage">
+          <view class="menu-icon menu-icon--green">📚</view>
+          <text class="menu-label">学习管理</text>
+          <view wx:if="{{subjectCount === 0}}" class="menu-tag">去设置科目</view>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-item" bindtap="goBadges">
@@ -77,6 +76,9 @@
         <view class="menu-item" bindtap="goSettings">
           <view class="menu-icon menu-icon--gray">⚙️</view>
           <text class="menu-label">个人设置</text>
+          <view wx:if="{{notifyUnread > 0}}" class="menu-notify-badge">
+            <t-badge count="{{notifyUnread}}" max-count="99" t-class="notify-badge" />
+          </view>
           <text class="menu-arrow">›</text>
         </view>
       </view>

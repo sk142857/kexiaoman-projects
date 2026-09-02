@@ -172,7 +172,7 @@ async function collect() {
     const { error } = await db.from("service_monitor").insert(metric);
     if (error) throw error;
   } catch (e) {
-    console.error("[monitor] 入库失败", e.message);
+    console.error("[monitor] 入库失败", e);
   }
 }
 

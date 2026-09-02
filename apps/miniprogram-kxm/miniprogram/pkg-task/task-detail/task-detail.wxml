@@ -18,7 +18,7 @@
       <view class="card-head">
         <view class="title">{{task.title}}</view>
         <view class="status">
-          <t-tag size="small" shape="round" style="{{taskStatusStyle}}">{{taskStatusText}}</t-tag>
+          <t-tag size="small" shape="round" theme="{{taskStatusTheme}}">{{taskStatusText}}</t-tag>
         </view>
       </view>
       <view class="meta">

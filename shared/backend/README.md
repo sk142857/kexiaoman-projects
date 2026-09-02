@@ -49,10 +49,12 @@ shared/backend/
 课小满前端经 `wx.cloud.callContainer` 直调云托管（`X-WX-SERVICE: kxm-service`），路由 `/api/lp/*`（操作 `t_lp_*` 表）：
 
 - `POST /api/lp/login` / `POST /api/lp/bind`：code2session 登录 + 6 位邀请码绑定（学生=staff_id 身份，`t_lp_students` 映射）。
-- 其余 `/api/lp/*`（profile / dashboard / tasks / checkins / collections / upload）走 `lpAuth` JWT，
+- 其余 `/api/lp/*`（profile / dashboard / tasks / checkins / collections / subjects / upload）走 `lpAuth` JWT，
   每次请求实时复核邀请码状态（作废即锁定）。
+- 合集/科目按 `staff_id` 归属（主家长/个人管理，家庭共享）：`GET /collections`、`/subjects`、`/subjects/presets`
+  及 create/update/delete，均以当前用户家庭归属 `staff_id` 过滤/鉴权（admin 全部）。
 - 邀请码生成/作废接口：`POST /api/staff/generateInvite`、`POST /api/staff/revokeInvite`（后台管理员管理）。
-- 前端：`apps/miniprogram-kxm/miniprogram/`（登录/绑定/仪表盘/任务/打卡/合集/我的）。
+- 前端：`apps/miniprogram-kxm/miniprogram/`（登录/绑定/仪表盘/任务/打卡/合集/科目/我的）。
 
 > ⚠️ **AI-SKIP 警告**：`package.json` 中的 `ws` 依赖**不可删除**。
 > `@cloudbase/js-sdk` 的 `app.rdb()` 运行时通过 WebSocket 连接 MySQL，动态 require `ws`。

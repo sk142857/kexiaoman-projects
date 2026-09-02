@@ -4,7 +4,6 @@ const { lp, family, getRole, getViewStudent } = require('../../utils/api');
 const { uploadImageFile, fileUrl, relPath } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
-const SUBJECTS = ['语文', '数学', '英语', '阅读', '作业', '运动'];
 const MANAGER_ROLES = ['admin', 'parent', 'family'];
 
 function todayStr() {
@@ -25,7 +24,8 @@ Page({
     title: '',
     subject: '',
     subjectIndex: -1,
-    subjectOptions: SUBJECTS,
+    subjectOptions: [],
+    subjectLoaded: false,
     deadline: '',
     startDate: '',
     tagText: '',
@@ -72,8 +72,23 @@ Page({
       this._loadStudents();
       if (role !== 'admin') this._loadFamilyCheck();
     }
-    if (id) this._loadTask(id);
-    else this._loadCollections();
+    // 先加载科目，再加载任务/合集，保证编辑时科目下拉能反映任务原科目
+    this._loadSubjects().then(() => {
+      if (id) this._loadTask(id);
+      else this._loadCollections();
+    });
+  },
+
+  // 加载我的科目（动态下拉；未设置科目时提示去创建）
+  async _loadSubjects() {
+    try {
+      const res = await lp.subjects();
+      const list = (res && res.list) || [];
+      const subjectOptions = list.map(s => s.name).filter(Boolean);
+      this.setData({ subjectOptions, subjectLoaded: true });
+    } catch (_) {
+      this.setData({ subjectLoaded: true, subjectOptions: [] });
+    }
   },
 
   async _loadStudents() {
@@ -131,7 +146,7 @@ Page({
       this.setData({
         title: t.title || '',
         subject: t.subject || '',
-        subjectIndex: SUBJECTS.indexOf(t.subject),
+        subjectIndex: this.data.subjectOptions.indexOf(t.subject),
         deadline: t.deadline || '',
         startDate: t.start_date || '',
         tags: t.tags || [],
@@ -143,6 +158,13 @@ Page({
         assigneeIds: this.data.isManager ? (t.assignee_ids || []).map(x => String(x)) : [],
         assigneeMap: this.data.isManager ? (t.assignee_ids || []).reduce((m, x) => { m[String(x)] = true; return m; }, {}) : {},
       });
+      // 已有任务的科目不在我的科目列表中时，追加展示（保留原值，可改）
+      if (t.subject && this.data.subjectOptions.indexOf(t.subject) < 0) {
+        this.setData({
+          subjectOptions: [t.subject].concat(this.data.subjectOptions),
+          subjectIndex: 0,
+        });
+      }
       this._loadCollections(t.collection_id);
     } catch (e) {
       wx.hideLoading();
@@ -190,6 +212,23 @@ Page({
     this.setData({ checkinType: idx >= 0 ? this.data.checkinTypeOptions[idx].value : 'image', checkinTypeIndex: idx });
   },
 
+  // 未设置科目时提示去创建（学习管理 → 科目）；学生无管理权限，引导联系主家长
+  _promptCreateSubject() {
+    const canManage = this.data.isManager || this.data.role === 'personal';
+    wx.showModal({
+      title: '还没有设置科目',
+      content: canManage
+        ? '请先到「我的 → 学习管理 → 科目管理」添加科目，再来创建任务。现在去添加吗？'
+        : '家庭还没有设置科目，请联系主家长在「我的 → 学习管理 → 科目管理」中添加科目后再来创建任务。',
+      confirmText: canManage ? '去添加' : '知道了',
+      cancelText: canManage ? '暂不' : '',
+      showCancel: canManage,
+      success: (r) => {
+        if (r.confirm && canManage) wx.navigateTo({ url: '/pkg-mine/subjects/subjects' });
+      },
+    });
+  },
+
   // 下一步校验
   async onNext() {
     if (this.data.step === 0) {
@@ -203,6 +242,10 @@ Page({
       }
       if (!this.data.title.trim()) {
         wx.showToast({ title: '请填写任务标题', icon: 'none' });
+        return;
+      }
+      if (this.data.subjectLoaded && this.data.subjectOptions.length === 0) {
+        this._promptCreateSubject();
         return;
       }
       if (!this.data.subject) {
@@ -321,6 +364,11 @@ Page({
       // 校验失败直接跳转到对应步骤（标题在步骤一），便于用户定位异常字段
       this.setData({ step: 0 });
       wx.showToast({ title: '请填写任务标题', icon: 'none' });
+      return;
+    }
+    if (this.data.subjectOptions.length === 0) {
+      this.setData({ step: 0 });
+      this._promptCreateSubject();
       return;
     }
     if (!subject) {

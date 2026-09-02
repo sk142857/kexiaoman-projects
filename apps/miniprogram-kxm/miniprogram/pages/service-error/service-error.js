@@ -1,6 +1,6 @@
 // pages/service-error/service-error.js
 // 云托管冷启动/服务暂不可用提示页：自动重连（倒计时）+ 手动重试，成功后返回原页面
-const { retryPendingRequest, hasPendingRequest } = require('../../utils/api');
+const { retryPendingRequest, hasPendingRequest, persistLogin, setIdentities, setActiveStaffId } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 const AUTO_COUNTDOWN = 5;       // 每次自动重连前的倒计时（秒）
@@ -60,7 +60,21 @@ Page({
     const attempts = this.data.attempts + 1;
     this.setData({ attempts, status: 'connecting', msg: '' });
     try {
-      await retryPendingRequest();
+      const res = await retryPendingRequest();
+      // 冷启动可能发生在启动登录期间：重试的是登录/绑定请求（响应带 token），落库存后回首页/身份页
+      if (res && res.token) {
+        persistLogin(res);
+        if (res.identities) setIdentities(res.identities);
+        if (res.activeStaffId) setActiveStaffId(res.activeStaffId);
+        if (res.bound && res.staff) {
+          this._onSuccess();
+        } else {
+          this._clearTimers();
+          wx.showToast({ title: '连接成功', icon: 'success' });
+          setTimeout(() => wx.reLaunch({ url: '/pages/identity/identity' }), 600);
+        }
+        return;
+      }
       this._onSuccess();
     } catch (e) {
       if (isAuto && attempts < MAX_AUTO_ATTEMPTS) {
@@ -71,7 +85,7 @@ Page({
     }
   },
 
-  // 重试成功：返回原页面（redirectTo 保留了页面栈），无上级则回首页
+  // 重试成功：返回原页面，无上级则回首页
   _onSuccess() {
     this._clearTimers();
     wx.showToast({ title: '连接成功', icon: 'success' });
@@ -83,10 +97,5 @@ Page({
         wx.switchTab({ url: '/pages/home/home' });
       }
     }, 600);
-  },
-
-  goHome() {
-    this._clearTimers();
-    wx.switchTab({ url: '/pages/home/home' });
   },
 });

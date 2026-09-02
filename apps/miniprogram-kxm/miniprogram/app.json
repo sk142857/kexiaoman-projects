@@ -38,12 +38,15 @@
         "notifications/notifications",
         "badges/badges",
         "collections/collections",
-        "profile-edit/profile-edit"
+        "learning-manage/learning-manage",
+        "subjects/subjects",
+        "profile-edit/profile-edit",
+        "cancel-account/cancel-account"
       ]
     }
   ],
   "preloadRule": {
-    "pages/login/login": { "network": "all", "packages": ["pkg-task"] },
+    "pages/login/login": { "network": "all", "packages": ["pkg-task", "pkg-mine"] },
     "pages/home/home": { "network": "all", "packages": ["pkg-task"] },
     "pages/tasks/tasks": { "network": "all", "packages": ["pkg-task"] },
     "pages/todo/todo": { "network": "all", "packages": ["pkg-task"] },

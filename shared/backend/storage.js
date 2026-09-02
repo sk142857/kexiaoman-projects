@@ -79,7 +79,7 @@ async function compressImage(buffer, { maxEdge = DEFAULT_MAX_EDGE, quality = DEF
     const out = await pipeline.jpeg({ quality }).toBuffer();
     return { buffer: out, contentType: "image/jpeg" };
   } catch (e) {
-    console.error("[storage] compressImage 失败，回退原图", e.message);
+    console.error("[storage] compressImage 失败，回退原图", e);
     return { buffer, contentType };
   }
 }
@@ -180,7 +180,7 @@ async function ffmpegReady() {
     await execFileP(ffprobeBin(), ["-version"], { timeout: 15000 });
     FFMPEG_OK = true;
   } catch (e) {
-    console.error("[storage] ffmpeg 不可用，视频压缩跳过（不影响上传）", e.message);
+    console.error("[storage] ffmpeg 不可用，视频压缩跳过（不影响上传）", e);
     FFMPEG_OK = false;
   }
   return FFMPEG_OK;
@@ -205,7 +205,7 @@ async function probeVideoDuration(filePath) {
     const d = Number((stdout || "").trim());
     return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
   } catch (e) {
-    console.error("[storage] ffprobe 读时长失败", e.message);
+    console.error("[storage] ffprobe 读时长失败", e);
     return 0;
   }
 }
@@ -300,7 +300,7 @@ async function compressVideo({ path: relPath, duration } = {}) {
       const cover = await uploadCover(cbuf);
       coverPath = cover.path;
     } catch (e2) {
-      console.error("[storage] 视频封面抽帧失败", src, e2.message);
+      console.error("[storage] 视频封面抽帧失败", src, e2);
     }
     try {
       let dur = await probeVideoDuration(down);
@@ -348,7 +348,7 @@ async function compressVideo({ path: relPath, duration } = {}) {
       for (const f of [down, out, coverOut]) { if (f) { try { await fs.promises.unlink(f); } catch (_) {} } }
     }
   } catch (e) {
-    console.error("[storage] 视频压缩失败，保留原文件", src, e.message);
+    console.error("[storage] 视频压缩失败，保留原文件", src, e);
     return { path: src, url, size: 0, duration: Math.max(0, Math.floor(Number(duration) || 0)), cover: coverPath };
   }
 }
@@ -486,7 +486,7 @@ async function logUpload({ openid, biz, bizId = "", file, fileStatus = "active",
       }).catch(() => {});
     }
   } catch (e) {
-    console.error("[storage] file_uploads 入库失败", e.message);
+    console.error("[storage] file_uploads 入库失败", e);
   }
 }
 
@@ -500,7 +500,7 @@ async function bindBizId({ openid, paths = [], bizId }) {
       .eq("openid", openid || "")
       .in("file_path", paths);
   } catch (e) {
-    console.error("[storage] bindBizId 失败", e.message);
+    console.error("[storage] bindBizId 失败", e);
   }
 }
 
@@ -514,7 +514,7 @@ async function markRemoved({ openid, paths = [] }) {
       .eq("openid", openid || "")
       .in("file_path", paths);
   } catch (e) {
-    console.error("[storage] markRemoved 失败", e.message);
+    console.error("[storage] markRemoved 失败", e);
   }
 }
 
@@ -539,7 +539,7 @@ async function dupSharedImages({ openid = "", staffId = "", paths = [], targetBi
         finalPath = await copyImageNew({ openid, staffId, srcPath: p, contentType: row.content_type || "image/jpeg", biz, targetBizId, date, fileName: row.file_name || "" });
       }
     } catch (e) {
-      console.error("[storage] dupSharedImages 检查失败，保留原路径", p, e.message);
+      console.error("[storage] dupSharedImages 检查失败，保留原路径", p, e);
     }
     out.push(finalPath);
   }
@@ -593,12 +593,12 @@ async function storageFileExists(relPath) {
     storage.bucketId = STORAGE_BUCKET;
     const { data, error } = await storage.exists(p);
     if (error) {
-      console.error("[storage] storageFileExists 判定失败", p, (error && error.message) || error);
+      console.error("[storage] storageFileExists 判定失败", p, error);
       return null;
     }
     return data === true;
   } catch (e) {
-    console.error("[storage] storageFileExists 异常", p, e.message);
+    console.error("[storage] storageFileExists 异常", p, e);
     return null;
   }
 }
@@ -640,7 +640,7 @@ async function removeFiles(paths = []) {
       deleted.push(...chunk);
       continue;
     }
-    console.error("[storage] removeFiles 整批失败，逐条重试", chunk, (err && err.message) || err);
+    console.error("[storage] removeFiles 整批失败，逐条重试", chunk, err);
     for (const p of chunk) {
       const e2 = await tryRemove([p]);
       if (e2) {

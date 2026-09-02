@@ -39,8 +39,8 @@ const LP_APP = { app_id: "miniprogram-kxm", app_name: "课小满", wechat_appid:
 // 邀请码字符集：排除易混淆 0/O/1/I
 const INVITE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-// 角色白名单
-const LP_ROLES = ["admin", "parent", "family", "student"];
+// 角色白名单（个人角色：无家庭、无身份切换，自己发布任务自己打卡，最简单）
+const LP_ROLES = ["admin", "parent", "family", "student", "personal"];
 
 // ==================== t_apps 运行配置（缓存 60s，后台修改后最多 60s 生效） ====================
 let lpConfigCache = null;
@@ -258,7 +258,7 @@ async function listBoundStaffs(openid) {
     .in("staff_id", staffIds).limit(staffIds.length);
   if (sErr) throw sErr;
   const rows = staffs || [];
-  const order = { parent: 0, family: 1, student: 2, admin: 3 };
+  const order = { parent: 0, family: 1, student: 2, admin: 3, personal: 4 };
   return rows
     .filter(s => s.staff_status === 1 && LP_ROLES.includes(s.staff_role))
     .sort((a, b) => (order[a.staff_role] ?? 9) - (order[b.staff_role] ?? 9))
@@ -314,9 +314,10 @@ async function verifySession(req) {
 
 /** 员工简要信息（回传小程序展示） */
 function staffBrief(s) {
+  const FALLBACK = { admin: "管理员", parent: "主家长", family: "家属", student: "学生", personal: "个人" };
   return {
     staff_id: String(s.staff_id),
-    nickname: s.staff_nickname || (s.staff_role === "admin" ? "管理员" : "学生"),
+    nickname: s.staff_nickname || FALLBACK[s.staff_role] || "学生",
     username: s.staff_username,
     role: s.staff_role,
   };
@@ -369,21 +370,31 @@ function genRandomPassword(len = 8) {
 }
 
 /**
+ * 微信未授权资料时返回的占位昵称（nickName=「微信用户」），
+ * 若直接入库会出现大量同名「微信用户」，视为未提供并走随机昵称「用户+6位」生成策略
+ */
+const WECHAT_PLACEHOLDER_NICKNAMES = new Set(["微信用户", "wx_user", "微信用户。"]);
+function cleanWechatNickname(raw) {
+  const s = String(raw || "").trim().slice(0, 32);
+  return WECHAT_PLACEHOLDER_NICKNAMES.has(s) ? "" : s;
+}
+
+/**
  * 为家长/家属/学生创建 t_staff 账号（家长有后台登录能力，家属/学生无，随机占位密码）
  * 通用账号生成规则：
  * - 登录账号：user_{staff_id}（staff_id 唯一，账号天然唯一）
- * - 昵称：优先使用传入昵称（如微信昵称，保持一致）；未提供（从后台首建）则复用微信昵称生成策略「用户 + 6 位随机字符串」
+ * - 昵称：优先使用传入昵称（如微信昵称，保持一致）；未提供或为「微信用户」占位（从后台首建）则复用微信昵称生成策略「用户 + 6 位随机字符串」
  */
 async function createLpAccount({ role, nickname, openid }) {
   const staffId = await nextSeq("staff_id");
   const username = `user_${staffId}`;
   const password = genRandomPassword();
-  const rawNick = String(nickname || "").trim();
+  const rawNick = cleanWechatNickname(nickname);
   const values = {
     staff_id: staffId,
     staff_username: username,
     staff_password: require("bcryptjs").hashSync(password, 10),
-    staff_nickname: rawNick ? rawNick.slice(0, 32) : await genUniqueNickname(),
+    staff_nickname: rawNick || await genUniqueNickname(),
     staff_role: role,
     staff_status: 1,
     created_at: nowSql(),
@@ -396,7 +407,7 @@ async function createLpAccount({ role, nickname, openid }) {
 /** 当前用户家庭可见范围：可查看/管理的孩子 student staff_id 集合；admin=null（全部） */
 async function familyScope(staffId, role) {
   staffId = String(staffId);
-  if (role === "student") return [staffId];
+  if (role === "student" || role === "personal") return [staffId];
   if (role !== "parent" && role !== "family") return null; // admin 全部
   // 家庭关系读多写少，短 TTL（15s）缓存；解绑/禁用由绑定校验（bind）实时拦截，scope 缓存不引入越权
   return cached(`familyScope:${staffId}:${role}`, async () => {
@@ -431,7 +442,7 @@ router.post("/login", async (req, res) => {
       const wx = await code2session(code);
       openid = wx.openid || "";
     } catch (e) {
-      console.error("[lpAuth] code2session error", e.message);
+      console.error("[lpAuth] code2session error", e);
       return res.json(fail("登录失败，请稍后重试", 401));
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
@@ -468,6 +479,12 @@ router.post("/login", async (req, res) => {
 
     const activeToken = await signToken(openid, active.staff_id);
     touchUserProfile(openid);
+    // 注销流程中（7天冷静期）：登录仍签发 token 以便停留在注销页撤销，同时返回待生效申请，前端据此分流到注销页
+    let cancelPending = null;
+    try {
+      const { pendingCancelSummary } = require("../accountLib");
+      cancelPending = await pendingCancelSummary(LP_APP.app_id, openid);
+    } catch (_) { /* 查询失败不影响登录 */ }
     res.json(ok({
       token: activeToken,
       bound: true,
@@ -476,6 +493,7 @@ router.post("/login", async (req, res) => {
       identities,
       role: active.role,
       staff: active,
+      cancel_pending: cancelPending,
     }, "登录成功"));
   } catch (e) {
     console.error("[lpAuth] login error", e);
@@ -497,11 +515,14 @@ router.post("/registerParent", async (req, res) => {
         const wx = await code2session(loginCode);
         openid = wx.openid || "";
       } catch (e) {
-        console.error("[lpAuth] registerParent code2session error", e.message);
+        console.error("[lpAuth] registerParent code2session error", e);
         return res.json(fail("登录失败，请稍后重试", 401));
       }
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 注销流程中：禁止注册/绑定/切换（只能停留在注销页撤销）
+    if (await notCancelling(res, openid)) return;
 
     // 账号级锁定：锁定期内禁止注册/绑定
     const lockRec0 = await userLockedUntil(openid);
@@ -562,6 +583,119 @@ router.post("/registerParent", async (req, res) => {
   }
 });
 
+// ==================== 身份选择：注册为个人（最简单身份，无家庭/无切换） ====================
+// 用户确认「我是个人」→ 自动创建 t_staff(role=personal) + 自动绑定当前 openid。
+// 个人：自己发布任务、自己打卡，不支持身份切换，无邀请码、无后台账号、无家属关系。
+router.post("/registerPersonal", async (req, res) => {
+  try {
+    let openid = await verifySession(req);
+    if (!openid) {
+      const loginCode = (req.body || {}).loginCode;
+      if (!loginCode) return res.json(fail("缺少登录凭证"));
+      try {
+        const wx = await code2session(loginCode);
+        openid = wx.openid || "";
+      } catch (e) {
+        console.error("[lpAuth] registerPersonal code2session error", e);
+        return res.json(fail("登录失败，请稍后重试", 401));
+      }
+    }
+    if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 注销流程中：禁止注册/绑定/切换（只能停留在注销页撤销）
+    if (await notCancelling(res, openid)) return;
+
+    // 账号级锁定：锁定期内禁止注册/绑定
+    const lockRec0 = await userLockedUntil(openid);
+    if (lockRec0) {
+      return res.json(fail(lockMsg(lockRec0.locked_until), 423));
+    }
+
+    // 幂等：该 openid 已绑定个人 → 直接返回当前状态
+    const identities0 = await listBoundStaffs(openid);
+    const personal0 = identities0.find(s => s.role === "personal");
+    if (personal0) {
+      const token = await signToken(openid, personal0.staff_id);
+      return res.json(ok({
+        token, bound: true, activeStaffId: personal0.staff_id, identities: identities0,
+        role: "personal", staff: personal0,
+      }, "已注册"));
+    }
+
+    // 个人昵称（可选，来自前端微信昵称；未提供则走通用昵称生成策略）
+    const nickname = String((req.body || {}).nickname || "").trim().slice(0, 32);
+
+    // 创建个人账号（无后台登录能力，随机占位密码）
+    const personal = await createLpAccount({ role: "personal", nickname, openid });
+
+    // 自动绑定当前 openid ↔ 个人账号（追加绑定，不影响已有身份）
+    await db.from("lp_students").insert({
+      staff_id: personal.staff_id,
+      app_id: LP_APP.app_id,
+      openid,
+      bound_status: 1,
+      bound_at: nowSql(),
+      created_at: nowSql(),
+      updated_at: nowSql(),
+    });
+
+    touchUserProfile(openid);
+    const identities = await listBoundStaffs(openid);
+    const token = await signToken(openid, personal.staff_id);
+    res.json(ok({
+      token,
+      bound: true,
+      activeStaffId: String(personal.staff_id),
+      identities,
+      role: "personal",
+      staff: { staff_id: String(personal.staff_id), nickname: personal.nickname, username: personal.username, role: "personal" },
+    }, "个人注册成功"));
+  } catch (e) {
+    console.error("[lpAuth] registerPersonal error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// ==================== 解除当前绑定（重新绑定第一步：立即解绑，可独立于后续换绑） ====================
+// 仅清除绑定关系（t_lp_students），不动业务数据（任务/打卡/积分等）。
+// 用户确认「重新绑定」后先调用本接口完成解绑；若随后中断下一步绑定，解绑已生效，互不影响。
+router.post("/unbind", async (req, res) => {
+  try {
+    let openid = await verifySession(req);
+    if (!openid) return res.json(fail("未登录或登录已过期", 401));
+
+    // 注销流程中：禁止解除绑定（重新绑定同样不得进入）
+    if (await notCancelling(res, openid)) return;
+
+    // 当前活动身份（token 里的 staffId）
+    const lpHeader = req.headers["x-lp-token"] || "";
+    const auth = req.headers.authorization || "";
+    const token = lpHeader || (auth.startsWith("Bearer ") ? auth.slice(7) : "");
+    let staffId = 0;
+    if (token) {
+      try {
+        const cfg = await getLpConfig();
+        const decoded = jwt.verify(token, cfg.jwtSecret);
+        staffId = Number(decoded.staffId) || 0;
+      } catch (_) { /* 无有效 staffId 时按全部解绑兜底 */ }
+    }
+
+    if (staffId) {
+      await db.from("lp_students")
+        .update({ bound_status: 0, updated_at: nowSql() })
+        .eq("app_id", LP_APP.app_id).eq("openid", openid).eq("staff_id", staffId);
+    } else {
+      await db.from("lp_students")
+        .update({ bound_status: 0, updated_at: nowSql() })
+        .eq("app_id", LP_APP.app_id).eq("openid", openid).eq("bound_status", 1);
+    }
+    res.json(ok({ unbound: staffId ? String(staffId) : "" }, "已解除绑定"));
+  } catch (e) {
+    console.error("[lpAuth] unbind error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 // ==================== 绑定邀请码（会话 token 已含 openid，只需邀请码） ====================
 // 按 kind 分支：
 //   student：学生码，绑定孩子学生账号（role=student），码置 bound；
@@ -579,11 +713,14 @@ router.post("/bind", async (req, res) => {
         const wx = await code2session(loginCode);
         openid = wx.openid || "";
       } catch (e) {
-        console.error("[lpAuth] bind code2session error", e.message);
+        console.error("[lpAuth] bind code2session error", e);
         return res.json(fail("登录失败，请稍后重试", 401));
       }
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 注销流程中：禁止注册/绑定/切换（只能停留在注销页撤销）
+    if (await notCancelling(res, openid)) return;
 
     // 账号级锁定：锁定期内禁止绑定/换绑
     const lockRec1 = await userLockedUntil(openid);
@@ -747,11 +884,14 @@ router.post("/switch", async (req, res) => {
         const wx = await code2session(loginCode);
         openid = wx.openid || "";
       } catch (e) {
-        console.error("[lpAuth] switch code2session error", e.message);
+        console.error("[lpAuth] switch code2session error", e);
         return res.json(fail("登录失败，请稍后重试", 401));
       }
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 注销流程中：禁止切换身份（共用微信下切到孩子/家属身份等同再次进入业务系统）
+    if (await notCancelling(res, openid)) return;
 
     const lockRec = await userLockedUntil(openid);
     if (lockRec) return res.json(fail(lockMsg(lockRec.locked_until), 423));
@@ -794,6 +934,90 @@ router.post("/switch", async (req, res) => {
   }
 });
 
+// ==================== 家长一键切到孩子身份（孩子账号绑定家长 openid，不影响孩子本人账号） ====================
+// 家长/管理员在「孩子档案」点击「以孩子身份进入」：
+//   - 自动把该孩子学生账号绑定到当前 openid（幂等；不消耗学生邀请码，孩子本人在其它设备绑定的账号不受影响）
+//   - 签发孩子身份 token，家长可在自己手机上以孩子身份操作（打卡/完成任务等）
+// 与 /switch 区别：/switch 要求目标身份已绑定本 openid；本接口允许家长直接切换到「本人名下的孩子」。
+router.post("/switchChild", async (req, res) => {
+  try {
+    let openid = await verifySession(req);
+    if (!openid) {
+      const loginCode = (req.body || {}).loginCode;
+      if (!loginCode) return res.json(fail("缺少登录凭证"));
+      try {
+        const wx = await code2session(loginCode);
+        openid = wx.openid || "";
+      } catch (e) {
+        console.error("[lpAuth] switchChild code2session error", e);
+        return res.json(fail("登录失败，请稍后重试", 401));
+      }
+    }
+    if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 注销流程中：禁止切换身份
+    if (await notCancelling(res, openid)) return;
+
+    const lockRec = await userLockedUntil(openid);
+    if (lockRec) return res.json(fail(lockMsg(lockRec.locked_until), 423));
+
+    const targetId = Number((req.body || {}).staffId);
+    if (!targetId) return res.json(fail("缺少目标身份", 400));
+
+    // 当前活动身份（token 里的 staffId）：仅家长/管理员可一键切入孩子
+    const lpHeader = req.headers["x-lp-token"] || "";
+    const auth = req.headers.authorization || "";
+    const token = lpHeader || (auth.startsWith("Bearer ") ? auth.slice(7) : "");
+    let curStaffId = 0;
+    if (token) {
+      try {
+        const cfg = await getLpConfig();
+        const decoded = jwt.verify(token, cfg.jwtSecret);
+        curStaffId = Number(decoded.staffId) || 0;
+      } catch (_) { /* 无有效身份按未登录处理 */ }
+    }
+    if (!curStaffId) return res.json(fail("未登录或登录已过期", 401));
+    const curStaff = await staffById(curStaffId);
+    if (!curStaff || curStaff.staff_status !== 1) return res.json(fail("当前账号不可用", 401));
+    const curRole = curStaff.staff_role;
+    if (!["parent", "admin"].includes(curRole)) return res.json(fail("仅家长可切换到孩子身份", 403));
+
+    // 目标必须是有效的孩子学生账号
+    const target = await staffById(targetId);
+    if (!target || target.staff_role !== "student" || target.staff_status !== 1) {
+      return res.json(fail("该孩子账号不可用", 400));
+    }
+    // 家长：目标必须是本人名下孩子（admin 可任意学生）
+    if (curRole === "parent") {
+      const { data: rel, error: relErr } = await db.from("lp_children")
+        .select("child_id").eq("parent_staff_id", curStaffId)
+        .eq("student_staff_id", targetId).eq("child_status", 1).limit(1);
+      if (relErr) throw relErr;
+      if (!(rel && rel[0])) return res.json(fail("无权切换到该孩子身份", 403));
+    }
+
+    // 孩子账号绑定到当前 openid（幂等；不消耗学生邀请码，孩子本人其它绑定不受影响）
+    if (!(await hasBoundStaff(openid, targetId))) {
+      await activateBinding(openid, targetId);
+    }
+
+    touchUserProfile(openid);
+    const identities = await listBoundStaffs(openid);
+    const activeToken = await signToken(openid, targetId);
+    res.json(ok({
+      token: activeToken,
+      bound: true,
+      activeStaffId: String(targetId),
+      identities,
+      role: "student",
+      staff: staffBrief(target),
+    }, "已切换到孩子身份"));
+  } catch (e) {
+    console.error("[lpAuth] switchChild error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 // ==================== 身份切换 PIN 管理（家长/管理员自选保护） ====================
 // action=set 设置/修改（4-6 位数字）；action=verify 校验；action=remove 关闭（需正确 PIN）。
 // 仅当前活动身份为 parent/admin 可操作自己的 PIN。
@@ -807,11 +1031,14 @@ router.post("/pin", async (req, res) => {
         const wx = await code2session(loginCode);
         openid = wx.openid || "";
       } catch (e) {
-        console.error("[lpAuth] pin code2session error", e.message);
+        console.error("[lpAuth] pin code2session error", e);
         return res.json(fail("登录失败，请稍后重试", 401));
       }
     }
     if (!openid) return res.json(fail("登录失败，未获取到用户身份", 401));
+
+    // 注销流程中：禁止 PIN 相关操作
+    if (await notCancelling(res, openid)) return;
 
     const { action, pin } = req.body || {};
     const act = String(action || "");
@@ -875,7 +1102,36 @@ router.post("/pin", async (req, res) => {
 // ==================== lpAuth 中间件（除 login/bind 外全部 /api/lp/*） ====================
 // 每次请求实时复核：staff 有效 + 绑定未锁定，作废即刻生效
 // 白名单：纯只读、不含个人数据的查询接口（如合集列表）免登录直接可调，方便未绑定/游客读取
-const PUBLIC_LP_PATHS = ["/collections"];
+const PUBLIC_LP_PATHS = [];
+
+// 仅需有效会话（含未绑定用户）即可调用的只读接口：身份选择页/注销页的文案与字典支撑
+// （绑定文案、字典读取不依赖业务身份，未绑定新用户选择身份前也需读取）
+const SESSION_ONLY_LP_PATHS = ["/params", "/dicts"];
+
+// 注销流程中仍放行的接口：注销状态查询 / 申请 / 撤销 + 注销页文案/字典支撑（前端 reLaunch 到注销页后需要这些）
+const CANCEL_SUPPORT_PATHS = ["/account/cancel/status", "/account/cancel", "/account/cancel/revoke", "/params", "/dicts"];
+
+/** 注销流程中是否放行该请求路径（兼容 req.path 挂载剥离与 originalUrl 两种形态） */
+function isCancelSupportPath(p) {
+  return CANCEL_SUPPORT_PATHS.some(k => p === k || p.endsWith(k));
+}
+
+/** 是否「仅需会话」的只读接口（未绑定用户也可读取：身份页/注销页文案字典） */
+function isSessionOnlyPath(p) {
+  return SESSION_ONLY_LP_PATHS.some(k => p === k || p.endsWith(k));
+}
+
+/** 注销流程中（有待生效申请）直接返回 460 并结束响应；否则返回 false 继续原逻辑 */
+async function notCancelling(res, openid) {
+  try {
+    const { isCancelling } = require("../accountLib");
+    if (await isCancelling(LP_APP.app_id, openid)) {
+      res.status(460).json({ code: 460, msg: "注销申请处理中，暂无法执行该操作", data: null });
+      return true;
+    }
+  } catch (_) { /* 查询失败不拦截，避免影响正常流程 */ }
+  return false;
+}
 
 async function lpAuth(req, res, next) {
   try {
@@ -914,6 +1170,27 @@ async function lpAuth(req, res, next) {
     // 未绑定/被锁定的用户（如在身份选择页）也允许上报，不拦截（前端即发即忘）
     const ap = req.path || "";
     const isReport = ap.endsWith("/collectSession") || ap.endsWith("/collectEvent") || ap.endsWith("/reportTrace");
+
+    // 仅需会话的只读接口（/params /dicts）：身份选择页/注销页文案与字典支撑，
+    // 未绑定新用户选择身份前也需读取；锁定用户除外（见下方锁定校验）。
+    if (isSessionOnlyPath(ap)) {
+      // 仍走锁定校验（锁定用户禁止一切，含文案接口），但不要求已绑定业务身份
+      const lockRec = await userLockedUntil(openid);
+      if (lockRec) {
+        return res.status(403).json({
+          code: 403,
+          msg: lockMsg(lockRec.locked_until),
+          lockUntil: lockRec.locked_until,
+          lockInfo: lockInfo(lockRec),
+          data: null,
+        });
+      }
+      req.lp = { staffId: "", openid, role: "", scope: null };
+      req.lpRole = "";
+      req.app = LP_APP;
+      req.appId = LP_APP.app_id;
+      return next();
+    }
 
     // 业务身份由「会话 openid + 活动身份 staffId ↔ 绑定」实时解析，绑定换绑即时生效
     // 多身份：token 携带当前活动身份 staffId，本 openid 须有对该 staff 的有效绑定
@@ -961,6 +1238,28 @@ async function lpAuth(req, res, next) {
     if (invalid) {
       // 绑定解除/账号不可用 ≠ 账号被锁定：按会话失效处理（前端回身份页重新绑定，不展示锁定态）
       return res.status(401).json({ code: 401, msg: "绑定状态已失效，请重新绑定", data: null });
+    }
+
+    // 注销流程中（7天冷静期）：禁止访问业务系统，只能停留在注销页撤销/等待（如抖音/公众号注销流程）。
+    // 仅放行注销本身 + 注销页文案支撑接口；前端收到 460 后强制 reLaunch 到注销页。
+    // 注意：accountLib 与 lpAuth 相互依赖，此处延迟 require 避免模块加载期的循环依赖。
+    if (!isCancelSupportPath(req.path || req.originalUrl || "")) {
+      const { getPendingCancellation } = require("../accountLib");
+      const pendingCancel = await getPendingCancellation(LP_APP.app_id, openid);
+      if (pendingCancel) {
+        return res.status(460).json({
+          code: 460,
+          msg: "注销申请处理中，暂无法使用业务功能",
+          cancel: {
+            cancel_id: String(pendingCancel.cancel_id),
+            mode: pendingCancel.mode,
+            status: pendingCancel.status,
+            requested_at: pendingCancel.requested_at,
+            effective_at: pendingCancel.effective_at || "",
+          },
+          data: null,
+        });
+      }
     }
 
     // 家庭可见范围（parent/family → 其名下孩子的 student staff_id 集合；admin=null 全部；student=本人）

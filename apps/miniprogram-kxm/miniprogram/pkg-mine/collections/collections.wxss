@@ -13,7 +13,16 @@
   box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
 }
 .info { flex: 1; margin-right: 16rpx; }
-.name { font-size: 32rpx; font-weight: 600; }
+.name { font-size: 32rpx; font-weight: 600; display: flex; align-items: center; }
+.no {
+  font-size: 22rpx;
+  color: #ffffff;
+  background: #2b6de0;
+  border-radius: 999rpx;
+  padding: 2rpx 14rpx;
+  margin-right: 12rpx;
+  flex-shrink: 0;
+}
 .desc { margin-top: 8rpx; font-size: 26rpx; color: #8a919f; }
 .count { margin-top: 12rpx; font-size: 24rpx; color: #2b6de0; }
 .del { color: #ff4d4f; font-size: 26rpx; }

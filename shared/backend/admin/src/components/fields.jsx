@@ -398,7 +398,7 @@ function JsonValue({ data, indent = 0 }) {
   return <span>{String(data)}</span>;
 }
 
-export function JsonBlock({ value }) {
+export function JsonBlock({ value, maxHeight = 320 }) {
   if (value === null || value === undefined || value === '') return <EmptyText />;
   let parsed = value;
   if (typeof value === 'string') {
@@ -408,12 +408,59 @@ export function JsonBlock({ value }) {
     <pre
       style={{
         margin: 0, padding: '8px 10px', background: '#f6f8fa', borderRadius: 6,
-        fontSize: 12, lineHeight: 1.6, maxHeight: 320, overflow: 'auto',
+        fontSize: 12, lineHeight: 1.6, maxHeight, overflow: 'auto',
         whiteSpace: 'pre-wrap', wordBreak: 'break-all',
       }}
     >
       {typeof parsed === 'string' ? parsed : <JsonValue data={parsed} />}
     </pre>
+  );
+}
+
+// ==================== 操作过程 trace 数组展示（类似 chatgpt trace） ====================
+// value 为数组（每步对象 key 一致）时渲染为时间轴步骤卡片；否则回退为 JsonBlock。
+const TRACE_STATUS_COLOR = { success: 'success', failed: 'error', pending: 'processing' };
+
+export function TraceBlock({ value }) {
+  if (value === null || value === undefined || value === '') return <EmptyText />;
+  let parsed = value;
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value); } catch (_) { /* 保留原字符串 */ }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return <JsonBlock value={parsed} />;
+  }
+  return (
+    <div style={{ maxHeight: 360, overflow: 'auto' }}>
+      {parsed.map((s, i) => {
+        const isTotal = i === parsed.length - 1 && parsed.length > 1;
+        const status = s.status === 'failed' ? 'error' : (s.status === 'success' ? 'success' : 'default');
+        return (
+          <div
+            key={i}
+            style={{
+              display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px dashed #f0f0f0',
+              background: isTotal ? '#fffbe6' : 'transparent', borderRadius: 4,
+            }}
+          >
+            <Tag color={status} style={{ margin: 0, height: 22 }}>{isTotal ? '汇总' : `step${i + 1}`}</Tag>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontWeight: isTotal ? 700 : 500, fontSize: 13 }}>{s.subject || '-'}</span>
+                <span style={{ color: '#52c41a', fontSize: 12, whiteSpace: 'nowrap' }}>{Number(s.duration) >= 0 ? `${s.duration}ms` : ''}</span>
+              </div>
+              <div style={{ color: '#999', fontSize: 12 }}>{s.start_time || ''}{s.end_time ? ` → ${s.end_time}` : ''}</div>
+              {s.reason ? <div style={{ color: s.status === 'failed' ? '#ff4d4f' : '#8c8c8c', fontSize: 12 }}>{s.reason}</div> : null}
+              {s.params && Object.keys(s.params || {}).length > 0 ? (
+                <pre style={{ margin: '4px 0 0', padding: '4px 6px', background: '#f6f8fa', borderRadius: 4, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 120, overflow: 'auto' }}>
+                  <JsonValue data={s.params} />
+                </pre>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1075,11 +1122,12 @@ export function renderDetailValue(f, record) {
   const v = record[f.name];
   switch (f.type) {
     case 'avatar': return <EmojiAvatar value={v} size="large" />;
-    case 'staffCell': return <StaffCell staffId={v} username={record._creatorUsername} nickname={record._creatorNickname} />;
+    case 'staffCell': return <StaffCell staffId={v} username={record._creatorUsername} nickname={record._staffNickname || record._creatorNickname} />;
     case 'imageAvatar': return <ImageAvatar avatar={v} nickname={record.nickname || record._userNickname} size={45} />;
     case 'userCell': return <UserCell userId={record._userId} nickname={record._userNickname} avatar={record._userAvatar} avatarChar={record._userAvatarChar} />;
     case 'color': return <ColorDot value={v} />;
-    case 'json': return <JsonBlock value={v} />;
+    case 'json': return <JsonBlock value={v} maxHeight={f.maxHeight || 320} />;
+    case 'trace': return <TraceBlock value={v} />;
     case 'date': return fmtDateTime(v);
     case 'dateOnly': return fmtDateOnly(v);
     case 'tag': return <StatusTag value={v} map={f.map} />;

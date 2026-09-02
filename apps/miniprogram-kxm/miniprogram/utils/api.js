@@ -72,10 +72,10 @@ function stopSessionGuard() {
 
 // ==================== 云托管冷启动 / 服务暂不可用容错 ====================
 // 腾讯云托管实例空闲回收后首次请求需冷启动（数秒），期间网关常返回 HTTP 500 / errCode -501000（SERVICE_VERSION_NOT_FOUND）。
-// 策略：请求内部自动重连（指数退避）→ 仍失败则保存请求快照并跳「服务唤醒」提示页（页面内倒计时自动重连 + 手动重试按钮）。
+// 策略：检测到冷启动/服务不可用（5xx、-501000、service not found 等）→ 立即保存请求快照并跳「服务唤醒」重试页。
+// 重连不在 request 内做指数退避（那会静默等 10s+ 且冷启动期间可能静默恢复，用户感知不到），
+// 由重试页统一负责倒计时自动重连 + 手动重试，成功后再自动回原页面。
 const SERVICE_CALL_TIMEOUT = 15000;           // callContainer 超时放宽，容纳冷启动拉起的耗时
-const COLD_START_MAX_ATTEMPTS = 3;            // 含首次在内的最大尝试次数
-const COLD_START_RETRY_BASE = 1500;           // 重试基准间隔 ms（1.5s → 3s → 6s 指数退避）
 const SERVICE_ERROR_REDIRECT_COOLDOWN = 5000; // 跳提示页冷却，避免异常环境下连续 reLaunch/redirectTo
 
 // 冷启动 / 服务不可用错误特征（网关 5xx 或 fail errMsg 命中以下模式）
@@ -88,12 +88,23 @@ const COLD_START_PATTERNS = [
 ];
 
 function isColdStartError(statusCode, err) {
-  const raw = (err && (err.errMsg || err.message || err.msg || JSON.stringify(err))) || '';
-  const text = `${statusCode || ''} ${raw}`;
-  if (statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504) return true;
+  const obj = err || {};
+  const raw = (obj.errMsg || obj.message || obj.msg || '') || '';
+  // fail 回调的 err 对象有时自带 statusCode（网关/容器 5xx 场景），统一并入判断
+  const code = Number(statusCode) || Number(obj.statusCode) || 0;
+  if (code === 500 || code === 502 || code === 503 || code === 504) return true;
   // 网关返回 404 + SERVICE_VERSION_NOT_FOUND：云托管服务版本未就绪/未上线，等价于冷启动不可用
-  if (statusCode === 404 && /service[\s-_]*version[\s-_]*not[\s-_]*found/i.test(raw)) return true;
-  return COLD_START_PATTERNS.some((p) => p.test(text));
+  if (code === 404 && /service[\s-_]*version[\s-_]*not[\s-_]*found/i.test(raw)) return true;
+  // 明确的关键词特征（仅文案，成功率低误报，success/fail 通用）
+  if (COLD_START_PATTERNS.some((p) => p.test(raw))) return true;
+  // fail 路径（无 HTTP statusCode，code=0）：errMsg 是网关/系统错误字符串，可宽松识别 5xx 状态码。
+  // 注意不能对 success 的 body 宽松匹配——body 是业务数据，可能含 500 等数字造成误跳重试页。
+  if (code === 0) {
+    const text = `0 ${raw}`;
+    if (/(?:status[\s-_]*code|errCode|http)[\s\S]{0,12}?50[0-4]/i.test(raw)) return true;
+    if (/\b50[0-4]\b/.test(text)) return true;
+  }
+  return false;
 }
 
 // 最近一次冷启动失败请求的快照，供「服务唤醒」页手动/自动重试恢复
@@ -117,19 +128,27 @@ function redirectToServiceError() {
   if (cur === 'pages/service-error/service-error') return;
   serviceErrorRedirecting = true;
   serviceErrorRedirectAt = Date.now();
-  wx.redirectTo({
+  // 必须用 reLaunch 而不是 redirectTo：冷启动/服务不可用时，登录页/身份页的 onShow 常会
+  // 同时 reLaunch 回首页/身份页（如 ensureLogin 失败后 login._route 立即 reLaunch），
+  // redirectTo 会被其覆盖导致永远到不了重试页；reLaunch 清空页面栈后本页必然生效。
+  wx.reLaunch({
     url: '/pages/service-error/service-error',
     fail: () => {},
     complete: () => { serviceErrorRedirecting = false; },
   });
 }
 
-/** service-error 页：重试最近一次失败请求；成功返回原页面，失败保留快照供下次重试 */
+/** service-error 页：重试最近一次失败请求；成功返回原页面并清除快照，失败保留快照供下次重试 */
 export function retryPendingRequest() {
   return new Promise((resolve, reject) => {
     if (!pendingRequest) { reject({ code: -1, msg: '没有可恢复的请求' }); return; }
     const { path, opts } = pendingRequest;
-    request(path, { ...opts, redirect: false }).then(resolve).catch(reject);
+    request(path, { ...opts, redirect: false })
+      .then((res) => {
+        clearPendingRequest();
+        resolve(res);
+      })
+      .catch(reject);
   });
 }
 
@@ -138,6 +157,9 @@ export function clearPendingRequest() { pendingRequest = null; }
 
 /** 最近一次因 401/403 被踢回身份页的时间（短时冷却，兜底防止异常环境下 reLaunch 死循环） */
 let lastAuthRedirectAt = 0;
+
+/** 最近一次因注销流程中（460）被强制 reLaunch 到注销页的时间（短时冷却，防死循环） */
+let lastCancelRedirectAt = 0;
 
 /** 当前角色（student / admin） */
 function getRole() {
@@ -164,83 +186,81 @@ function request(path, opts = {}) {
   const requestId = genRequestId();
   const startAt = Date.now();
   return new Promise((resolve, reject) => {
-    // 冷启动/服务暂不可用：指数退避自动重连（重试成功则透明恢复，不打扰用户）
-    const scheduleRetry = (triesLeft, fn) => {
-      const delay = COLD_START_RETRY_BASE * Math.pow(2, COLD_START_MAX_ATTEMPTS - triesLeft);
-      console.warn(`[lp] service cold-start/transient, auto retry in ${delay}ms`, path);
-      setTimeout(fn, delay);
-    };
-    // 重试耗尽 → 保留请求快照并跳「服务唤醒」提示页。
+    // 冷启动/服务暂不可用：保留请求快照并跳「服务唤醒」提示页（页面内倒计时自动重连 + 手动重试）。
     // 冷启动/服务不可用与登录态无关，一律保存快照并跳提示页；redirect 仅约束 401/403 的 reLaunch 身份页
     const giveUp = () => {
       savePendingRequest(path, { method, data, auth, redirect });
       redirectToServiceError();
       reject({ code: -1, msg: '服务暂时不可用，请稍后重试', transient: true });
     };
-    const attempt = (triesLeft) => {
-      wx.cloud.callContainer({
-        config: { env: CLOUD_ENV },
-        path,
-        method,
-        data,
-        timeout: SERVICE_CALL_TIMEOUT,
-        header: {
-          'X-WX-SERVICE': CLOUD_SERVICE,
-          'X-LP-Token': auth ? getToken() : '',
-          'X-Request-Id': requestId,
-        },
-        success: (res) => {
-          reportClientCost(requestId, Date.now() - startAt);
-          const status = (res && res.statusCode) || 0;
-          const body = (res && res.data) || {};
-          // 网关/容器层 5xx 或 404 SERVICE_VERSION_NOT_FOUND：实例冷启动/版本未就绪，等待后自动重连
-          if (isColdStartError(status, body)) {
-            if (triesLeft > 0) { scheduleRetry(triesLeft, () => attempt(triesLeft - 1)); return; }
-            giveUp();
-            return;
+    wx.cloud.callContainer({
+      config: { env: CLOUD_ENV },
+      path,
+      method,
+      data,
+      timeout: SERVICE_CALL_TIMEOUT,
+      header: {
+        'X-WX-SERVICE': CLOUD_SERVICE,
+        'X-LP-Token': auth ? getToken() : '',
+        'X-Request-Id': requestId,
+      },
+      success: (res) => {
+        reportClientCost(requestId, Date.now() - startAt);
+        const status = (res && res.statusCode) || 0;
+        const body = (res && res.data) || {};
+        // 网关/容器层 5xx 或 404 SERVICE_VERSION_NOT_FOUND：实例冷启动/版本未就绪 → 跳重试页
+        if (isColdStartError(status, body)) {
+          giveUp();
+          return;
+        }
+        if (body.code === 0) {
+          resolve(body.data);
+        } else if (body.code === 460) {
+          // 注销流程中（7天冷静期）：后端已拦截业务访问，强制回到注销页撤销/等待。
+          // 不清理登录态（注销页查询/撤销仍需 token）；冷却兜底防止 reLaunch 死循环。
+          stopSessionGuard();
+          if (redirect && Date.now() - lastCancelRedirectAt > 3000) {
+            lastCancelRedirectAt = Date.now();
+            wx.reLaunch({ url: '/pkg-mine/cancel-account/cancel-account' });
           }
-          if (body.code === 0) {
-            resolve(body.data);
-          } else if (body.code === 401 || body.code === 403) {
-            // 401：登录/绑定状态失效 → 回身份页重新绑定（不展示锁定态）
-            // 403：账号被后台锁定 → 回身份页展示锁定提示 + 联系管理员
-            const isLocked = body.code === 403;
-            wx.removeStorageSync('lp_token');
-            wx.removeStorageSync('lp_staff');
-            wx.removeStorageSync('lp_role');
-            wx.removeStorageSync('lp_view_staff_id');
-            wx.removeStorageSync('lp_active_staff_id');
-            wx.removeStorageSync('lp_identities');
-            // 一并清除上一账号的后台登录凭据与共享码，避免同设备换绑后残留
-            wx.removeStorageSync('lp_backend');
-            wx.removeStorageSync('lp_share_code');
-            stopSessionGuard();
-            // 冷却兜底：同一短窗口内多次 401/403 只跳一次，避免（尤其登录失败时）反复重建身份页造成 reload 死循环
-            if (redirect && Date.now() - lastAuthRedirectAt > 3000) {
-              lastAuthRedirectAt = Date.now();
-              if (isLocked && body.msg) wx.setStorageSync('lp_lock_msg', body.msg);
-              if (isLocked && body.lockInfo) wx.setStorageSync('lp_lock_info', body.lockInfo);
-              wx.reLaunch({ url: '/pages/identity/identity' + (isLocked ? '?locked=1' : '') });
-            }
-            reject({ code: body.code, msg: body.msg || (isLocked ? '访问已锁定' : '登录已过期') });
-          } else {
-            reject({ code: body.code, msg: body.msg || '操作失败' });
+          reject({ code: body.code, msg: body.msg || '注销申请处理中' });
+        } else if (body.code === 401 || body.code === 403) {
+          // 401：登录/绑定状态失效 → 回身份页重新绑定（不展示锁定态）
+          // 403：账号被后台锁定 → 回身份页展示锁定提示 + 联系管理员
+          const isLocked = body.code === 403;
+          wx.removeStorageSync('lp_token');
+          wx.removeStorageSync('lp_staff');
+          wx.removeStorageSync('lp_role');
+          wx.removeStorageSync('lp_view_staff_id');
+          wx.removeStorageSync('lp_active_staff_id');
+          wx.removeStorageSync('lp_identities');
+          // 一并清除上一账号的后台登录凭据与共享码，避免同设备换绑后残留
+          wx.removeStorageSync('lp_backend');
+          wx.removeStorageSync('lp_share_code');
+          stopSessionGuard();
+          // 冷却兜底：同一短窗口内多次 401/403 只跳一次，避免（尤其登录失败时）反复重建身份页造成 reload 死循环
+          if (redirect && Date.now() - lastAuthRedirectAt > 3000) {
+            lastAuthRedirectAt = Date.now();
+            if (isLocked && body.msg) wx.setStorageSync('lp_lock_msg', body.msg);
+            if (isLocked && body.lockInfo) wx.setStorageSync('lp_lock_info', body.lockInfo);
+            wx.reLaunch({ url: '/pages/identity/identity' + (isLocked ? '?locked=1' : '') });
           }
-        },
-        fail: (err) => {
-          reportClientCost(requestId, Date.now() - startAt);
-          console.error('[lp] callContainer fail', path, err);
-          // 冷启动/服务暂不可用 → 自动重连，重试耗尽再跳提示页
-          if (isColdStartError(0, err)) {
-            if (triesLeft > 0) { scheduleRetry(triesLeft, () => attempt(triesLeft - 1)); return; }
-            giveUp();
-            return;
-          }
-          reject({ code: -1, msg: '网络异常，请稍后重试' });
-        },
-      });
-    };
-    attempt(COLD_START_MAX_ATTEMPTS);
+          reject({ code: body.code, msg: body.msg || (isLocked ? '访问已锁定' : '登录已过期') });
+        } else {
+          reject({ code: body.code, msg: body.msg || '操作失败' });
+        }
+      },
+      fail: (err) => {
+        reportClientCost(requestId, Date.now() - startAt);
+        console.error('[lp] callContainer fail', path, err);
+        // 冷启动/服务暂不可用 → 跳重试页
+        if (isColdStartError(0, err)) {
+          giveUp();
+          return;
+        }
+        reject({ code: -1, msg: '网络异常，请稍后重试' });
+      },
+    });
   });
 }
 
@@ -300,10 +320,30 @@ export const lpAuth = {
     const opts = data && typeof data === 'object' ? data : { nickname: data };
     return request('/api/lp/registerParent', { method: 'POST', data: opts, redirect: false });
   },
+  /** 个人注册：身份选择「我是个人」确认后自动建号/自动绑定（无邀请码/无切换/无后台账号）
+   *  data: { nickname? } → { token, bound, role, staff, identities, activeStaffId } */
+  registerPersonal: async (data = {}) => {
+    if (!getToken()) {
+      try {
+        const res = await lpAuth.login();
+        if (res && res.token) wx.setStorageSync('lp_token', res.token);
+      } catch (_) {}
+    }
+    const opts = data && typeof data === 'object' ? data : { nickname: data };
+    return request('/api/lp/registerPersonal', { method: 'POST', data: opts, redirect: false });
+  },
+  /** 解除当前绑定（重新绑定第一步：立即解绑，可与后续换绑解耦） */
+  unbind: () => request('/api/lp/unbind', { method: 'POST', data: {}, redirect: false }),
   /** 切换身份（共用微信家长↔孩子↔家属）{ staffId, pin? } → { token, role, staff, identities, activeStaffId } */
   switch: (staffId, pin) => request('/api/lp/switch', {
     method: 'POST',
     data: { staffId: String(staffId), ...(pin ? { pin: String(pin) } : {}) },
+    redirect: false,
+  }),
+  /** 家长一键切到孩子身份（自动绑定孩子账号到当前 openid，不消耗邀请码，不影响孩子本人账号使用）{ staffId } */
+  switchChild: (staffId) => request('/api/lp/switchChild', {
+    method: 'POST',
+    data: { staffId: String(staffId) },
     redirect: false,
   }),
   /** 身份 PIN 管理：set 设置/修改（4-6 位数字）/ verify 校验 / remove 关闭（需正确 PIN） */
@@ -350,6 +390,9 @@ export const lp = {
   /** 切换身份（共用微信家长↔孩子↔家属），需 PIN 时后端校验 */
   switchIdentity: (staffId, pin) => lpAuth.switch(staffId, pin),
 
+  /** 家长一键切到孩子身份（孩子档案页「以孩子身份进入」），不影响孩子本人账号使用 */
+  switchToChild: (staffId) => lpAuth.switchChild(staffId),
+
   dashboard: (asStaffId) => request('/api/lp/dashboard', { data: asStaffId ? { asStaffId } : {} }),
 
   tasks: (params, asStaffId) => request('/api/lp/tasks', { data: { ...(params || {}), ...(asStaffId ? { asStaffId } : {}) } }),
@@ -368,6 +411,17 @@ export const lp = {
   collectionCreate: (data) => request('/api/lp/collections/create', { method: 'POST', data }),
   collectionUpdate: (data) => request('/api/lp/collections/update', { method: 'POST', data }),
   collectionDelete: (id) => request('/api/lp/collections/delete', { method: 'POST', data: { id } }),
+
+  /** 科目（独立表，按 staff_id 归属，主家长/个人管理）：我的科目列表 */
+  subjects: () => request('/api/lp/subjects'),
+  /** 预置科目（系统参数维护，可选创建，非初始化数据） */
+  subjectPresets: () => request('/api/lp/subjects/presets'),
+  /** 创建科目 { name, color?, sort? } */
+  subjectCreate: (data) => request('/api/lp/subjects/create', { method: 'POST', data }),
+  /** 更新科目 { id, name?, color?, sort?, subject_status? } */
+  subjectUpdate: (data) => request('/api/lp/subjects/update', { method: 'POST', data }),
+  /** 删除科目 { id } */
+  subjectDelete: (id) => request('/api/lp/subjects/delete', { method: 'POST', data: { id } }),
 
   /** 管理员：学生列表（用于切换查看学生任务） */
   adminStudents: () => request('/api/lp/admin/students'),
@@ -395,6 +449,17 @@ export const lp = {
   /** 数据字典（任务状态/打卡方式等），codes 数组或逗号分隔字符串 → { code: [{ value, label, color }] } */
   dicts: (codes) => request('/api/lp/dicts', { data: { codes: Array.isArray(codes) ? codes.join(',') : (codes || '') } }),
 
+  /** 系统参数（前端文案/常量，后端维护）：keys 数组或逗号分隔 → { key: value }
+   *  redirect=false：身份选择页等「未绑定」场景读取文案，401 静默失败不触发 reLaunch 身份页 */
+  params: (keys) => request('/api/lp/params', { data: { keys: Array.isArray(keys) ? keys.join(',') : (keys || '') }, redirect: false }),
+
+  /** 账号注销：查询待生效申请（无则 null） */
+  accountCancelStatus: () => request('/api/lp/account/cancel/status'),
+  /** 账号注销：申请注销 { mode: 'immediate' | 'grace' }（默认 grace=7天） */
+  accountCancel: (mode) => request('/api/lp/account/cancel', { method: 'POST', data: { mode } }),
+  /** 账号注销：撤销待生效的 7 天注销申请 */
+  accountCancelRevoke: () => request('/api/lp/account/cancel/revoke', { method: 'POST', data: {} }),
+
   /** 批量图片上传（base64 JSON，逐张直调后端，避开单次请求体过大） → 相对路径列表 */
   upload: (biz, files) => request('/api/lp/upload', { method: 'POST', data: { biz, files } }),
 
@@ -410,4 +475,4 @@ export const analytics = {
   collectEvent: (payload) => request('/api/lp/collectEvent', { method: 'POST', data: payload, redirect: false }),
 };
 
-export { getToken, getRole, getViewStudent, setViewStudent, clearViewStudent, getActiveStaffId, setActiveStaffId, getIdentities, setIdentities };
+export { getToken, getRole, getViewStudent, setViewStudent, clearViewStudent, getActiveStaffId, setActiveStaffId, getIdentities, setIdentities, stopSessionGuard };

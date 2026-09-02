@@ -6,6 +6,8 @@ const { secBadgeMeta } = require('../../utils/display');
 const { ensureDict, statusMeta } = require('../../utils/dict');
 
 const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成' };
+// t-tag 无法使用 style，任务状态改用 theme 属性区分
+const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success' };
 const REVIEW_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
 const REVIEW_LABEL = { pending: '审核说明', approved: '老师点评', rejected: '驳回原因' };
 const REVIEW_THEME = {
@@ -139,6 +141,7 @@ Page({
         checkinType: (task && task.checkin_type) || 'image',
         taskStatusText: taskStatusMeta.label,
         taskStatusStyle: taskStatusMeta.style,
+        taskStatusTheme: STATUS_THEME[(task && task.task_status)] || 'default',
         checkinTypeText: checkinMeta.label,
         checkinTypeStyle: checkinMeta.style,
         taskSecBadge: taskSecMeta ? taskSecMeta.text : '',

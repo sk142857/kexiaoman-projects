@@ -8,7 +8,7 @@ const bcrypt = require("bcryptjs");
 const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql } = require("../utils");
-const { logStaffEvent, tableCn } = require("../staffAudit");
+const { logStaffEvent, tableCn, newTrace, runStep, finishTrace } = require("../staffAudit");
 const { sanitize } = require("../trace");
 
 /**
@@ -255,10 +255,15 @@ function crudRouter(opts) {
       if (pkGenerator && !values[pk]) values[pk] = await pkGenerator(req);
       values.created_at = nowSql();
       values.updated_at = nowSql();
-      const { error } = await db.from(table).insert(values);
-      if (error) throw error;
+      const trace = newTrace(`创建${tableCn(table)}`, { table, [pk]: values[pk], fields: sanitize(values) });
+      await runStep(trace, "权限与参数校验", async () => {});
+      const writeStep = await runStep(trace, "写入数据库", async () => {
+        const { error } = await db.from(table).insert(values);
+        if (error) throw error;
+      }, { params: sanitize(values) });
+      if (writeStep.err) throw writeStep.err;
       if (onAfterCreate) onAfterCreate(req, values, values[pk]);
-      logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: `创建${tableCn(table)}`, module: table, apiPath: `/api/${table}/create`, bizId: values[pk], extra: sanitize(values) });
+      logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: `创建${tableCn(table)}`, module: table, apiPath: `/api/${table}/create`, bizId: values[pk], trace: finishTrace(trace) });
       res.json(ok(null, "创建成功"));
     } catch (e) {
       console.error(`[admin:${table}] create error`, e);
@@ -300,10 +305,15 @@ function crudRouter(opts) {
       let q = db.from(table).update(values).eq(pk, id);
       if (appField && req.appId) q = q.eq(appField, req.appId);
       if (scope) q = q.eq(scope.field, scope.value);
-      const { error } = await q;
-      if (error) throw error;
+      const trace = newTrace(`更新${tableCn(table)}`, { table, [pk]: id, fields: sanitize(values) });
+      await runStep(trace, "权限与校验", async () => {});
+      const writeStep = await runStep(trace, "写入数据库", async () => {
+        const { error } = await q;
+        if (error) throw error;
+      }, { params: sanitize(values) });
+      if (writeStep.err) throw writeStep.err;
       if (onAfterUpdate && oldRecord) onAfterUpdate(req, values, id, oldRecord);
-      logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: `更新${tableCn(table)}`, module: table, apiPath: `/api/${table}/update`, bizId: id, extra: sanitize(values) });
+      logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: `更新${tableCn(table)}`, module: table, apiPath: `/api/${table}/update`, bizId: id, trace: finishTrace(trace) });
       res.json(ok(null, "更新成功"));
     } catch (e) {
       console.error(`[admin:${table}] update error`, e);
@@ -342,10 +352,15 @@ function crudRouter(opts) {
       let q = db.from(table).delete().eq(pk, id);
       if (appField && req.appId) q = q.eq(appField, req.appId);
       if (scope) q = q.eq(scope.field, scope.value);
-      const { error } = await q;
-      if (error) throw error;
+      const trace = newTrace(`删除${tableCn(table)}`, { table, [pk]: id });
+      await runStep(trace, "权限与校验", async () => {});
+      const delStep = await runStep(trace, "删除记录", async () => {
+        const { error } = await q;
+        if (error) throw error;
+      }, { params: { [pk]: id } });
+      if (delStep.err) throw delStep.err;
       if (onAfterDelete && delRecord) onAfterDelete(req, delRecord, id);
-      logStaffEvent({ req, staff: req.staff, eventType: "delete", eventName: `删除${tableCn(table)}`, module: table, apiPath: `/api/${table}/delete`, bizId: id });
+      logStaffEvent({ req, staff: req.staff, eventType: "delete", eventName: `删除${tableCn(table)}`, module: table, apiPath: `/api/${table}/delete`, bizId: id, trace: finishTrace(trace) });
       res.json(ok(null, "已删除"));
     } catch (e) {
       console.error(`[admin:${table}] delete error`, e);

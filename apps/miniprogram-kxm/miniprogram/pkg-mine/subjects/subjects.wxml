@@ -1,0 +1,70 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="科目管理"
+      left-arrow="{{true}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
+    <view class="page">
+
+      <empty wx:if="{{!loading && list.length === 0}}" icon="📚" title="还没有设置科目" desc="点击右下角 + 新建科目" />
+
+      <view wx:else class="list">
+        <view wx:for="{{list}}" wx:key="subject_id" class="item">
+          <view class="color-dot" style="{{item.color ? 'background:' + item.color : ''}}"></view>
+          <text class="name">{{item.name}}</text>
+          <view wx:if="{{canManage}}" class="ops">
+            <t-button size="small" theme="primary" variant="outline" data-id="{{item.subject_id}}" data-index="{{index}}" bindtap="openEdit">编辑</t-button>
+            <t-button size="small" theme="danger" variant="outline" data-id="{{item.subject_id}}" data-name="{{item.name}}" bindtap="onDelete">删除</t-button>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{canManage}}" class="fab" bindtap="openCreate">＋</view>
+    </view>
+  </scroll-view>
+
+  <!-- 新建/编辑科目 -->
+  <view wx:if="{{showModal}}" class="mask" catchtap="closeModal">
+    <view class="modal" catchtap="noop">
+      <view class="modal-title">{{editingId ? '编辑科目' : '新建科目'}}</view>
+
+      <view wx:if="{{!editingId && presets.length > 0}}" class="preset-wrap">
+        <view class="preset-label">常用科目（点击选择）</view>
+        <view class="preset-list">
+          <view
+            wx:for="{{presets}}"
+            wx:key="*this"
+            class="preset-chip {{selectedPreset === item ? 'preset-chip--active' : ''}}"
+            data-name="{{item}}"
+            bindtap="onPickPreset"
+          >{{item}}</view>
+        </view>
+      </view>
+
+      <view class="field-label">科目名称</view>
+      <input class="modal-input" placeholder="请输入科目名称，如：数学" value="{{name}}" bindinput="onName" />
+
+      <view class="field-label">颜色（可选）</view>
+      <view class="color-list">
+        <view
+          wx:for="{{colors}}"
+          wx:key="*this"
+          class="color-item {{selectedColor === item ? 'color-item--active' : ''}}"
+          style="{{item ? 'background:' + item : ''}}"
+          data-color="{{item}}"
+          bindtap="onPickColor"
+        >{{item ? '' : '默认'}}</view>
+      </view>
+
+      <view class="modal-ops">
+        <t-button class="modal-btn modal-btn--cancel" theme="default" variant="outline" block bindtap="closeModal">取消</t-button>
+        <t-button class="modal-btn modal-btn--submit" theme="primary" variant="base" block bindtap="submit" loading="{{submitting}}">保存</t-button>
+      </view>
+    </view>
+  </view>
+</view>

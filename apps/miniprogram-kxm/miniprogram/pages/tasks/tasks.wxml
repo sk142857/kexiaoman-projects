@@ -27,7 +27,7 @@
       <view class="task-body">
         <view class="task-head">
           <view class="task-title">{{item.title}}</view>
-          <t-tag class="task-status" size="small" shape="round" style="{{item.statusStyle}}">{{item.statusText}}</t-tag>
+          <t-tag class="task-status" size="small" shape="round" theme="{{item.statusTheme}}">{{item.statusText}}</t-tag>
         </view>
         <view wx:if="{{item.subject || item.sourceText}}" class="task-meta">
           <text wx:if="{{item.subject}}" class="meta-tag">{{item.subject}}</text>

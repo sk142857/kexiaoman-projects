@@ -199,9 +199,9 @@ async function attachCollectionCount(rows) {
 }
 
 // ==================== 任务派发 ====================
-/** 同步任务派发人员：全量替换 task_assignees。student 固定派发本人；管理员按 assignee_ids */
+/** 同步任务派发人员：全量替换 task_assignees。student/personal 固定派发本人；管理员按 assignee_ids */
 async function syncTaskAssignees(staffId, role, taskId, assigneeIds) {
-  const ids = role === "student"
+  const ids = (role === "student" || role === "personal")
     ? [String(staffId)]
     : (Array.isArray(assigneeIds) ? assigneeIds : []).map(x => String(x)).filter(Boolean);
   let validIds = [];
@@ -350,7 +350,7 @@ async function syncPointBalance(staffId, delta) {
       }
     });
   } catch (e) {
-    console.error("[learningLib] syncPointBalance error", e.message);
+    console.error("[learningLib] syncPointBalance error", e);
   }
 }
 

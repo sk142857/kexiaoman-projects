@@ -1,0 +1,65 @@
+<view class="lp-page">
+  <view class="block">
+    <t-navbar
+      t-class-placeholder="t-navbar-placeholder"
+      t-class-content="t-navbar-content"
+      title="{{copy.title}}"
+      left-arrow="{{!pending}}"
+      placeholder="{{true}}"
+    />
+  </view>
+  <scroll-view scroll-y class="lp-scroll">
+    <view class="page">
+
+      <!-- 待生效注销申请（7天冷静期内） -->
+      <view wx:if="{{pending && pending.status === 'pending'}}" class="pending-card">
+        <view class="pending-title">⏳ {{copy.pendingTitle}}</view>
+        <view class="pending-row">申请模式：{{pending.mode === 'grace' ? copy.grace.label : copy.immediate.label}}</view>
+        <view wx:if="{{pending.effective_at}}" class="pending-row">生效时间：{{pending.effective_at}}</view>
+        <view class="pending-desc">{{copy.pendingDesc}}</view>
+      </view>
+
+      <!-- 说明文案（后端维护） -->
+      <block wx:else>
+        <view class="read-card">
+          <view class="read-title">⚠️ {{copy.readTitle}}</view>
+          <view class="read-sub">请倒计时结束后再操作（强制阅读）</view>
+
+          <view class="sec">
+            <view class="sec-title">注销须知</view>
+            <view wx:for="{{copy.notices}}" wx:key="index" class="sec-item">
+              <text class="sec-dot">•</text>
+              <text class="sec-text">{{item}}</text>
+            </view>
+          </view>
+
+          <view class="sec sec--risk">
+            <view class="sec-title sec-title--risk">风险提示</view>
+            <view wx:for="{{copy.risks}}" wx:key="index" class="sec-item">
+              <text class="sec-dot sec-dot--risk">!</text>
+              <text class="sec-text sec-text--risk">{{item}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 操作提示（倒计时结束后开放） -->
+        <view class="actions">
+          <view class="countdown {{canOperate ? 'countdown--done' : ''}}">
+            {{canOperate ? '请选择注销方式' : '请阅读 ' + countdown + ' 秒后可操作'}}
+          </view>
+        </view>
+      </block>
+
+    </view>
+  </scroll-view>
+
+  <!-- 底部操作栏（统一规范：flex 子项贴底，见 app.wxss .lp-actions，skyline 下不用 fixed） -->
+  <view wx:if="{{pending && pending.status === 'pending'}}" class="lp-actions">
+    <t-button theme="primary" block loading="{{revoking}}" bindtap="onRevoke">{{copy.revokeBtn}}</t-button>
+  </view>
+
+  <view wx:else class="lp-actions">
+    <t-button class="act-grace" theme="primary" variant="base" block loading="{{submitting}}" disabled="{{!canOperate}}" bindtap="onGrace">{{copy.grace.label}}</t-button>
+    <t-button class="act-immediate" theme="danger" variant="base" block loading="{{submitting}}" disabled="{{!canOperate}}" bindtap="onImmediate">{{copy.immediate.label}}</t-button>
+  </view>
+</view>

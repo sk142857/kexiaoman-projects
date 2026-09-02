@@ -4,7 +4,7 @@ const { fileUrl } = require('../../utils/image');
 const { trackEvent } = require('../../utils/tracker');
 
 // 角色代码不变（student），界面统一展示为「孩子」
-const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '孩子' };
+const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '孩子', personal: '个人' };
 
 Page({
   data: {
@@ -20,11 +20,13 @@ Page({
     roleText: '孩子',
     isAdmin: false,
     isManager: false,   // 家长/家属/管理员（可审核）
+    isPersonal: false,  // 个人（自己发布任务自己打卡）
     stats: { totalTasks: 0, totalCheckins: 0 },
     level: null,
     streak: { current: 0 },
     identities: [],       // 共用微信多身份（家长 + 孩子 + 家属）
-    notifyUnread: 0,      // 系统通知未读数（菜单徽标）
+    notifyUnread: 0,      // 系统通知未读数（个人设置入口角标提示）
+    subjectCount: -1,     // 我的科目数（-1=未加载；0=未设置，提示去创建）
   },
 
   async onShow() {
@@ -48,6 +50,7 @@ Page({
       roleText: ROLE_TEXT[role] || '孩子',
       isAdmin: role === 'admin',
       isManager: ['admin', 'parent', 'family'].includes(role),
+      isPersonal: role === 'personal',
     });
     this._load();
   },
@@ -91,9 +94,21 @@ Page({
     }
     wx.hideLoading();
     this._loadNotifyUnread();
+    this._loadSubjectCount();
   },
 
-  // 系统通知未读数（菜单徽标；失败静默置 0，不影响主加载）
+  // 我的科目数（学习管理入口提示「去设置科目」；失败静默，不影响主加载）
+  async _loadSubjectCount() {
+    try {
+      const res = await lp.subjects();
+      const list = (res && res.list) || [];
+      this.setData({ subjectCount: list.length });
+    } catch (_) {
+      this.setData({ subjectCount: -1 });
+    }
+  },
+
+  // 系统通知未读数（个人设置入口角标提示；失败静默置 0，不影响主加载）
   async _loadNotifyUnread() {
     try {
       const res = await lp.notificationsUnread();
@@ -103,10 +118,10 @@ Page({
     }
   },
 
-  // 系统通知入口
-  goNotifications() {
-    trackEvent('menu_click', '点击系统通知');
-    wx.navigateTo({ url: '/pkg-mine/notifications/notifications' });
+  // 学习管理（合集 / 科目）
+  goLearningManage() {
+    trackEvent('menu_click', '点击学习管理');
+    wx.navigateTo({ url: '/pkg-mine/learning-manage/learning-manage' });
   },
 
   // 去身份切换页（独立一级菜单：切换子菜单 + 提示文案）

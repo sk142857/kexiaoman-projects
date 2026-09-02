@@ -104,6 +104,16 @@ export const crudApi = {
   taskDeleteStats: (taskId) => api.get('/admin/api/tasks/deleteStats', { params: { taskId } }),
   // 删除员工前风控核验统计（关联任务/打卡/合集/绑定关系），供删除确认弹窗提示
   staffDeleteStats: (staffId) => api.get('/admin/api/staff/deleteStats', { params: { staffId } }),
+  // 物理清除（一键删除账号及全部关联数据，物理删除 + 完整审计）：
+  // 两段式：purgePreview 返回完整删除审计清单（目标/家庭范围/逐表计数/样本行/媒体文件），审阅后再 purge 执行
+  staffPurgePreview: (staffId) => api.get('/admin/api/staff/purgePreview', { params: { staffId } }),
+  staffPurge: (staffId) => api.post('/admin/api/staff/purge', { staffId }),
+  // 物理清除审计列表/详情（t_lp_staff_purges，只读回看）
+  staffPurgeList: (params) => api.get('/admin/api/staff_purges/list', { params }),
+  staffPurgeDetail: (id) => api.get('/admin/api/staff_purges/detail', { params: { id } }),
+  // 用户冗余数据物理清理（用户管理 → 物理清理）：两段式预览 + 执行
+  userPurgePreview: (userId) => api.get('/admin/api/users/purgePreview', { params: { userId } }),
+  userPurge: (userId) => api.post('/admin/api/users/purge', { userId }),
   // 上传图片（base64 → 云存储）
   upload: (biz, file) => api.post('/admin/api/upload', { biz, file }),
   // 课小满邀请码独立管理（t_lp_invites，仅管理员）：作废 / 重新生成
@@ -124,6 +134,8 @@ export const crudApi = {
   lpStudentRebind: (id, staffId) => api.post('/admin/api/lp_students/rebind', { id, staffId }),
   // 家庭成员关系树（后台集中视图：主家长 → 孩子/家属 → 小程序绑定）
   lpFamilyTree: () => api.get('/admin/api/lp_family_tree/list'),
+  // 用户注销管理：管理员手动撤销待生效的注销申请（家长/个人小程序申请的 7天冷静期申请）
+  accountCancelRevoke: (id) => api.post('/admin/api/account_cancellations/revoke', { id }),
   // 订阅消息：后台给学生赠送订阅次数 { staffId, tmplId, count, remark }
   subscribeGrant: (data) => api.post('/admin/api/subscribe_grants/grant', data),
 };

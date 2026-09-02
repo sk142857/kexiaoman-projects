@@ -42,8 +42,8 @@
   justify-content: center;
 }
 .icon--parent { background: #eef4ff; color: #2b6de0; }
-.icon--student { background: #ecf9e8; color: #52c41a; }
-.icon--family { background: #fff4e6; color: #fa8c16; }
+.icon--personal { background: #e6fbfb; color: #13c2c2; }
+.icon--invite { background: #ecf9e8; color: #52c41a; }
 .card-main {
   flex: 1;
   min-width: 0;

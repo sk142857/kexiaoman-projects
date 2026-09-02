@@ -158,6 +158,18 @@
   color: #b0b6c0;
 }
 
+/* 提示标签（如「去设置科目」） */
+.menu-tag {
+  flex-shrink: 0;
+  margin-left: 8rpx;
+  margin-right: 8rpx;
+  padding: 4rpx 14rpx;
+  font-size: 20rpx;
+  color: #2b6de0;
+  background: #eef4ff;
+  border-radius: 999rpx;
+}
+
 /* 未读通知徽标：包一层 view，避免 Skyline 下自定义组件作为 flex 子项时垂直居中失效 */
 .menu-notify-badge {
   flex-shrink: 0;

@@ -159,7 +159,7 @@ async function writeTraceAsync(metric) {
     const { error } = await db.from("api_trace").insert(metric);
     if (error) throw error;
   } catch (e) {
-    console.error("[trace] 入库失败 requestId=" + metric.request_id, e.message || e);
+    console.error("[trace] 入库失败 requestId=" + metric.request_id, e);
   }
 }
 
@@ -175,7 +175,7 @@ async function reportTrace(requestId, clientCostMs) {
       })
       .eq("request_id", requestId);
   } catch (e) {
-    console.error("[trace] 补全失败 requestId=" + requestId, e.message || e);
+    console.error("[trace] 补全失败 requestId=" + requestId, e);
   }
 }
 

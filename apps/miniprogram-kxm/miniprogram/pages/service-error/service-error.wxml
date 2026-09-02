@@ -27,7 +27,6 @@
       <view class="se-sub" wx:if="{{msg}}">{{msg}}</view>
       <view class="se-sub">请检查网络后重试，服务唤醒可能需要几分钟</view>
       <t-button class="se-btn" theme="primary" block bindtap="onManualRetry">重新连接</t-button>
-      <view class="se-link" bindtap="goHome">返回首页</view>
     </view>
   </view>
 </view>

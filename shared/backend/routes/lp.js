@@ -24,6 +24,8 @@ const { sendReviewNotification } = require("../subscribeLib");
 const { notifyCheckinSubmitted, notifyReviewResult, notifyTaskAssigned, notifyTaskDone } = require("../notificationLib");
 const { ensureUser } = require("../appAuth");
 const { listBoundStaffs } = require("./lpAuth");
+const { getParamsMap } = require("../params");
+const { roleCanCancel, requestCancellation, cancelPendingCancellation, getPendingCancellation } = require("../accountLib");
 const {
   parseImgList, attachAssignees, attachStaffInfo, attachCollectionName, attachCollectionCount,
   syncTaskAssignees, isTaskDone, levelFromXp, streakEndingAt, maxStreakOf, buildLearningReminders,
@@ -40,10 +42,55 @@ const router = express.Router();
 const me = (req) => String((req.lp && req.lp.staffId) || "");
 const myOpenid = (req) => (req.lp && req.lp.openid) || "";
 const isAdmin = (req) => (req.lp && req.lp.role) === "admin";
-/** 可管理任务/可审核打卡的角色：平台管理员 / 主家长 / 家属（学生不可） */
+/** 可管理任务/可审核打卡的角色：平台管理员 / 主家长 / 家属（学生/个人不可） */
 const isManager = (req) => ["admin", "parent", "family"].includes(req.lp && req.lp.role);
+/** 个人角色：无家庭、无切换，自己发布任务自己打卡 */
+const isPersonal = (req) => (req.lp && req.lp.role) === "personal";
 /** 当前用户的家庭可见范围（孩子 student staff_id 数组；null=admin 全部） */
 const myScope = (req) => (req.lp && req.lp.scope) || null;
+
+/**
+ * 当前用户的「家庭归属 staff_id」：合集/科目按主家长归属（staff_id）查询与管理。
+ * - admin → null（全部，不过滤）
+ * - parent / personal → 本人 staff_id
+ * - family → 邀请他的主家长（lp_family_members.owner_staff_id）
+ * - student → 其主家长（lp_children.parent_staff_id）
+ * 查不到归属关系时回退本人，保证查询不空转。
+ */
+async function familyOwnerStaffId(req) {
+  const role = (req.lp && req.lp.role) || "";
+  const staffId = me(req);
+  if (role === "admin") return null;
+  if (role === "parent" || role === "personal") return staffId;
+  if (role === "family") {
+    try {
+      const { data } = await db.from("lp_family_members")
+        .select("owner_staff_id").eq("member_staff_id", Number(staffId)).eq("member_status", 1).limit(1);
+      if (data && data[0] && data[0].owner_staff_id) return String(data[0].owner_staff_id);
+    } catch (_) { /* 回退本人 */ }
+    return staffId;
+  }
+  if (role === "student") {
+    try {
+      const { data } = await db.from("lp_children")
+        .select("parent_staff_id").eq("student_staff_id", Number(staffId)).eq("child_status", 1).limit(1);
+      if (data && data[0] && data[0].parent_staff_id) return String(data[0].parent_staff_id);
+    } catch (_) { /* 回退本人 */ }
+    return staffId;
+  }
+  return staffId;
+}
+
+/** 业务表 staff_id 归属过滤（同步构建，避免 async 吞掉 thenable 查询链）；admin owner=null 不过滤 */
+function ownerStaffEq(owner, q) {
+  if (owner === null) return q;
+  const oid = Number(owner);
+  if (!oid) return q.eq("staff_id", -1);
+  return q.eq("staff_id", oid);
+}
+
+/** 可管理学习资源（合集/科目）的角色：主家长 / 家属 / 管理员 / 个人；学生仅可查看使用 */
+const canManageLearning = (req) => isManager(req) || isPersonal(req);
 
 /** 列表分页参数：page（1 起）/ pageSize（默认 20，上限 200），非法值回退默认 */
 function pageInfo(req) {
@@ -67,14 +114,14 @@ function scheduleImagesCompress(paths, onDone) {
         const r = await compressImageAsync({ path: p });
         finalPaths.push((r && r.path) || p);
       } catch (e) {
-        console.error("[lp] 图片后台压缩失败", p, e.message);
+        console.error("[lp] 图片后台压缩失败", p, e);
         finalPaths.push(p);
       }
     }
     try {
       await onDone(finalPaths);
     } catch (e) {
-      console.error("[lp] 图片后台压缩回写失败", e.message);
+      console.error("[lp] 图片后台压缩回写失败", e);
     }
   }, 0);
 }
@@ -127,6 +174,54 @@ router.get("/session", async (req, res) => {
   res.json(ok({ role: req.lpRole, staffId: req.lp.staffId }));
 });
 
+// ==================== 账号注销（家长/个人） ====================
+// 仅 parent / personal 可注销；其余角色无此功能。
+// mode=immediate 立即注销 / grace 7天冷静期（默认）；status 查询待生效申请；revoke 撤销。
+router.get("/account/cancel/status", async (req, res) => {
+  try {
+    const pending = await getPendingCancellation(req.appId, myOpenid(req));
+    res.json(ok(pending ? {
+      cancel_id: String(pending.cancel_id),
+      mode: pending.mode,
+      status: pending.status,
+      requested_at: pending.requested_at,
+      effective_at: pending.effective_at || "",
+    } : null));
+  } catch (e) {
+    console.error("[lp] account cancel status error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/account/cancel", async (req, res) => {
+  try {
+    if (!roleCanCancel(req.lp && req.lp.role)) return res.json(fail("当前身份不支持注销账号", 403));
+    const { mode } = req.body || {};
+    const r = await requestCancellation({
+      appId: req.appId,
+      staffId: me(req),
+      openid: myOpenid(req),
+      role: req.lp.role,
+      mode: String(mode || "grace"),
+    });
+    res.json(ok({ mode: r.mode, status: r.status, effective_at: r.effective_at }, r.msg));
+  } catch (e) {
+    console.error("[lp] account cancel error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/account/cancel/revoke", async (req, res) => {
+  try {
+    if (!roleCanCancel(req.lp && req.lp.role)) return res.json(fail("当前身份不支持注销账号", 403));
+    const okRevoked = await cancelPendingCancellation(req.appId, myOpenid(req));
+    res.json(ok(null, okRevoked ? "已撤销注销申请" : "没有待撤销的注销申请"));
+  } catch (e) {
+    console.error("[lp] account cancel revoke error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
 // ==================== 数据字典 ====================
 // 前端标签统一取色：任务状态（task_status）/ 打卡方式（checkin_type）等字典项，
 // 返回 item_value/item_label/color，后台「数据字典」调整 color 后全局同步。
@@ -148,6 +243,21 @@ router.get("/dicts", async (req, res) => {
     res.json(ok(map));
   } catch (e) {
     console.error("[lp] dicts error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// ==================== 系统参数（前端文案/常量，后端维护） ====================
+// keys 逗号分隔或数组；返回 { key: value }，param_type=json 的参数返回解析后的对象。
+router.get("/params", async (req, res) => {
+  try {
+    const keys = (Array.isArray((req.query && req.query.keys)) ? (req.query.keys) : String((req.query && req.query.keys) || "").split(","))
+      .map(s => String(s || "").trim().slice(0, 64)).filter(Boolean);
+    if (keys.length === 0) return res.json(ok({}));
+    const map = await getParamsMap(req.appId || "miniprogram-kxm", keys);
+    res.json(ok(map));
+  } catch (e) {
+    console.error("[lp] params error", e);
     res.json(fail("服务异常", 500));
   }
 });
@@ -175,7 +285,7 @@ router.get("/profile", async (req, res) => {
       staff: {
         staff_id: String(staff.staff_id),
         username: staff.staff_username,
-        nickname: staff.staff_nickname || "学生",
+        nickname: staff.staff_nickname || (staff.staff_role === "personal" ? "个人" : "学生"),
         avatar: staff.staff_avatar || "",
       },
       identities,
@@ -203,7 +313,7 @@ router.post("/profile", async (req, res) => {
       nickCheck = await textCheckNow({ appId: req.appId, content: n, openid: myOpenidVal });
       if (avatarPath) avatarCheck = await imageCheckNow({ appId: req.appId, path: avatarPath });
     } catch (e) {
-      console.error("[lp] 资料写时内容安全校验失败（放行）", e.message);
+      console.error("[lp] 资料写时内容安全校验失败（放行）", e);
     }
     if (nickCheck && nickCheck.status === "reject") return res.json(fail("昵称包含违规内容，请修改后重试"));
     if (avatarCheck && avatarCheck.status === "reject") return res.json(fail("头像包含违规内容，请更换后重试"));
@@ -251,7 +361,7 @@ router.post("/profile", async (req, res) => {
             await db.from("staff").update({ staff_avatar: r.path, updated_at: nowSql() }).eq("staff_id", Number(myStaffId));
           }
         } catch (e) {
-          console.error("[lp] 头像后台压缩失败", e.message);
+          console.error("[lp] 头像后台压缩失败", e);
         }
       }, 0);
     }
@@ -1056,13 +1166,15 @@ router.post("/checkins/create", async (req, res) => {
       if ((await storageFileExists(vUrl2)) === false) return res.json(fail("视频文件不存在，请重新上传"));
     } else {
       imgList = (Array.isArray(images) ? images : []).slice(0, 9);
+      // 图文打卡强约束：必须输入文字 + 至少上传一张图片（与任务发布的打卡方式一致）
+      const noteText = String(note || "").trim();
+      if (!noteText) return res.json(fail("图文打卡需输入打卡文字"));
+      if (imgList.length < 1) return res.json(fail("图文打卡需至少上传一张图片"));
       // 完整性校验：每张图片必须已登记上传（归属本人，active）
-      if (imgList.length > 0) {
-        const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("openid", myOpenid(req)).eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
-        const registered = new Set((imgRows || []).map(r => r.file_path));
-        const missing = imgList.filter(p => !registered.has(p));
-        if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
-      }
+      const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("openid", myOpenid(req)).eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
+      const registered = new Set((imgRows || []).map(r => r.file_path));
+      const missing = imgList.filter(p => !registered.has(p));
+      if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
     }
     // 视频大小后端复核（登记记录里取；无登记记录时以路径前缀校验兜底）
     let videoSize = 0;
@@ -1075,6 +1187,8 @@ router.post("/checkins/create", async (req, res) => {
 
     const checkinDate = date || formatDate(new Date());
     const checkinId = await nextSeq("task_checkin_id");
+    // 个人身份：自己打卡，无审核方 → 直接置为已通过（自服务，最简单）
+    const autoApproved = isPersonal(req);
     const { error: insErr } = await db.from("task_checkins").insert({
       checkin_id: checkinId,
       task_id: tid,
@@ -1089,7 +1203,10 @@ router.post("/checkins/create", async (req, res) => {
       video_duration: checkinType === "video" ? vDur2 : 0,
       video_size: checkinType === "video" ? videoSize : 0,
       created_by: staffId,
-      review_status: "pending",
+      review_status: autoApproved ? "approved" : "pending",
+      review_score: autoApproved ? 10 : 0,
+      reviewer: 0,
+      reviewed_at: autoApproved ? nowSql() : null,
       created_at: nowSql(),
     });
     if (insErr) throw insErr;
@@ -1109,7 +1226,7 @@ router.post("/checkins/create", async (req, res) => {
             await db.from("task_checkins").update(upd).eq("checkin_id", checkinId);
           }
         } catch (e) {
-          console.error("[lp] 视频后台压缩失败", vUrl2, e.message);
+          console.error("[lp] 视频后台压缩失败", vUrl2, e);
         }
       }, 0);
     }
@@ -1139,23 +1256,37 @@ router.post("/checkins/create", async (req, res) => {
       await db.from("tasks").update(taskValues).eq("task_id", tid);
     });
 
+    // 个人身份：打卡即通过 → +10 分；任务全部通过则任务完成 +30（与审核通过同规则）
+    if (autoApproved) {
+      awardCheckinApproved({ checkin_id: checkinId, created_by: staffId }, staffId).catch(() => {});
+      const allDone = await taskAllRecipientsDone(tid);
+      if (allDone) {
+        await db.from("tasks").update({ task_status: "done", score: 10, progress: 100, updated_at: nowSql() }).eq("task_id", tid);
+        if (task && task.task_status !== "done") applyTaskStatusPoints(task, task.task_status, "done", staffId).catch(() => {});
+      }
+    }
+
     logTaskEvent({
       taskId: tid, checkinId, bizType: "task_checkin", eventType: "checkin", eventName: "任务打卡",
-      summary: `小程序端对任务「${task.title}」打卡（第 ${(task.checkin_count || 0) + 1} 次，待审核）`,
-      payload: { task_title: task.title, checkin_date: checkinDate, note: note || "", images: imgList, checkin_type: checkinType, voice_url: vUrl, voice_duration: vDur, review_status: "pending" },
+      summary: autoApproved
+        ? `个人用户对任务「${task.title}」打卡（第 ${(task.checkin_count || 0) + 1} 次，自动通过）`
+        : `小程序端对任务「${task.title}」打卡（第 ${(task.checkin_count || 0) + 1} 次，待审核）`,
+      payload: { task_title: task.title, checkin_date: checkinDate, note: note || "", images: imgList, checkin_type: checkinType, voice_url: vUrl, voice_duration: vDur, review_status: autoApproved ? "approved" : "pending" },
       staffId,
     });
     logEvent({ appId: req.appId, openid: myOpenid(req), eventType: "create", eventName: "学习打卡", pagePath: "/pages/task-detail/index", bizId: String(tid) });
-    // 系统通知：学生提交打卡 → 提醒家长/家属及时审核（与订阅消息隔离，站内信）
-    notifyCheckinSubmitted({
-      appId: req.appId,
-      studentStaffId: staffId,
-      taskTitle: task.title,
-      taskId: tid,
-      checkinDate: String(checkinDate).slice(0, 10),
-      checkinId,
-    }).catch(() => {});
-    res.json(ok({ checkin_id: checkinId }, "打卡成功，等待老师审核"));
+    // 系统通知：学生提交打卡 → 提醒家长/家属及时审核（个人无审核方，不通知）
+    if (!autoApproved) {
+      notifyCheckinSubmitted({
+        appId: req.appId,
+        studentStaffId: staffId,
+        taskTitle: task.title,
+        taskId: tid,
+        checkinDate: String(checkinDate).slice(0, 10),
+        checkinId,
+      }).catch(() => {});
+    }
+    res.json(ok({ checkin_id: checkinId }, autoApproved ? "打卡成功" : "打卡成功，等待老师审核"));
   } catch (e) {
     console.error("[lp] checkin create error", e);
     res.json(fail("服务异常", 500));
@@ -1698,9 +1829,9 @@ router.get("/notifications", async (req, res) => {
           .update({ is_read: 1, read_at: nowSql() })
           .eq("staff_id", staffId)
           .in("notify_id", unreadIds);
-        if (error) console.error("[lp] notifications silent read error", error.message);
+        if (error) console.error("[lp] notifications silent read error", error);
       } catch (e) {
-        console.error("[lp] notifications silent read error", e.message);
+        console.error("[lp] notifications silent read error", e);
       }
     }
 
@@ -1842,11 +1973,14 @@ router.get("/badges", async (req, res) => {
 });
 
 
-// ==================== 合集（查询任意登录用户；创建/编辑/删除仅管理员） ====================
+// ==================== 合集（按 staff_id 归属，主家长/个人管理；家庭内共享） ====================
+// 归属模型：合集由主家长（或独立个人）创建，staff_id=归属主；全家（主家长/家属/孩子）共享查看。
+// 查询按 staff_id 过滤（admin 全部）；创建/编辑/删除仅归属主可操作。
 router.get("/collections", async (req, res) => {
   try {
     const { page, pageSize, offset } = pageInfo(req);
-    const applyFilters = (q) => q.eq("collection_status", 1);
+    const owner = await familyOwnerStaffId(req);
+    const applyFilters = (q) => ownerStaffEq(owner, q.eq("collection_status", 1));
     const [total, listRes] = await Promise.all([
       countRows("task_collections", "collection_id", applyFilters),
       applyFilters(db.from("task_collections").select())
@@ -1867,6 +2001,7 @@ router.get("/collections", async (req, res) => {
         cover_images: parseImgList(c.cover_images),
         task_count: c.task_count || 0,
         created_by: c.created_by,
+        staff_id: c.staff_id,
         _creatorNickname: c._creatorNickname || "",
       })),
       total,
@@ -1882,11 +2017,13 @@ router.get("/collections", async (req, res) => {
 
 router.post("/collections/create", async (req, res) => {
   try {
-    if (!isAdmin(req)) return res.json(fail("无权操作", 403));
+    if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理合集", 403));
     const staffId = Number(me(req));
+    if (!staffId) return res.json(fail("未登录", 401));
     const { name, description, cover_images } = req.body || {};
     const n = String(name || "").trim().slice(0, 100);
     if (!n) return res.json(fail("合集名称不能为空"));
+    const ownerId = Number(await familyOwnerStaffId(req)) || staffId;
     const collectionId = await nextSeq("collection_id");
     await db.from("task_collections").insert({
       collection_id: collectionId,
@@ -1895,11 +2032,13 @@ router.post("/collections/create", async (req, res) => {
       cover_images: JSON.stringify(Array.isArray(cover_images) ? cover_images.slice(0, 1) : []),
       task_count: 0,
       created_by: staffId,
+      staff_id: ownerId,
       collection_status: 1,
       created_at: nowSql(),
       updated_at: nowSql(),
     });
     invalidateCollectionRows([collectionId]);
+    logEvent({ appId: req.appId, openid: myOpenid(req), eventType: "create", eventName: "创建合集", pagePath: "/pkg-mine/learning-manage/learning-manage", bizId: String(collectionId) });
     res.json(ok({ collection_id: collectionId }, "创建成功"));
   } catch (e) {
     console.error("[lp] collection create error", e);
@@ -1909,19 +2048,18 @@ router.post("/collections/create", async (req, res) => {
 
 router.post("/collections/update", async (req, res) => {
   try {
-    if (!isAdmin(req)) return res.json(fail("无权操作", 403));
-    const staffId = Number(me(req));
+    if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理合集", 403));
     const b = req.body || {};
     const id = Number(b.id);
     if (!id) return res.json(fail("缺少合集 ID"));
-    const { data: rows } = await db.from("task_collections")
-      .select().eq("collection_id", id).eq("created_by", staffId).limit(1);
+    const owner = await familyOwnerStaffId(req);
+    const { data: rows } = await ownerStaffEq(owner, db.from("task_collections").select().eq("collection_id", id)).limit(1);
     if (!(rows && rows[0])) return res.json(fail("无权编辑该合集", 403));
     const values = { updated_at: nowSql() };
     if (b.name !== undefined) values.name = String(b.name).trim().slice(0, 100);
     if (b.description !== undefined) values.description = String(b.description).slice(0, 500);
     if (b.cover_images !== undefined) values.cover_images = JSON.stringify(Array.isArray(b.cover_images) ? b.cover_images.slice(0, 1) : []);
-    await db.from("task_collections").update(values).eq("collection_id", id).eq("created_by", staffId);
+    await ownerStaffEq(owner, db.from("task_collections").update(values).eq("collection_id", id));
     invalidateCollectionRows([id]);
     res.json(ok(null, "更新成功"));
   } catch (e) {
@@ -1932,20 +2070,150 @@ router.post("/collections/update", async (req, res) => {
 
 router.post("/collections/delete", async (req, res) => {
   try {
-    if (!isAdmin(req)) return res.json(fail("无权操作", 403));
-    const staffId = Number(me(req));
+    if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理合集", 403));
     const { id } = req.body || {};
     const cid = Number(id);
     if (!cid) return res.json(fail("缺少合集 ID"));
-    const { data: rows } = await db.from("task_collections")
-      .select().eq("collection_id", cid).eq("created_by", staffId).limit(1);
+    const owner = await familyOwnerStaffId(req);
+    const { data: rows } = await ownerStaffEq(owner, db.from("task_collections").select().eq("collection_id", cid)).limit(1);
     if (!(rows && rows[0])) return res.json(fail("无权删除该合集", 403));
     await db.from("tasks").update({ collection_id: 0, updated_at: nowSql() }).eq("collection_id", cid);
-    await db.from("task_collections").delete().eq("collection_id", cid).eq("created_by", staffId);
+    await ownerStaffEq(owner, db.from("task_collections").delete().eq("collection_id", cid));
     invalidateCollectionRows([cid]);
     res.json(ok(null, "已删除"));
   } catch (e) {
     console.error("[lp] collection delete error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+// ==================== 科目（独立表 t_lp_subjects，按 staff_id 归属，主家长/个人管理） ====================
+// 预置科目（subject_presets 系统参数，JSON 数组）供用户选择创建，不自动初始化。
+const SUBJECT_PRESETS_DEFAULT = ["语文", "数学", "英语", "科学", "阅读", "写作", "作业", "运动", "音乐", "美术", "编程", "书法", "口语"];
+
+/** 预置科目列表：优先读系统参数 subject_presets（JSON 数组），缺省回退内置默认 */
+async function subjectPresets(req) {
+  try {
+    const map = await getParamsMap(req.appId || "miniprogram-kxm", ["subject_presets"]);
+    const raw = map && map.subject_presets;
+    if (raw) {
+      const arr = Array.isArray(raw) ? raw : (() => {
+        try { const v = JSON.parse(raw); return Array.isArray(v) ? v : null; } catch (_) { return null; }
+      })();
+      if (Array.isArray(arr)) return arr.map(s => String(s).trim()).filter(Boolean).slice(0, 100);
+    }
+  } catch (_) { /* 读参数失败回退默认 */ }
+  return SUBJECT_PRESETS_DEFAULT;
+}
+
+router.get("/subjects", async (req, res) => {
+  try {
+    const owner = await familyOwnerStaffId(req);
+    const { data: rows, error } = await ownerStaffEq(owner, db.from("subjects").select())
+      .order("sort", { ascending: true }).order("subject_id", { ascending: true }).limit(200);
+    if (error) throw error;
+    res.json(ok({
+      list: (rows || []).map(s => ({
+        subject_id: s.subject_id,
+        name: s.name,
+        color: s.color || "",
+        sort: Number(s.sort) || 0,
+        subject_status: s.subject_status,
+        staff_id: s.staff_id,
+      })),
+    }));
+  } catch (e) {
+    console.error("[lp] subjects list error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.get("/subjects/presets", async (req, res) => {
+  try {
+    res.json(ok({ list: await subjectPresets(req) }));
+  } catch (e) {
+    console.error("[lp] subjects presets error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/subjects/create", async (req, res) => {
+  try {
+    if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理科目", 403));
+    const staffId = Number(me(req));
+    if (!staffId) return res.json(fail("未登录", 401));
+    const b = req.body || {};
+    const name = String(b.name || "").trim().slice(0, 32);
+    if (!name) return res.json(fail("科目名称不能为空"));
+    const ownerId = Number(await familyOwnerStaffId(req)) || staffId;
+    // 同归属下科目名唯一（防重复创建/并发冲突）
+    const { data: dup } = await db.from("subjects")
+      .select("subject_id").eq("staff_id", ownerId).eq("name", name).limit(1);
+    if (dup && dup[0]) return res.json(fail("该科目已存在，请勿重复创建"));
+    const subjectId = await nextSeq("subject_id");
+    const color = String(b.color || "").slice(0, 16);
+    const sort = Math.max(0, Number(b.sort) || 0);
+    await db.from("subjects").insert({
+      subject_id: subjectId,
+      staff_id: ownerId,
+      name,
+      color,
+      sort,
+      subject_status: b.subject_status === 0 ? 0 : 1,
+      created_at: nowSql(),
+      updated_at: nowSql(),
+    });
+    logEvent({ appId: req.appId, openid: myOpenid(req), eventType: "create", eventName: "创建科目", pagePath: "/pkg-mine/subjects/subjects", bizId: String(subjectId) });
+    res.json(ok({ subject_id: subjectId }, "创建成功"));
+  } catch (e) {
+    console.error("[lp] subject create error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/subjects/update", async (req, res) => {
+  try {
+    if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理科目", 403));
+    const b = req.body || {};
+    const id = Number(b.id || b.subject_id);
+    if (!id) return res.json(fail("缺少科目 ID"));
+    const owner = await familyOwnerStaffId(req);
+    const { data: rows } = await ownerStaffEq(owner, db.from("subjects").select().eq("subject_id", id)).limit(1);
+    if (!(rows && rows[0])) return res.json(fail("无权编辑该科目", 403));
+    const values = { updated_at: nowSql() };
+    if (b.name !== undefined) values.name = String(b.name).trim().slice(0, 32);
+    if (b.color !== undefined) values.color = String(b.color).slice(0, 16);
+    if (b.sort !== undefined) values.sort = Math.max(0, Number(b.sort) || 0);
+    if (b.subject_status !== undefined) values.subject_status = b.subject_status === 0 ? 0 : 1;
+    if (!values.name) return res.json(fail("科目名称不能为空"));
+    // 改名冲突校验：同归属下其它科目已占用该名称
+    if (b.name !== undefined) {
+      const { data: dup } = await db.from("subjects")
+        .select("subject_id").eq("staff_id", rows[0].staff_id).eq("name", values.name)
+        .neq("subject_id", id).limit(1);
+      if (dup && dup[0]) return res.json(fail("该科目已存在，请勿重复创建"));
+    }
+    await ownerStaffEq(owner, db.from("subjects").update(values).eq("subject_id", id));
+    res.json(ok(null, "更新成功"));
+  } catch (e) {
+    console.error("[lp] subject update error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/subjects/delete", async (req, res) => {
+  try {
+    if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理科目", 403));
+    const { id } = req.body || {};
+    const sid = Number(id);
+    if (!sid) return res.json(fail("缺少科目 ID"));
+    const owner = await familyOwnerStaffId(req);
+    const { data: rows } = await ownerStaffEq(owner, db.from("subjects").select().eq("subject_id", sid)).limit(1);
+    if (!(rows && rows[0])) return res.json(fail("无权删除该科目", 403));
+    await ownerStaffEq(owner, db.from("subjects").delete().eq("subject_id", sid));
+    res.json(ok(null, "已删除"));
+  } catch (e) {
+    console.error("[lp] subject delete error", e);
     res.json(fail("服务异常", 500));
   }
 });

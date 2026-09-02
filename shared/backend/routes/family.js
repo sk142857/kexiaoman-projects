@@ -15,7 +15,7 @@ const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
-const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword } = require("./lpAuth");
+const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword, activateBinding } = require("./lpAuth");
 const { logEvent } = require("../events");
 const { invalidateStaffRows, cachedStaffRows } = require("../learningLib");
 const { textCheckNow, submitForAudit } = require("../contentSecurity");
@@ -34,7 +34,7 @@ async function auditChildText(req, { name, schoolName }) {
     if (name) nameCheck = await textCheckNow({ appId: req.appId, content: name, openid: myOpenid(req) });
     if (schoolName) schoolCheck = await textCheckNow({ appId: req.appId, content: schoolName, openid: myOpenid(req) });
   } catch (e) {
-    console.error("[lp] 孩子档案内容安全校验失败（放行）", e.message);
+    console.error("[lp] 孩子档案内容安全校验失败（放行）", e);
   }
   if (nameCheck && nameCheck.status === "reject") return { error: "孩子姓名包含违规内容，请修改后重试", nameCheck, schoolCheck };
   if (schoolCheck && schoolCheck.status === "reject") return { error: "学校名称包含违规内容，请修改后重试", nameCheck, schoolCheck };
@@ -55,6 +55,26 @@ function logChildAudit(req, childId, { nameCheck, schoolCheck, name, schoolName 
 /** 当前用户是主家长或平台管理员 */
 function isParentOrAdmin(req) {
   return ["parent", "admin"].includes(myRole(req));
+}
+
+/**
+ * 把新建孩子账号自动绑定到主家长的 openid（家长可一键切到孩子身份，不消耗学生邀请码）。
+ * 仅在 t_lp_students 追加 (parent openid ↔ 孩子) 行，孩子本人在其它设备绑定的账号不受影响。
+ * 主家长尚未登录过小程序（无绑定记录）时静默跳过，登录后经 switchChild 接口按需绑定。
+ */
+async function autoBindChild(parentStaffId, childStaffId) {
+  try {
+    const { data, error } = await db.from("lp_students")
+      .select("openid").eq("app_id", LP_APP.app_id)
+      .eq("staff_id", Number(parentStaffId)).eq("bound_status", 1).limit(50);
+    if (error) throw error;
+    const openids = [...new Set((data || []).map(r => r.openid).filter(Boolean))];
+    for (const openid of openids) {
+      await activateBinding(openid, childStaffId);
+    }
+  } catch (e) {
+    console.error("[lp] auto bind child to parent error", e);
+  }
 }
 
 /** 当前用户的家庭范围（孩子 student staff_id 集合）；admin=null 全部 */
@@ -225,6 +245,9 @@ router.post("/family/children/create", async (req, res) => {
     // 生成学生邀请码
     const inv = await createInvite({ kind: "student", ownerStaffId: student.staff_id, childId, createdBy: Number(me(req)) });
 
+    // 一键切换支持：把新建孩子账号绑定到主家长 openid（幂等；不消耗学生邀请码，孩子本人账号不受影响）
+    await autoBindChild(parentId, student.staff_id);
+
     logEvent({
       appId: LP_APP.app_id, openid: myOpenid(req), eventType: "create", eventName: "新增孩子档案",
       pagePath: "/pages/child-edit/index", bizId: String(childId),
@@ -340,16 +363,22 @@ router.post("/family/children/invite", async (req, res) => {
   }
 });
 
-// 作废学生邀请码（仅作废该孩子仍「待绑定」的码；已绑定码不受影响，
-// 绑定访问由 lpAuth 按 staff/bound_status 实时复核，作废只影响尚未绑定的码）
+// 作废学生邀请码：作废该孩子全部学生码（待绑定 + 已绑定），并立即删除孩子侧的绑定设备关系
+// （主家长最高权限：作废邀请码后，孩子小程序绑定立即失效，由 lpAuth 实时复核锁定）。
 router.post("/family/children/invite/revoke", async (req, res) => {
   try {
     if (!isParentOrAdmin(req)) return res.json(fail("仅主家长可管理学生邀请码", 403));
     const child = await childOwned(req, req.body && req.body.child_id);
     if (!child) return res.json(fail("孩子档案不存在或无权操作", 403));
+    // 作废该孩子全部学生码（available 未绑定 + bound 已绑定）
     await db.from("lp_invites").update({ status: "revoked", updated_at: nowSql() })
-      .eq("kind", "student").eq("child_id", child.child_id).eq("status", "available");
-    res.json(ok(null, "已作废"));
+      .eq("kind", "student").eq("child_id", child.child_id).in("status", ["available", "bound"]);
+    // 立即删除孩子侧的绑定设备关系（清除绑定，孩子端实时被踢出）
+    if (child.student_staff_id) {
+      await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() })
+        .eq("staff_id", Number(child.student_staff_id)).eq("bound_status", 1);
+    }
+    res.json(ok(null, "已作废" + (child.student_staff_id ? "，孩子绑定设备关系已删除" : "")));
   } catch (e) {
     console.error("[lp] child invite revoke error", e);
     res.json(fail("服务异常", 500));

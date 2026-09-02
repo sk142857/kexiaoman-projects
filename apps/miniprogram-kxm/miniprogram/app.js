@@ -42,6 +42,12 @@ App({
       if (res && res.bound && res.staff) {
         wx.setStorageSync('lp_staff', res.staff);
         wx.setStorageSync('lp_role', res.role || res.staff.role || 'student');
+        // 注销流程中（7天冷静期）：不采集/不启用心跳（业务已被后端 460 拦截），
+        // 由登录加载页分流到注销页，用户只能停留在注销页撤销/等待（如抖音/公众号注销流程）
+        if (res.cancel_pending) {
+          this.stopSessionGuard();
+          return { ...res, bound: true, cancelPending: res.cancel_pending };
+        }
         // 冷启动静默采集会话画像（失败不影响）
         collectSession();
         this.startSessionGuard();

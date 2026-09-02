@@ -25,14 +25,17 @@ const TABLE_MAP = {
   api_trace: "t_api_trace",
   file_uploads: "t_file_uploads",
   content_audits: "t_content_audits",
+  system_error_logs: "t_system_error_logs",
   apps: "t_apps",
   staff_apps: "t_staff_apps",
+  system_params: "t_system_params",
 
   // ==================== 课小满业务表（t_lp_） ====================
   tasks: "t_lp_tasks",
   task_assignees: "t_lp_task_assignees",
   task_checkins: "t_lp_task_checkins",
   task_collections: "t_lp_task_collections",
+  subjects: "t_lp_subjects",
   task_timeline: "t_lp_task_timeline",
   point_logs: "t_lp_point_logs",
   point_balances: "t_lp_point_balances",
@@ -45,6 +48,8 @@ const TABLE_MAP = {
   subscribe_sends: "t_lp_subscribe_sends",
   notify_templates: "t_lp_notify_templates",
   notifications: "t_lp_notifications",
+  account_cancellations: "t_lp_account_cancellations",
+  staff_purges: "t_lp_staff_purges",
 };
 
 /** 是否已带前缀（物理表名直接透传） */

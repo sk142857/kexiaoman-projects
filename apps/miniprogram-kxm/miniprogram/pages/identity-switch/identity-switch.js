@@ -4,7 +4,7 @@ const { lp, lpAuth, getRole, getIdentities, setIdentities, getActiveStaffId, set
 const { trackEvent } = require('../../utils/tracker');
 
 // 角色代码不变（student），界面统一展示为「孩子」
-const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '孩子' };
+const ROLE_TEXT = { admin: '管理员', parent: '主家长', family: '家属', student: '孩子', personal: '个人' };
 
 Page({
   data: {

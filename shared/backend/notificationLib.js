@@ -68,7 +68,7 @@ async function recipientParentsOfStudent(appId, studentStaffId) {
       (fam || []).forEach(f => { if (Number(f.member_staff_id) > 0) ids.add(Number(f.member_staff_id)); });
     }
   } catch (e) {
-    console.error("[notifyLib] recipientParentsOfStudent error", e.message);
+    console.error("[notifyLib] recipientParentsOfStudent error", e);
   }
   return [...ids];
 }
@@ -193,7 +193,7 @@ async function sendNotification({ appId, type, staffIds, vars = {}, bizType = ""
       if (error) throw error;
     }
   } catch (e) {
-    console.error("[notifyLib] sendNotification error", e.message);
+    console.error("[notifyLib] sendNotification error", e);
   }
   return rows.length;
 }

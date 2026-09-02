@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 内容安全审核（旁路模块，与业务链路完全隔离）
  *
  * 设计目标：
@@ -154,7 +154,7 @@ async function submitForAudit({ appId, bizType, bizId, field = "", mediaType = 1
     base.retries = 0;
     await db.from("content_audits").insert(base);
   } catch (e) {
-    console.error("[security] submitForAudit error", e.message);
+    console.error("[security] submitForAudit error", e);
   }
 }
 
@@ -167,7 +167,7 @@ async function repointAudit(oldPath, newPath) {
       .eq("biz_type", "file").eq("biz_id", String(oldPath));
     if (error) throw error;
   } catch (e) {
-    console.error("[security] repointAudit error", e.message);
+    console.error("[security] repointAudit error", e);
   }
 }
 
@@ -256,7 +256,7 @@ async function mergeAudit(records, cfg) {
     }
     return records;
   } catch (e) {
-    console.error("[security] mergeAudit error", e.message);
+    console.error("[security] mergeAudit error", e);
     return records; // 失败降级：透传
   }
 }
@@ -325,7 +325,7 @@ async function finalize(row, status, detail, raw) {
     .eq("audit_id", row.audit_id);
   if (error) throw error;
   // 业务风险状态即时回写（task/checkin 直接定位；file 解析引用该媒体的业务记录）
-  await syncAfterFinalize(row).catch((e) => console.error("[security] syncAfterFinalize error", e.message));
+  await syncAfterFinalize(row).catch((e) => console.error("[security] syncAfterFinalize error", e));
 }
 
 /** 解析引用某媒体路径的业务记录（任务图/打卡图/语音/视频/封面）；仅用于旧模型遗留数据对账 */
@@ -373,7 +373,7 @@ async function rebindAudit({ bizType, bizId, paths }) {
       if (error) throw error;
     }
   } catch (e) {
-    console.error("[security] rebindAudit error", e.message);
+    console.error("[security] rebindAudit error", e);
   }
 }
 
@@ -427,11 +427,11 @@ async function syncRecordRisk({ bizType, bizId, appId }) {
           bizName: bizType === "task" ? "任务" : "打卡",
           bizType,
           bizId: bid,
-        }).catch((e) => console.error("[security] notifyContentViolation error", e.message));
+        }).catch((e) => console.error("[security] notifyContentViolation error", e));
       }
     }
   } catch (e) {
-    console.error("[security] syncRecordRisk error", e.message);
+    console.error("[security] syncRecordRisk error", e);
   }
 }
 
@@ -446,7 +446,7 @@ async function syncAfterFinalize(row) {
       await syncRecordRisk({ bizType: cur.biz_type, bizId: cur.biz_id, appId: cur.app_id });
     }
   } catch (e) {
-    console.error("[security] syncAfterFinalize error", e.message);
+    console.error("[security] syncAfterFinalize error", e);
   }
 }
 
@@ -674,7 +674,7 @@ async function checkVideo(row) {
         if (status === "reject") { worst = "reject"; break; }
         if (status === "risk" && worst === "pass") worst = "risk";
       } catch (e) {
-        console.error("[security] 视频帧检测失败", e.message);
+        console.error("[security] 视频帧检测失败", e);
       }
     }
     await finalize(row, worst, worst === "reject" ? "视频画面命中违规" : "", { frames: frameRaws });
@@ -738,12 +738,12 @@ async function runAuditWorker() {
       try {
         await processRow(row);
       } catch (e) {
-        console.error("[security] 处理任务失败", row.audit_id, e.message);
+        console.error("[security] 处理任务失败", row.audit_id, e);
         await bumpRetry(row, e.message);
       }
     }
   } catch (e) {
-    console.error("[security] worker error", e.message);
+    console.error("[security] worker error", e);
   } finally {
     workerRunning = false;
   }
@@ -764,7 +764,7 @@ function startAuditWorker(intervalMs = 15000) {
         console.log(`[security] 内容安全配置 ${id}: enabled=${cfg.enabled} scene=${cfg.scene}`);
       }
     } catch (e) {
-      console.error("[security] 启动诊断失败", e.message);
+      console.error("[security] 启动诊断失败", e);
     }
   }, 5000);
   console.log("[security] 内容安全 worker 已启动（每", intervalMs / 1000, "s 轮询）");
@@ -793,7 +793,7 @@ async function reconcileStaleRisk() {
     for (const c of checks || []) await syncRecordRisk({ bizType: "checkin", bizId: c.checkin_id });
     console.log("[security] risk_status 对账完成（遗留 file 行:", (fileRows || []).length, "）");
   } catch (e) {
-    console.error("[security] reconcileStaleRisk error", e.message);
+    console.error("[security] reconcileStaleRisk error", e);
   }
 }
 

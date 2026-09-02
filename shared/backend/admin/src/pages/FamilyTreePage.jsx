@@ -4,17 +4,18 @@
 // 数据源 /admin/api/lp_family_tree（只读，后台专用），与「绑定管理/孩子档案/家属关系」表格模块并存。
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Row, Col, Tag, Avatar, Space, Empty, Tree, Typography, Input,
+  Card, Row, Col, Tag, Avatar, Space, Empty, Tree, Typography, Input, Button,
 } from 'antd';
 import {
   ReloadOutlined, ApartmentOutlined, UserOutlined,
   LinkOutlined, DisconnectOutlined, KeyOutlined, CheckCircleOutlined, MinusCircleOutlined,
-  BookOutlined, CheckSquareOutlined, GiftOutlined,
+  BookOutlined, CheckSquareOutlined, GiftOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import { crudApi } from '../services/api';
 import {
   ImageAvatar, StatusTag, MaskId, fmtDateTime,
 } from '../components/fields.jsx';
+import { openPurgeConfirm } from '../components/PurgeConfirm.jsx';
 import PageSkeleton from '../components/PageSkeleton.jsx';
 
 // 头像尺寸：与「用户管理」表格等后台模块一致（ImageAvatar 42px，真实头像+昵称首字符回退）
@@ -113,7 +114,7 @@ const BindingBlock = ({ binding, label = '小程序绑定' }) => {
 };
 
 /** 主家长节点标题 */
-const ParentTitle = ({ family }) => {
+const ParentTitle = ({ family, canPurge, onPurge }) => {
   const p = family.parent || {};
   const childCount = family.children.length;
   const memberCount = family.familyMembers.length;
@@ -139,6 +140,16 @@ const ParentTitle = ({ family }) => {
           <Tag color="purple">{childCount} 个孩子</Tag>
           <Tag color="orange">{memberCount} 位家属</Tag>
         </Space>
+        {canPurge && (
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={(e) => { e.stopPropagation(); if (onPurge) onPurge(); }}
+          >
+            物理清除
+          </Button>
+        )}
       </Space>
     </div>
   );
@@ -241,6 +252,11 @@ export default function FamilyTreePage() {
   const [keyword, setKeyword] = useState('');
   const [expandedKeys, setExpandedKeys] = useState([]);
 
+  // 当前后台登录人（决定一级主家长节点是否展示「物理清除」入口：仅管理员）
+  let currentStaff = {};
+  try { currentStaff = JSON.parse(localStorage.getItem('admin_user') || '{}'); } catch (_) {}
+  const isAdmin = currentStaff.role === 'admin';
+
   const load = useCallback(async (silent) => {
     if (!silent) setLoading(true);
     try {
@@ -258,6 +274,13 @@ export default function FamilyTreePage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // 一级主家长「物理清除」：一键物理删除该家庭全部关联数据（孩子/家属/绑定/业务数据/媒体），
+  // 删除前展示完整删除审计清单，删除后写入「物理清除审计」并刷新本页。
+  const handlePurgeParent = async (family) => {
+    const parent = family.parent || {};
+    await openPurgeConfirm(parent, { refresh: () => load() });
+  };
 
   // 关键词过滤：主家长昵称/账号、孩子姓名、学生昵称/账号
   const match = (text) => {
@@ -291,7 +314,7 @@ export default function FamilyTreePage() {
   const treeData = [
     ...visibleFamilies.map(f => ({
       key: `parent-${f.parent.staff_id}`,
-      title: <ParentTitle family={f} />,
+      title: <ParentTitle family={f} canPurge={isAdmin} onPurge={() => handlePurgeParent(f)} />,
       children: [
         ...f.children.map(c => ({ key: `child-${c.child_id}`, title: <ChildTitle child={c} /> })),
         ...f.familyMembers.map(m => ({ key: `member-${m.id}`, title: <MemberTitle member={m} /> })),

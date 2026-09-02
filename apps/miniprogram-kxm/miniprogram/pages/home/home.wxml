@@ -53,11 +53,6 @@
         <text wx:if="{{level && !level.maxLevel}}">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}}</text>
         <text wx:elif="{{level && level.maxLevel}}">已满级</text>
       </view>
-      <view class="streak-row">
-        <view class="streak-item">🔥 连击 {{streak.current}} 天</view>
-        <view class="streak-item">🏆 最长 {{streak.max}} 天</view>
-        <view class="streak-item">{{stats.todayCheckedIn ? '✅ 今日已打卡' : '⏳ 今日未打卡'}}</view>
-      </view>
       <view class="level-foot">
         <button class="level-share" open-type="share" hover-class="level-share--hover" aria-label="分享课小满">
           <t-icon name="share" size="30rpx" />

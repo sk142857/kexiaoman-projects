@@ -1,7 +1,9 @@
 // pages/collections/collections.js
 const { lp, getRole } = require('../../utils/api');
+const { trackEvent } = require('../../utils/tracker');
 
 const PAGE_SIZE = 20;
+const CAN_MANAGE_ROLES = ['admin', 'parent', 'family', 'personal'];
 
 Page({
   data: {
@@ -11,7 +13,7 @@ Page({
     name: '',
     description: '',
     submitting: false,
-    isAdmin: false,
+    canManage: false,   // 主家长/家属/管理员/个人 可管理合集（学生仅查看）
     page: 1,
     hasMore: true,
     loadingMore: false,
@@ -27,7 +29,8 @@ Page({
     // 等待期间可能被 reLaunch 到身份页，页面已失效则直接返回
     const pages = getCurrentPages();
     if (!pages.length || pages[pages.length - 1].route !== 'pkg-mine/collections/collections') return;
-    this.setData({ isAdmin: getRole() === 'admin' });
+    trackEvent('page_view', '合集管理');
+    this.setData({ canManage: CAN_MANAGE_ROLES.includes(getRole()) });
     this._load();
   },
 
@@ -75,6 +78,7 @@ Page({
     this.setData({ submitting: true });
     lp.collectionCreate({ name, description: this.data.description })
       .then(() => {
+        trackEvent('button_click', '创建合集');
         wx.showToast({ title: '创建成功', icon: 'success' });
         this.setData({ showCreate: false });
         this._load();
@@ -91,6 +95,7 @@ Page({
       confirmColor: '#ff4d4f',
       success: (r) => {
         if (!r.confirm) return;
+        trackEvent('button_click', '删除合集');
         lp.collectionDelete(id)
           .then(() => { wx.showToast({ title: '已删除', icon: 'success' }); this._load(); })
           .catch((e2) => wx.showToast({ title: e2.msg, icon: 'none' }));

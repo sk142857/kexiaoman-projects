@@ -88,7 +88,7 @@ async function availableCount(staffId, tmplId) {
     if (error) throw error;
     return (data || []).reduce((sum, g) => sum + Math.max(0, (Number(g.grant_count) || 0) - (Number(g.used_count) || 0)), 0);
   } catch (e) {
-    console.error("[subscribeLib] availableCount error", e.message);
+    console.error("[subscribeLib] availableCount error", e);
     return 0;
   }
 }
@@ -125,7 +125,7 @@ async function consumeCredit(staffId, tmplId, count = 1) {
       }
       return remain <= 0;
     } catch (e) {
-      console.error("[subscribeLib] consumeCredit error", e.message);
+      console.error("[subscribeLib] consumeCredit error", e);
       return false;
     }
   });
@@ -153,7 +153,7 @@ async function logSend(rec) {
       created_at: nowSql(),
     });
   } catch (e) {
-    console.error("[subscribeLib] logSend error", e.message);
+    console.error("[subscribeLib] logSend error", e);
   }
 }
 

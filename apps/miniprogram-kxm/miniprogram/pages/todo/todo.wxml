@@ -49,7 +49,7 @@
           <view class="todo-body">
             <view class="todo-title">{{item.title}}</view>
             <view class="todo-meta">
-              <t-tag class="tag-gap" size="small" shape="round" style="{{item.statusStyle}}">{{item.statusText}}</t-tag>
+              <t-tag class="tag-gap" size="small" shape="round" theme="{{item.statusTheme}}">{{item.statusText}}</t-tag>
               <text wx:if="{{item.subject}}" class="todo-tag">{{item.subject}}</text>
               <text wx:if="{{item.sourceText === 'Web后台'}}" class="todo-tag web">Web后台发布</text>
               <t-tag wx:if="{{item.checkin_type === 'voice'}}" class="tag-gap" size="small" shape="round" style="{{item.checkinStyle}}">{{item.checkinText}}</t-tag>
@@ -73,7 +73,7 @@
             </view>
             <text wx:if="{{item.sourceText === 'Web后台'}}" class="review-badge source">Web后台</text>
             <text wx:if="{{item.secBadge}}" class="review-badge {{item.secTagTheme === 'danger' ? 'sec-danger' : 'sec-warning'}}">{{item.secBadge}}</text>
-            <text class="review-badge">待审核</text>
+            <t-tag t-class="review-status-tag" size="small" shape="round" theme="warning">待审核</t-tag>
           </view>
           <view class="review-task" bindtap="goTask" data-id="{{item.task_id}}">
             <text class="review-task-title">{{item.task_title}}</text>

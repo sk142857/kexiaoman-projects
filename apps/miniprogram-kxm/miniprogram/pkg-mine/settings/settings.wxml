@@ -30,6 +30,14 @@
           <text class="menu-label">家属共享</text>
           <text class="menu-arrow">›</text>
         </view>
+        <view class="menu-item" bindtap="goNotifications">
+          <view class="menu-icon menu-icon--rose">📣</view>
+          <text class="menu-label">系统通知</text>
+          <view wx:if="{{notifyUnread > 0}}" class="menu-notify-badge">
+            <t-badge count="{{notifyUnread}}" max-count="99" t-class="notify-badge" />
+          </view>
+          <text class="menu-arrow">›</text>
+        </view>
         <view class="menu-item" bindtap="goSubscribe">
           <view class="menu-icon menu-icon--green">🔔</view>
           <text class="menu-label">订阅消息</text>
@@ -38,6 +46,11 @@
         <view class="menu-item" bindtap="onRebind">
           <view class="menu-icon menu-icon--rose">🔑</view>
           <text class="menu-label">重新绑定</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view wx:if="{{canCancel}}" class="menu-item menu-item--danger" bindtap="goCancelAccount">
+          <view class="menu-icon menu-icon--danger">⚠️</view>
+          <text class="menu-label">注销账号</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-item">

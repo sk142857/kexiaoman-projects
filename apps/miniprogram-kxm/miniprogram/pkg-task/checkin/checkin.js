@@ -206,6 +206,17 @@ Page({
       wx.showToast({ title: '请选择有效打卡日期', icon: 'none' });
       return;
     }
+    // 图文打卡：必须输入文字 + 至少一张图片（与后端强约束一致）
+    if (this.data.checkinType === 'image') {
+      if (!String(this.data.note || '').trim()) {
+        wx.showToast({ title: '图文打卡需输入打卡文字', icon: 'none' });
+        return;
+      }
+      if (!this.data.images || this.data.images.length < 1) {
+        wx.showToast({ title: '图文打卡需至少上传一张图片', icon: 'none' });
+        return;
+      }
+    }
     this.setData({ submitting: true });
     const submit = async () => {
       if (this.data.checkinType === 'video') {

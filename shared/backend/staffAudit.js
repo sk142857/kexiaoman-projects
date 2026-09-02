@@ -28,6 +28,8 @@ const TABLE_CN = {
   lp_students: "绑定关系",
   lp_invites: "邀请码",
   staff_events: "审计日志",
+  system_params: "系统参数",
+  system_error_logs: "错误日志",
 };
 const tableCn = (table) => TABLE_CN[table] || table;
 
@@ -77,13 +79,15 @@ function getParams(req) {
  * @param {string} [p.module] 业务模块（users/tasks/staff 或 auth/menu）
  * @param {string} [p.apiPath] 接口路径（缺省取 req.originalUrl）
  * @param {string} [p.bizId] 业务 ID
- * @param {object} [p.extra] 附加信息（JSON 序列化）
+ * @param {object} [p.extra] 附加信息（JSON 序列化；与 p.trace 二选一）
+ * @param {Array} [p.trace] 完整操作过程 trace 数组（每步对象 key 一致：subject/start_time/end_time/reason/status/duration/params）
  */
 async function logStaffEvent(p) {
   try {
     if (!p || !p.eventType || !p.eventName) return;
     const req = p.req || {};
     const staff = p.staff || {};
+    const extra = p.trace !== undefined ? p.trace : p.extra;
     await db.from("staff_events").insert({
       event_id: genId(),
       staff_id: Number(staff.staff_id) || 0,
@@ -97,12 +101,80 @@ async function logStaffEvent(p) {
       client_ip: getClientIp(req),
       client_fingerprint: getBrowserFingerprint(req),
       user_agent: String(req.headers && req.headers["user-agent"] || "").slice(0, 255),
-      extra: p.extra ? JSON.stringify(p.extra) : null,
+      extra: extra ? JSON.stringify(extra) : null,
       created_at: nowSql(),
     });
   } catch (e) {
-    console.error("[staffAudit] 审计日志入库失败:", e.message);
+    console.error("[staffAudit] 审计日志入库失败:", e);
   }
 }
 
-module.exports = { logStaffEvent, getClientIp, getBrowserFingerprint, tableCn };
+// ==================== 操作过程 trace 构建器 ====================
+// 提供完整的操作 JSON 数组（类似 chatgpt 返回的 trace 数组），方便审计跟踪。
+// 每个 step 对象 key 一致：subject / start_time / end_time / reason / status / duration / params。
+// 数组顺序即步骤顺序（step1、step2、step3…），末尾追加一条 total 汇总（subject=整体，duration=总耗时）。
+
+/** 新建一个 trace 上下文 */
+function newTrace(subject, params = {}) {
+  return {
+    subject: String(subject || ""),
+    params: sanitize(params || {}),
+    startTime: nowSql(),
+    startedMs: Date.now(),
+    steps: [],
+  };
+}
+
+/**
+ * 记录一个步骤（计时执行 fn）
+ * @returns {Promise<{result, err}>} fn 的返回值与错误（错误已被捕获，不会抛出）
+ */
+async function runStep(trace, subject, fn, { params = {}, reason = "" } = {}) {
+  const start = nowSql();
+  const t0 = Date.now();
+  let status = "success";
+  let reasonText = String(reason || "");
+  let result;
+  let err = null;
+  try {
+    result = await fn();
+  } catch (e) {
+    status = "failed";
+    err = e;
+    reasonText = String((e && e.message) || e || "失败").slice(0, 255) || reasonText;
+  }
+  const end = nowSql();
+  trace.steps.push({
+    subject: String(subject || ""),
+    start_time: start,
+    end_time: end,
+    reason: reasonText,
+    status,
+    duration: Date.now() - t0,
+    params: sanitize(params || {}),
+  });
+  return { result, err };
+}
+
+/**
+ * 收尾 trace：返回完整步骤数组（含末尾 total 汇总步）。
+ * @param {object} trace newTrace 产物
+ * @param {string} [status] 整体状态（缺省按步骤推断：任一步 failed 则 failed）
+ * @param {string} [reason] 整体说明
+ */
+function finishTrace(trace, status, reason = "") {
+  const steps = (trace.steps || []).map(s => ({ ...s }));
+  const hasFailed = steps.some(s => s.status === "failed");
+  steps.push({
+    subject: String(trace.subject || ""),
+    start_time: trace.startTime,
+    end_time: nowSql(),
+    reason: String(reason || (hasFailed ? "存在失败步骤" : "")),
+    status: String(status || (hasFailed ? "failed" : "success")),
+    duration: Date.now() - trace.startedMs,
+    params: trace.params || {},
+  });
+  return steps;
+}
+
+module.exports = { logStaffEvent, getClientIp, getBrowserFingerprint, tableCn, newTrace, runStep, finishTrace };

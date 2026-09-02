@@ -19,8 +19,11 @@ const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = r
 const { createInvite, inviteById, genUniqueInviteCode, familyScope } = require("./lpAuth");
 const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted, staffPoints, staffPointsMap, recentPointLogs, syncBadgeUnlocks, taskAllRecipientsDone } = require("../learningLib");
 const { invalidatePrefix } = require("../cache");
+const { invalidateParams } = require("../params");
+const { isProtectedStaff } = require("../protect");
 const { sendReviewNotification } = require("../subscribeLib");
 const { notifyReviewResult, notifyTaskAssigned, notifyTaskDone } = require("../notificationLib");
+const { collectPurgeManifest, executePurge, collectUserPurgeManifest, executeUserPurge } = require("../purgeLib");
 
 const router = express.Router();
 
@@ -225,7 +228,7 @@ router.post("/logout", adminAuth, (req, res) => {
 
 // ==================== 菜单权限中间件（非管理员按角色-菜单鉴权） ====================
 // 管理员（admin）拥有全部菜单权限；其余角色只能访问其角色已分配菜单对应的模块
-const MODULE_BIZ = ["users", "monitors", "traces", "sessions", "file_uploads", "user_events", "staff", "roles", "menus", "tasks", "task_checkins", "task_collections", "lp_students", "lp_children", "lp_family_members", "lp_family_tree", "dict_types", "dict_items", "seqs", "staff_events", "apps", "subscribe_grants", "subscribe_sends", "todo_tasks", "checkin_reviews", "content_audits", "notify_templates", "notifications"];
+const MODULE_BIZ = ["users", "monitors", "traces", "sessions", "file_uploads", "user_events", "staff", "roles", "menus", "tasks", "task_checkins", "task_collections", "subjects", "lp_students", "lp_children", "lp_family_members", "lp_family_tree", "dict_types", "dict_items", "seqs", "staff_events", "apps", "subscribe_grants", "subscribe_sends", "todo_tasks", "checkin_reviews", "content_audits", "notify_templates", "notifications", "system_params", "account_cancellations", "system_error_logs", "staff_purges"];
 // 共享参考数据模块：任意角色均可读取（下拉选项/筛选条件依赖，如任务的科目字典），写入仍需模块权限
 const REFERENCE_READ_BIZ = ["dict_types", "dict_items"];
 // 字典读写接口统一归属「数据字典」菜单（/module/dicts），写操作按该菜单路径鉴权
@@ -289,6 +292,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "39", name: "任务管理（卡片模式）", path: "/module/card_tasks", icon: "ProfileOutlined", type: "leaf" },
     { id: "7", name: "打卡管理", path: "/module/task_checkins", icon: "CalendarOutlined", type: "leaf" },
     { id: "28", name: "合集管理", path: "/module/task_collections", icon: "FolderOutlined", type: "leaf" },
+    { id: "46", name: "科目管理", path: "/module/subjects", icon: "BookOutlined", type: "leaf" },
   ]},
   { id: "8", parent_id: "0", name: "成员管理", path: "/members", icon: "UserOutlined", sort: 3, type: "group", status: 1, children: [
     { id: "9", name: "用户管理", path: "/module/users", icon: "UserOutlined", type: "leaf" },
@@ -297,6 +301,8 @@ const DEFAULT_MENU_GROUPS = [
     { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "HeartOutlined", type: "leaf" },
     { id: "38", name: "邀请码管理", path: "/module/lp_invites", icon: "KeyOutlined", type: "leaf" },
     { id: "40", name: "家庭关系", path: "/module/lp_family_tree", icon: "ApartmentOutlined", type: "leaf" },
+    { id: "45", name: "注销管理", path: "/module/account_cancellations", icon: "StopOutlined", type: "leaf" },
+    { id: "50", name: "物理清除审计", path: "/module/staff_purges", icon: "DeleteOutlined", type: "leaf" },
   ]},
   { id: "19", parent_id: "0", name: "消息通知", path: "/message", icon: "BellOutlined", sort: 4, type: "group", status: 1, children: [
     { id: "32", name: "订阅授权", path: "/module/subscribe_grants", icon: "BellOutlined", type: "leaf" },
@@ -311,6 +317,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "21", name: "用户事件", path: "/module/user_events", icon: "ThunderboltOutlined", type: "leaf" },
     { id: "20", name: "文件上传记录", path: "/module/file_uploads", icon: "PictureOutlined", type: "leaf" },
     { id: "41", name: "内容安全", path: "/module/content_audits", icon: "SafetyOutlined", type: "leaf" },
+    { id: "47", name: "错误日志", path: "/module/system_error_logs", icon: "BugOutlined", type: "leaf" },
   ]},
   { id: "22", parent_id: "0", name: "系统设置", path: "/system", icon: "SettingOutlined", sort: 6, type: "group", status: 1, children: [
     { id: "23", name: "管理员管理", path: "/module/staff", icon: "SafetyOutlined", type: "leaf" },
@@ -320,6 +327,7 @@ const DEFAULT_MENU_GROUPS = [
     { id: "27", name: "序列管理", path: "/module/seqs", icon: "OrderedListOutlined", type: "leaf" },
     { id: "29", name: "操作审计", path: "/module/staff_events", icon: "AuditOutlined", type: "leaf" },
     { id: "30", name: "小程序配置", path: "/module/apps", icon: "AppstoreOutlined", type: "leaf" },
+    { id: "44", name: "系统参数", path: "/module/system_params", icon: "SlidersOutlined", type: "leaf" },
   ]},
 ];
 
@@ -352,6 +360,7 @@ async function ensureDefaultMenus() {
       await db.from("roles").insert({ role_id: await nextSeq("role_id"), role_code: "student", role_name: "学生", role_status: 1, created_at: nowSql(), updated_at: nowSql() });
       await db.from("roles").insert({ role_id: await nextSeq("role_id"), role_code: "parent", role_name: "主家长", role_status: 1, created_at: nowSql(), updated_at: nowSql() });
       await db.from("roles").insert({ role_id: await nextSeq("role_id"), role_code: "family", role_name: "家属", role_status: 1, created_at: nowSql(), updated_at: nowSql() });
+      await db.from("roles").insert({ role_id: await nextSeq("role_id"), role_code: "personal", role_name: "个人", role_status: 1, created_at: nowSql(), updated_at: nowSql() });
     }
 
     const { data: rmRows, error: rmErr } = await db.from("role_menus").select("id").limit(1);
@@ -359,7 +368,7 @@ async function ensureDefaultMenus() {
       const all = flatten.map(m => ({ role_code: "admin", menu_id: m.menu_id }));
       // 学生仅学习相关菜单（按路径匹配，避免依赖序列分配的 menu_id 数字）：学习仪表盘 + 学习管理分组及子页
       // 安全审计 S5：lp_students / lp_children / lp_family_members / task_checkins 为敏感管理数据，不再授权给学生角色
-      const STUDENT_MENU_PATHS = ["/dashboard", "/dashboard/learning", "/learning", "/module/todo_tasks", "/module/tasks", "/module/card_tasks", "/module/task_collections"];
+      const STUDENT_MENU_PATHS = ["/dashboard", "/dashboard/learning", "/learning", "/module/todo_tasks", "/module/tasks", "/module/card_tasks", "/module/task_collections", "/module/subjects"];
       const student = flatten.filter(m => STUDENT_MENU_PATHS.includes(m.menu_path))
         .map(m => ({ role_code: "student", menu_id: m.menu_id }));
       for (const r of [...all, ...student]) {
@@ -674,6 +683,53 @@ router.post("/api/users/unlock", adminAuth, async (req, res) => {
   }
 });
 
+// ==================== 用户冗余数据物理清理（用户管理 → 物理清理） ====================
+// 两段式：purgePreview 返回完整删除审计清单（openid 维度数据 + 因此孤儿化的业务账号数据），
+// purge 执行物理删除并写入「物理清除审计」（target_kind=user）。
+// 仅删除该用户（openid）自己相关的数据/绑定/关联；若绑定的业务账号因此完全孤儿化，按单账号模式一并清除，
+// 绝不触碰其它 openid 关联的家庭成员/孩子数据。
+async function loadOpenidByUserId(userId) {
+  const { data } = await db.from("users").select("openid").eq("user_id", Number(userId)).limit(1);
+  return (data && data[0] && data[0].openid) || "";
+}
+
+router.get("/api/users/purgePreview", adminAuth, async (req, res) => {
+  try {
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可操作", 403));
+    const { userId } = req.query;
+    if (!userId) return res.json(fail("缺少用户 ID"));
+    const openid = await loadOpenidByUserId(userId);
+    if (!openid) return res.json(fail("用户不存在"));
+    const manifest = await collectUserPurgeManifest(openid);
+    const { orphan_staff_ids, ...out } = manifest;
+    res.json(ok(out));
+  } catch (e) {
+    console.error("[admin] users purgePreview error", e);
+    res.json(fail((e && e.message) || "服务异常", 400));
+  }
+});
+
+router.post("/api/users/purge", adminAuth, async (req, res) => {
+  try {
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可操作", 403));
+    const { userId } = req.body || {};
+    if (!userId) return res.json(fail("缺少用户 ID"));
+    const openid = await loadOpenidByUserId(userId);
+    if (!openid) return res.json(fail("用户不存在"));
+    const result = await executeUserPurge(openid, (req.staff && req.staff.staff_id) || 0, req);
+    // 操作审计留痕（staff_events）
+    logStaffEvent({
+      req, staff: req.staff, eventType: "delete", eventName: "物理清理微信用户",
+      module: "users", apiPath: "/api/users/purge", bizId: userId,
+      extra: { purge_id: result.purge_id, target: result.target, orphan_staff_ids: result.orphan_staff_ids, summary: result.items, media_files: result.media_files, status: result.status },
+    });
+    res.json(ok(result, "已物理清理"));
+  } catch (e) {
+    console.error("[admin] users purge error", e);
+    res.json(fail((e && e.message) || "服务异常", 400));
+  }
+});
+
 // 服务监控（只读）
 router.use("/api/monitors", crudRouter({
   table: "service_monitor", pk: "monitor_id",
@@ -725,6 +781,16 @@ router.use("/api/content_audits", adminAuth, crudRouter({
   // 本表无 created_at，时间范围过滤按入队时间
   timeField: "enqueued_at",
   readonly: true,
+}));
+
+// 系统错误日志（只读：errorLog.js 统一入库，后台查看与审计）
+router.use("/api/system_error_logs", adminAuth, crudRouter({
+  table: "system_error_logs", pk: "log_id",
+  writable: [],
+  search: ["message", "module", "api_path"],
+  filters: ["level", "error_code", "app_id"],
+  readonly: true,
+  orderField: "created_at",
 }));
 
 // 文件批量删除：物理删除腾讯云存储对象 + 同步删除 file_uploads 登记记录
@@ -1059,6 +1125,8 @@ async function cleanupStaffLpData(staffId) {
 async function cascadeDeleteStaffData(staffId, actorStaffId, ctx) {
   const id = Number(staffId);
   if (!id) return;
+  // 超级管理员强保护：受保护账号（999999 超管）禁止任何级联删除，直接跳过
+  if (isProtectedStaff(id)) return;
   const actor = Number(actorStaffId) || 0;
   const visited = ctx || { staff: new Set(), openid: new Set() };
   if (visited.staff.has(id)) return;
@@ -1194,6 +1262,8 @@ async function isOpenidOrphan(openid) {
 async function staffOrphanForDelete(staffId) {
   const sid = Number(staffId);
   if (!sid) return false;
+  // 超级管理员强保护：受保护账号（999999 超管）永不随级联删除
+  if (isProtectedStaff(sid)) return false;
   try {
     const { data: sRows } = await db.from("staff").select("staff_role").eq("staff_id", sid).limit(1);
     if (!(sRows && sRows[0])) return false;
@@ -1266,6 +1336,8 @@ async function cascadeDeleteUserData(openid, actorStaffId, ctx) {
 
   // 7) 清理成为孤儿的账号（删除绑定后已无其它绑定的学生/家长/家属）
   for (const sid of boundStaffIds) {
+    // 超级管理员强保护：受保护账号（999999 超管）不参与级联删除
+    if (isProtectedStaff(sid)) continue;
     try {
       if (await staffOrphanForDelete(sid)) await cascadeDeleteStaffData(sid, actor, visited);
     } catch (e) {
@@ -1349,6 +1421,50 @@ router.get("/api/staff/deleteStats", adminAuth, async (req, res) => {
   }
 });
 
+// ==================== 物理清除（一键删除账号及全部关联数据，物理删除 + 完整审计） ====================
+// purgePreview：删除前返回「完整删除审计清单」（目标/家庭范围/逐表计数/样本行/媒体文件数），供审阅。
+// purge：执行物理清除（含整棵家庭树 + 云存储媒体文件），并把清单落库到 t_lp_staff_purges 供回看。
+// 与普通删除的区别：普通删除按单人级联（cascadeDeleteStaffData）；物理清除以账号为中心沿家庭图
+// 扩散到「主家长 + 名下孩子 + 家属」整棵家庭树，物理删除云存储媒体并留存完整审计。
+router.get("/api/staff/purgePreview", adminAuth, async (req, res) => {
+  try {
+    // 破坏性操作：仅平台管理员（admin 角色）可用（菜单权限中间件已按 /module/staff 二次拦截）
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可操作", 403));
+    const { staffId } = req.query;
+    if (!staffId) return res.json(fail("缺少员工 ID"));
+    const manifest = await collectPurgeManifest(staffId);
+    const { _biz, ...out } = manifest;
+    res.json(ok(out));
+  } catch (e) {
+    console.error("[admin] staff purgePreview error", e);
+    res.json(fail((e && e.message) || "服务异常", 400));
+  }
+});
+
+router.post("/api/staff/purge", adminAuth, async (req, res) => {
+  try {
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可操作", 403));
+    const { staffId } = req.body || {};
+    if (!staffId) return res.json(fail("缺少员工 ID"));
+    const staffIdNum = Number(staffId);
+    // 自我保护：不能物理清除自己
+    if (String(staffIdNum) === String((req.staff && req.staff.staff_id) || "")) {
+      return res.json(fail("不能物理清除自己的账号", 403));
+    }
+    const result = await executePurge(staffIdNum, (req.staff && req.staff.staff_id) || 0, req);
+    // 操作审计留痕（staff_events）
+    logStaffEvent({
+      req, staff: req.staff, eventType: "delete", eventName: "物理清除账号",
+      module: "staff", apiPath: "/api/staff/purge", bizId: staffId,
+      extra: { purge_id: result.purge_id, target: result.target, summary: result.items, media_files: result.media_files, status: result.status },
+    });
+    res.json(ok(result, "已物理清除"));
+  } catch (e) {
+    console.error("[admin] staff purge error", e);
+    res.json(fail((e && e.message) || "服务异常", 400));
+  }
+});
+
 // 管理员管理
 // - passwordFields：staff_password 只在非空时写入并做 bcrypt 哈希（新增/重置密码）
 // - exclude：列表/详情响应剔除密码哈希，避免泄露
@@ -1363,6 +1479,13 @@ router.use("/api/staff", adminAuth, crudRouter({
   protectSelf: true,
   pkGenerator: () => nextSeq("staff_id"),
   // 删除改为全量级联清理（见 cascadeDeleteStaffData）：不再拦截，名下所有关联记录一并删除
+  onBeforeDelete: async (req, record) => {
+    // 超级管理员强保护：禁止删除 999999 超管账号（级联删除同样受 cascadeDeleteStaffData 跳过保护）
+    if (record && isProtectedStaff(record.staff_id)) {
+      return "超级管理员账号受强保护，禁止删除";
+    }
+    return null;
+  },
   onAfterUpdate: async (req, values, id) => {
     invalidateStaffRows([id]);
     // 停用员工（staff_status→0）时同步作废其邀请码，避免「待绑定」孤儿码
@@ -1962,8 +2085,9 @@ async function studentBindState(studentId) {
  *  用于「已建好主家长/学生账号、但无法走小程序前端绑定流程」的场景。
  *  家长-孩子绑定只写 lp_children 归属关系；是否生成学生邀请码按学生现状决定：
  *  已绑定小程序或已有可用学生邀请码 → 不再生成（避免产生冗余码）。
- *  两段式：force=1 才实际落库；不落库时仅返回风险提示（needConfirm + warnings）。
- *  逻辑校验：主家长角色/启用、学生角色/启用、学生账号不重复归属孩子档案。 */
+ *  严格处理：学生账号已归属其它未删除孩子档案时**直接拒绝**（不提供强制重复创建），
+ *  避免产生重复档案导致小程序端孩子重复显示；需调整归属时走「绑定家长/解绑」操作。
+ */
 router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
   try {
     // 安全审计 S5：跨家庭绑定为后台最高级别操作，仅平台管理员可执行
@@ -1986,46 +2110,24 @@ router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
       return res.json(fail("目标账号不是有效的学生账号（需角色为「学生」且处于启用状态）"));
     }
 
-    // 逻辑校验：一个学生账号只应归属一个未删除的孩子档案，重复绑定会产生重复档案
+    // 严格校验：一个学生账号只应归属一个未删除的孩子档案，重复绑定直接拒绝
     const { data: dupRows, error: dupErr } = await db.from("lp_children")
       .select("child_id, child_name, parent_staff_id").eq("student_staff_id", studentId).eq("child_status", 1).limit(5);
     if (dupErr) throw dupErr;
     const dups = dupRows || [];
+    if (dups.length > 0) {
+      const dupDesc = dups.map(d => {
+        const dName = d.child_name || "未命名";
+        return `孩子档案#${d.child_id}「${dName}」（${Number(d.parent_staff_id) > 0 ? `主家长 #${d.parent_staff_id}` : "未绑定家长"}）`;
+      }).join("、");
+      return res.json(fail(`该学生账号已归属 ${dupDesc}。请勿重复创建孩子档案；如需调整归属，请在该档案上使用「绑定家长 / 解绑」操作。`));
+    }
 
     // 学生现状：是否已绑定小程序 / 已有可用学生邀请码（决定是否需要生成新码）
     const { hasMiniBinding, availableInvite } = await studentBindState(studentId);
 
     const parentName = parent.staff_nickname || parent.staff_username || `#${parent.staff_id}`;
     const studentName = student.staff_nickname || student.staff_username || `#${student.staff_id}`;
-    const warnings = [];
-    if (dups.length > 0) {
-      const dupNames = dups.map(d => {
-        const dName = d.child_name || "未命名";
-        if (Number(d.parent_staff_id) === parent.staff_id) return `孩子档案#${d.child_id}「${dName}」（当前主家长即所选家长）`;
-        return `孩子档案#${d.child_id}「${dName}」（归属其他主家长 #${d.parent_staff_id}）`;
-      }).join("、");
-      warnings.push(`该学生账号「${studentName}」当前已存在于 ${dupNames}。再次绑定将产生重复的孩子档案，学生在小程序端可能出现重复显示，请谨慎操作。`);
-    }
-    warnings.push(`将创建孩子档案并绑定主家长「${parentName}」与学生账号「${studentName}」（家长-孩子归属关系）。`);
-    // 邀请码处理说明（家长-孩子绑定与学生前后台绑定相互独立）：
-    if (hasMiniBinding) {
-      warnings.push(`该学生已完成小程序账号绑定，可直接访问小程序，本次无需生成学生邀请码。`);
-    } else if (availableInvite) {
-      warnings.push(`该学生已有可用学生邀请码「${availableInvite.invite_code}」，本次复用不再生成新码。`);
-    } else {
-      warnings.push(`该学生尚未绑定小程序账号且无可用学生邀请码，本次将自动生成学生邀请码供其在「我是学生」中绑定。`);
-    }
-
-    if (String(b.force) !== "1" && String(b.force) !== "true") {
-      return res.json(ok({
-        needConfirm: true,
-        warnings,
-        invitePlan: hasMiniBinding ? "none" : (availableInvite ? "reuse" : "generate"),
-        existingInviteCode: (availableInvite && availableInvite.invite_code) || "",
-        parent: { staff_id: String(parent.staff_id), staff_nickname: parent.staff_nickname, staff_username: parent.staff_username },
-        student: { staff_id: String(student.staff_id), staff_nickname: student.staff_nickname, staff_username: student.staff_username },
-      }, "请确认风险后执行"));
-    }
 
     // 创建孩子档案（仅家长-孩子归属绑定，不涉及小程序绑定）
     const childName = String(b.child_name || "").trim().slice(0, 32) || student.staff_nickname || student.staff_username || "未命名孩子";
@@ -2092,7 +2194,9 @@ router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
     }
 
     const parentName = parent.staff_nickname || parent.staff_username || `#${parent.staff_id}`;
-    // 逻辑校验 + 风险提示：换绑时旧家长失去管理权限，其家属共享同步移除
+    // 仅当孩子当前已有主家长（换绑会使其失去管理权限）才需要弹窗确认；
+    // 首次绑定（无主家长）属于干净操作，直接执行
+    const needConfirm = currentParentId > 0;
     const warnings = [];
     if (currentParentId > 0) {
       const { data: oldRows } = await db.from("staff")
@@ -2111,11 +2215,11 @@ router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
 
     if (String(force) !== "1" && String(force) !== "true") {
       return res.json(ok({
-        needConfirm: true,
+        needConfirm,
         warnings,
         child: { child_id: String(child.child_id), child_name: child.child_name },
         parent: { staff_id: String(parent.staff_id), staff_nickname: parent.staff_nickname, staff_username: parent.staff_username },
-      }, "请确认风险后执行"));
+      }, needConfirm ? "请确认风险后执行" : "校验通过"));
     }
 
     await db.from("lp_children").update({ parent_staff_id: parent.staff_id, updated_at: nowSql() }).eq("child_id", child.child_id);
@@ -2712,18 +2816,26 @@ async function attachAssignees(rows) {
     };
   });
 }
-// 创建人/打卡人按 staff_id 附加完整员工信息（_creatorStaffId/_creatorUsername/_creatorNickname）
+// 创建人/打卡人按 staff_id 附加完整员工信息（_creatorStaffId/_creatorUsername/_creatorNickname）；
+// 同时按归属账号 staff_id 附加昵称（_staffNickname/_staffUsername），供合集/科目「归属账号」列与详情展示
 async function attachStaffInfo(rows) {
-  const ids = [...new Set((rows || []).map(r => r.created_by).filter(Boolean))];
-  if (ids.length === 0) return rows || [];
+  const list = rows || [];
+  if (list.length === 0) return list;
+  const creatorIds = [...new Set(list.map(r => r.created_by).filter(Boolean))];
+  const ownerIds = [...new Set(list.map(r => r.staff_id).filter(v => v !== undefined && v !== null && String(v) !== "" && Number(v) !== 0))];
+  const ids = [...new Set([...creatorIds, ...ownerIds].map(String).filter(Boolean))];
+  if (ids.length === 0) return list;
   const staffMap = await cachedStaffRows(ids);
-  return (rows || []).map(r => {
-    const s = staffMap[String(r.created_by)] || {};
+  return list.map(r => {
+    const c = staffMap[String(r.created_by)] || {};
+    const o = staffMap[String(r.staff_id)] || {};
     return {
       ...r,
       _creatorStaffId: r.created_by,
-      _creatorUsername: s.staff_username || "",
-      _creatorNickname: s.staff_nickname || "",
+      _creatorUsername: c.staff_username || "",
+      _creatorNickname: c.staff_nickname || "",
+      _staffUsername: o.staff_username || "",
+      _staffNickname: o.staff_nickname || "",
     };
   });
 }
@@ -3078,7 +3190,8 @@ router.use("/api/tasks", adminAuth, crudRouter({
 }));
 
 // ==================== 学习管理：合集管理 ====================
-// 合集是独立功能（非数据字典）：管理员/学生均可查看全部合集；非管理员只能增删改自己创建的
+// 合集是独立功能（非数据字典）：按 staff_id 归属（主家长/个人），家庭内共享查看；
+// 非管理员只能增删改自己归属的合集；admin 全部。
 // 删除合集：先解除该合集下任务的归属（collection_id 置 0），避免孤儿引用，再删除合集
 router.post("/api/task_collections/delete", adminAuth, async (req, res) => {
   try {
@@ -3087,7 +3200,7 @@ router.post("/api/task_collections/delete", adminAuth, async (req, res) => {
     const staffId = (req.staff && req.staff.staff_id) || "";
     const isAdmin = req.staff && req.staff.role === "admin";
     let q = db.from("task_collections").select().eq("collection_id", id);
-    if (!isAdmin) q = q.eq("created_by", staffId);
+    if (!isAdmin) q = q.eq("staff_id", staffId);
     const { data: rows, error } = await q.limit(1);
     if (error) throw error;
     const rec = rows && rows[0];
@@ -3111,20 +3224,49 @@ router.use("/api/task_collections", adminAuth, crudRouter({
   filters: ["collection_status"],
   scopeFn: taskScope,
   readScopeFn: () => null,
-  defaults: (req) => ({ created_by: (req.staff && req.staff.staff_id) || "" }),
-  // 安全审计 S6：非管理员按家庭可见员工收敛合集
+  defaults: (req) => ({
+    created_by: (req.staff && req.staff.staff_id) || "",
+    staff_id: (req.staff && req.staff.staff_id) || "",
+  }),
+  // 安全审计 S6：非管理员按家庭可见员工收敛合集（按归属 staff_id）
   extraFilter: async (req, q) => {
     const fam = await familyStaffScope(req);
     if (!fam) return { q };
     const sids = [...fam].map(Number).filter(n => Number.isInteger(n) && n > 0);
-    if (sids.length === 0) return { q: q.eq("collection_id", -1) };
-    return { q: q.in("created_by", sids) };
+    if (sids.length === 0) return { q: q.eq("staff_id", -1) };
+    return { q: q.in("staff_id", sids) };
   },
   enrich: async (rows) => attachCollectionCount(await attachStaffInfo(rows)),
   pkGenerator: () => nextSeq("collection_id"),
   onAfterCreate: async (req, values, id) => invalidateCollectionRows([id]),
   onAfterUpdate: async (req, values, id) => invalidateCollectionRows([id]),
   onAfterDelete: async (req, record, id) => invalidateCollectionRows([id]),
+}));
+
+// ==================== 学习管理：科目管理 ====================
+// 科目独立成表（t_lp_subjects），按 staff_id 归属（主家长/个人）；家庭内共享查看。
+// 非管理员只能增删改自己归属的科目；admin 全部。
+router.use("/api/subjects", adminAuth, crudRouter({
+  table: "subjects", pk: "subject_id",
+  writable: ["name", "color", "sort", "subject_status"],
+  search: ["name"],
+  filters: ["subject_status"],
+  scopeFn: (req) => {
+    if (req.staff && req.staff.role === "admin") return null;
+    return { field: "staff_id", value: (req.staff && req.staff.staff_id) || "" };
+  },
+  readScopeFn: () => null,
+  defaults: (req) => ({ staff_id: (req.staff && req.staff.staff_id) || "" }),
+  extraFilter: async (req, q) => {
+    const fam = await familyStaffScope(req);
+    if (!fam) return { q };
+    const sids = [...fam].map(Number).filter(n => Number.isInteger(n) && n > 0);
+    if (sids.length === 0) return { q: q.eq("staff_id", -1) };
+    return { q: q.in("staff_id", sids) };
+  },
+  // 归属账号带昵称展示（与合集管理一致：_staffNickname）
+  enrich: attachStaffInfo,
+  pkGenerator: () => nextSeq("subject_id"),
 }));
 
 // 序列管理（任务ID/打卡ID等主键发放配置，仅管理员使用）
@@ -3147,6 +3289,95 @@ router.use("/api/apps", adminAuth, crudRouter({
   filters: ["app_status"],
   onAfterUpdate: async (req, values, id) => invalidateAppConfig(id),
 }));
+
+// 系统参数（常量维护：单条 key 或 JSON 集中文案；后台修改后最多 60s 生效）
+router.use("/api/system_params", adminAuth, crudRouter({
+  table: "system_params", pk: "param_id",
+  writable: ["app_id", "param_key", "param_value", "param_type", "param_desc", "param_status"],
+  search: ["param_key", "param_desc"],
+  filters: ["app_id", "param_type", "param_status"],
+  pkGenerator: () => nextSeq("param_id"),
+  appField: "app_id",
+  onAfterUpdate: async (req, values, id, oldRecord) => invalidateParams((oldRecord && oldRecord.app_id) || req.appId, oldRecord && oldRecord.param_key),
+  onAfterDelete: async (req, record) => invalidateParams((record && record.app_id) || req.appId, record && record.param_key),
+}));
+
+// ==================== 用户注销管理（t_lp_account_cancellations） ====================
+// 家长/个人在小程序发起注销（立即 / 7天冷静期），后台集中查看与管理。
+// 只读列表/详情（含账号昵称/角色）+ 管理员可手动撤销待生效申请。
+async function attachCancelStaffInfo(rows) {
+  const list = rows || [];
+  if (list.length === 0) return list;
+  const staffIds = [...new Set(list.map(r => r.staff_id).filter(v => v !== undefined && v !== null && v !== ""))];
+  const staffMap = {};
+  if (staffIds.length > 0) {
+    const { data: staffs, error } = await db.from("staff")
+      .select("staff_id, staff_username, staff_nickname, staff_role")
+      .in("staff_id", staffIds).limit(staffIds.length);
+    if (!error && Array.isArray(staffs)) staffs.forEach(s => { staffMap[String(s.staff_id)] = s; });
+  }
+  const openids = [...new Set(list.map(r => r.openid).filter(Boolean))];
+  const userMap = {};
+  if (openids.length > 0) {
+    const { data: users, error } = await db.from("users")
+      .select("openid, nickname, avatar")
+      .in("openid", openids).limit(openids.length);
+    if (!error && Array.isArray(users)) users.forEach(u => { userMap[u.openid] = u; });
+  }
+  return list.map(r => {
+    const s = staffMap[String(r.staff_id)] || {};
+    const u = userMap[r.openid] || {};
+    return {
+      ...r,
+      staff_username: s.staff_username || "",
+      staff_nickname: s.staff_nickname || "",
+      staff_role: s.staff_role || "",
+      _userNickname: u.nickname || "",
+    };
+  });
+}
+
+// 只读 + 撤销待生效申请（管理员）
+router.use("/api/account_cancellations", adminAuth, crudRouter({
+  table: "account_cancellations", pk: "cancel_id",
+  search: ["openid"],
+  filters: ["status", "mode"],
+  appField: "app_id",
+  readonly: true,
+  enrich: attachCancelStaffInfo,
+}));
+
+// ==================== 物理清除审计（t_lp_staff_purges，只读回看每次清除清单） ====================
+// 物理清除账号时由 purgeLib.executePurge 写入；本模块仅用于回看删除审计项（目标/范围/逐表计数/媒体/操作人）。
+router.use("/api/staff_purges", adminAuth, crudRouter({
+  table: "staff_purges", pk: "purge_id",
+  search: ["target_username", "target_nickname", "operator_username"],
+  filters: ["status", "target_role"],
+  appField: "app_id",
+  readonly: true,
+}));
+
+// 管理员手动撤销待生效的注销申请（等价于小程序端撤销；调用方需已登录后台）
+router.post("/api/account_cancellations/revoke", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.json(fail("缺少 cancel_id"));
+    const { data: rows, error } = await db.from("account_cancellations")
+      .select().eq("cancel_id", Number(id)).limit(1);
+    if (error) throw error;
+    const rec = rows && rows[0];
+    if (!rec) return res.json(fail("注销申请不存在"));
+    if (rec.status !== "pending") return res.json(fail("仅待生效的注销申请可撤销"));
+    await db.from("account_cancellations")
+      .update({ status: "cancelled", cancelled_at: nowSql(), updated_at: nowSql() })
+      .eq("cancel_id", Number(id)).eq("status", "pending");
+    logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "撤销注销申请", module: "account_cancellations", apiPath: "/api/account_cancellations/revoke", bizId: id, extra: { staff_id: rec.staff_id, openid: rec.openid } });
+    res.json(ok(null, "已撤销该注销申请"));
+  } catch (e) {
+    console.error("[admin] account_cancellations revoke error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
 
 // 任务打卡：为任务新增一条打卡记录
 router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
@@ -3202,13 +3433,15 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
       if ((await storageFileExists(vUrl2)) === false) return res.json(fail("视频文件不存在，请重新上传"));
     } else {
       imgList = (images || []).slice(0, 9);
+      // 图文打卡强约束：必须输入文字 + 至少一张图片（与任务发布的打卡方式一致）
+      const noteText = String(note || "").trim();
+      if (!noteText) return res.json(fail("图文打卡需输入打卡文字"));
+      if (imgList.length < 1) return res.json(fail("图文打卡需至少上传一张图片"));
       // 完整性校验：每张图片必须已登记上传（active）
-      if (imgList.length > 0) {
-        const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
-        const registered = new Set((imgRows || []).map(r => r.file_path));
-        const missing = imgList.filter(p => !registered.has(p));
-        if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
-      }
+      const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
+      const registered = new Set((imgRows || []).map(r => r.file_path));
+      const missing = imgList.filter(p => !registered.has(p));
+      if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
     }
 
     const checkinDate = date || formatDate(new Date());
@@ -3252,7 +3485,7 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
             await db.from("task_checkins").update(upd).eq("checkin_id", checkinId);
           }
         } catch (e) {
-          console.error("[admin] 视频后台压缩失败", vUrl2, e.message);
+          console.error("[admin] 视频后台压缩失败", vUrl2, e);
         }
       }, 0);
     }

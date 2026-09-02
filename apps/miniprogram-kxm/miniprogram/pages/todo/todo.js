@@ -9,6 +9,8 @@ const { secBadgeMeta } = require('../../utils/display');
 const { ensureDict, statusMeta } = require('../../utils/dict');
 
 const MANAGER_ROLES = ['admin', 'parent', 'family'];
+// t-tag 无法使用 style，任务状态改用 theme 属性区分
+const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success' };
 // 来源：web（Web后台）/ miniprogram（小程序）
 const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
 const PAGE_SIZE = 20;
@@ -66,6 +68,7 @@ Page({
       // 任务状态/打卡方式统一取色（数据字典）
       statusText: taskMeta.label,
       statusStyle: taskMeta.style,
+      statusTheme: STATUS_THEME[it.task_status] || 'default',
       checkinText: checkinMeta.label,
       checkinStyle: checkinMeta.style,
       // 内容安全角标（安全关闭/失败时无 display 字段 → 空，走旧逻辑）

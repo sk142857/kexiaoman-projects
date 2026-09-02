@@ -12,6 +12,8 @@ const STATUS_TABS = [
 ];
 
 const STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
+// t-tag 无法使用 style，改用 theme 属性区分状态
+const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success' };
 // 发布来源：web（Web后台）/ miniprogram（小程序）
 const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
 const PAGE_SIZE = 20;
@@ -63,6 +65,7 @@ Page({
       // 进度为独立字段（后端维护），缺失时按状态兜底（待完成默认 1%）
       progress: t.progress >= 0 ? Number(t.progress) : (STATUS_PROGRESS[t.task_status] || 1),
       statusText: meta.label,
+      statusTheme: STATUS_THEME[t.task_status] || 'default',
       statusColor: meta.color,
       statusStyle: meta.style,
       scoreColor: t.score >= 8 ? '#16a87a' : t.score >= 5 ? '#67c23a' : '#b0b6c0',

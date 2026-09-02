@@ -317,6 +317,26 @@ CREATE TABLE t_content_audits (
   KEY idx_app_status (app_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='内容安全审核记录（旁路，独立于业务表）';
 
+-- 系统错误日志表（错误异常统一入库，后台「系统监控 → 错误日志」可查；errorLog.js 写入）
+DROP TABLE IF EXISTS t_system_error_logs;
+CREATE TABLE t_system_error_logs (
+  log_id     VARCHAR(24)  NOT NULL COMMENT '错误日志ID（时间戳+随机）',
+  app_id     VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '小程序 app_id（空=全局）',
+  openid     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '用户 openid（无则空）',
+  level      VARCHAR(16)  NOT NULL DEFAULT 'error' COMMENT '级别：error/warn/info',
+  module     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '来源模块（如 lp、admin/users、global）',
+  api_path   VARCHAR(200) NOT NULL DEFAULT '' COMMENT '接口路径（无则空）',
+  error_code INT          NOT NULL DEFAULT 500 COMMENT '错误码（HTTP/业务）',
+  message    VARCHAR(500) NOT NULL DEFAULT '' COMMENT '错误信息摘要',
+  stack      TEXT         NULL COMMENT '错误堆栈（截断 4000）',
+  detail     TEXT         NULL COMMENT '附加详情（JSON，脱敏后）',
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
+  PRIMARY KEY (log_id),
+  KEY idx_created (created_at),
+  KEY idx_level (level),
+  KEY idx_module (module)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统错误日志';
+
 -- 用户操作事件埋点表
 DROP TABLE IF EXISTS t_user_events;
 CREATE TABLE t_user_events (
@@ -510,14 +530,33 @@ CREATE TABLE t_lp_task_collections (
   cover_images      VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '封面图(JSON数组字符串,仅1张)',
   task_count        INT           NOT NULL DEFAULT 0 COMMENT '任务数量（读取时动态统计）',
   created_by        BIGINT        NOT NULL DEFAULT 0 COMMENT '创建人 staff_id',
+  staff_id          BIGINT        NOT NULL DEFAULT 0 COMMENT '归属账号 staff_id（主家长/个人）',
   collection_status TINYINT       NOT NULL DEFAULT 1 COMMENT '1启用/0停用',
   created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (collection_id),
   KEY idx_name (name),
   KEY idx_created_by (created_by),
+  KEY idx_staff_id (staff_id),
   KEY idx_status (collection_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务合集';
+
+-- 科目表（主键由序列 subject_id 发放；按用户归属，主家长/个人维护）
+DROP TABLE IF EXISTS t_lp_subjects;
+CREATE TABLE t_lp_subjects (
+  subject_id     BIGINT       NOT NULL COMMENT '科目ID（seqs 发放）',
+  staff_id       BIGINT       NOT NULL DEFAULT 0 COMMENT '归属账号 staff_id（主家长/个人）',
+  name           VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '科目名称',
+  color          VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '颜色（如 #1677ff，空=默认）',
+  sort           INT          NOT NULL DEFAULT 0 COMMENT '排序',
+  subject_status TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (subject_id),
+  UNIQUE KEY uk_staff_name (staff_id, name),
+  KEY idx_staff (staff_id),
+  KEY idx_status (subject_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满科目（按用户归属，主家长管理）';
 
 -- 课小满小程序用户-账号绑定表（邀请码准入；一 openid 可绑定多个身份：家长/孩子/家属，共用微信）
 DROP TABLE IF EXISTS t_lp_students;
@@ -687,6 +726,70 @@ CREATE TABLE t_lp_notifications (
   KEY idx_staff_read (staff_id, is_read, created_at),
   KEY idx_app_type (app_id, type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满系统通知（站内信，与订阅消息隔离）';
+
+-- 系统参数表（常量维护，支持 JSON 文案集中维护；主键由序列 param_id 发放）
+DROP TABLE IF EXISTS t_system_params;
+CREATE TABLE t_system_params (
+  param_id     BIGINT       NOT NULL COMMENT '参数ID（seqs 发放）',
+  app_id       VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
+  param_key    VARCHAR(64)  NOT NULL COMMENT '参数键（如 identity_bind_copy / account_cancel_copy）',
+  param_value  TEXT         NULL COMMENT '参数值（字符串或 JSON 文本）',
+  param_type   VARCHAR(16)  NOT NULL DEFAULT 'string' COMMENT '值类型 string/json',
+  param_desc   VARCHAR(255) NOT NULL DEFAULT '' COMMENT '参数说明',
+  param_status TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (param_id),
+  UNIQUE KEY uk_app_key (app_id, param_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统参数（常量维护，支持 JSON 文案集中维护）';
+
+-- 账号注销申请表（家长/个人可申请注销；主键由序列 account_cancel_id 发放）
+DROP TABLE IF EXISTS t_lp_account_cancellations;
+CREATE TABLE t_lp_account_cancellations (
+  cancel_id    BIGINT      NOT NULL COMMENT '注销申请ID（seqs 发放）',
+  app_id       VARCHAR(32) NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '所属小程序 app_id',
+  staff_id     BIGINT      NOT NULL DEFAULT 0 COMMENT '申请注销的账号 staff_id',
+  openid       VARCHAR(64) NOT NULL DEFAULT '' COMMENT '申请人 openid',
+  mode         VARCHAR(16) NOT NULL DEFAULT 'grace' COMMENT '注销模式 immediate 立即 / grace 7天冷静期',
+  status       VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending 待生效 / executed 已注销 / cancelled 已撤销',
+  requested_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+  effective_at DATETIME    NULL COMMENT '生效时间（grace 模式=申请+7天）',
+  executed_at  DATETIME    NULL COMMENT '实际执行注销时间',
+  cancelled_at DATETIME    NULL COMMENT '撤销时间',
+  created_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (cancel_id),
+  KEY idx_openid_status (app_id, openid, status),
+  KEY idx_status_effective (status, effective_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='账号注销申请（家长/个人）';
+
+-- 后台「物理清除审计」表（删除账号及其家庭树时记录完整删除审计清单）
+DROP TABLE IF EXISTS t_lp_staff_purges;
+CREATE TABLE t_lp_staff_purges (
+  purge_id            BIGINT       NOT NULL COMMENT '清除记录ID（seqs 发放）',
+  app_id              VARCHAR(32)  NOT NULL DEFAULT 'miniprogram-kxm' COMMENT '小程序 app_id',
+  target_kind         VARCHAR(16)  NOT NULL DEFAULT 'staff' COMMENT '清除对象类型 staff=业务账号 / user=微信用户(openid)',
+  target_staff_id     BIGINT       NOT NULL DEFAULT 0 COMMENT '被清除账号 staff_id（user 类型=关联的孤儿账号，无则0）',
+  target_role         VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '被清除账号角色 parent/student/family/personal/admin',
+  target_username     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '被清除账号',
+  target_nickname     VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '被清除账号昵称',
+  scope_staff_ids     VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '级联清除的账号集合（含孩子/家属）逗号分隔',
+  scope_openids       VARCHAR(3000) NOT NULL DEFAULT '' COMMENT '级联清除的微信用户 openid 集合',
+  summary             TEXT         NULL COMMENT '逐表清除计数汇总 JSON',
+  manifest            TEXT         NULL COMMENT '完整清除清单 JSON（逐表计数 + 样本行）',
+  media_files         INT          NOT NULL DEFAULT 0 COMMENT '物理删除的云存储媒体文件数',
+  status              VARCHAR(16)  NOT NULL DEFAULT 'done' COMMENT 'done 完成 / partial 部分失败',
+  fail_detail         VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '失败明细',
+  operator_staff_id   BIGINT       NOT NULL DEFAULT 0 COMMENT '操作人 staff_id',
+  operator_username   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '操作人账号',
+  client_ip           VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '操作人 IP',
+  client_fingerprint  VARCHAR(128) NOT NULL DEFAULT '' COMMENT '操作人浏览器指纹',
+  created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '清除时间',
+  PRIMARY KEY (purge_id),
+  KEY idx_target (target_staff_id),
+  KEY idx_created (created_at),
+  KEY idx_operator (operator_staff_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满后台物理清除审计';
 
 -- 序列管理表（统一发号）
 DROP TABLE IF EXISTS t_seqs;

@@ -1,0 +1,103 @@
+.page {
+  padding: 24rpx 32rpx 48rpx;
+}
+
+.read-card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 12rpx rgba(31, 35, 41, 0.05);
+  padding: 32rpx;
+}
+.read-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #1f2329;
+}
+.read-sub {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #8a919f;
+}
+.sec {
+  margin-top: 28rpx;
+}
+.sec--risk {
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: #fff7f7;
+}
+.sec-title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #1f2329;
+  margin-bottom: 12rpx;
+}
+.sec-title--risk {
+  color: #d54941;
+}
+.sec-item {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 10rpx;
+}
+.sec-dot {
+  color: #2b6de0;
+  font-weight: 700;
+  margin-right: 10rpx;
+  line-height: 1.6;
+}
+.sec-dot--risk {
+  color: #d54941;
+  font-weight: 900;
+}
+.sec-text {
+  flex: 1;
+  font-size: 24rpx;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.sec-text--risk {
+  color: #b3403a;
+}
+
+.actions {
+  margin-top: 28rpx;
+}
+.countdown {
+  text-align: center;
+  font-size: 24rpx;
+  color: #8a919f;
+  padding: 12rpx 0 20rpx;
+}
+.countdown--done {
+  color: #d54941;
+  font-weight: 600;
+}
+
+/* 底部操作栏按钮间距（lp-actions 内 t-button flex:1，用显式 margin 分隔，见任务详情页规范） */
+.act-grace {
+  margin-right: 16rpx;
+}
+
+.pending-card {
+  background: #fffbe6;
+  border-radius: 20rpx;
+  padding: 32rpx;
+}
+.pending-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #874d00;
+  margin-bottom: 16rpx;
+}
+.pending-row {
+  font-size: 24rpx;
+  color: #874d00;
+  line-height: 1.8;
+}
+.pending-desc {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #a0652a;
+  line-height: 1.6;
+}

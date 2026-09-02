@@ -15,7 +15,8 @@ INSERT INTO t_roles (role_id, role_code, role_name, role_status, created_at, upd
   (1, 'admin', '管理员', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (2, 'student', '学生', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (3, 'parent', '主家长', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (4, 'family', '家属', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (4, 'family', '家属', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (5, 'personal', '个人', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE role_name = VALUES(role_name);
 
 -- 2. 菜单（与 routes/admin.js DEFAULT_MENU_GROUPS 保持一致，1~38；menu_id 稳定，role_menus 关联不变）
@@ -33,6 +34,7 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (39, 5, '任务管理（卡片模式）', '/module/card_tasks', 'ProfileOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (46, 5, '科目管理', '/module/subjects', 'BookOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 3. 成员管理
   (8, 0, '成员管理', '/members', 'UserOutlined', 3, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (9, 8, '用户管理', '/module/users', 'UserOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -41,6 +43,7 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (38, 8, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (40, 8, '家庭关系', '/module/lp_family_tree', 'ApartmentOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (45, 8, '注销管理', '/module/account_cancellations', 'StopOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 4. 消息通知
   (19, 0, '消息通知', '/message', 'BellOutlined', 4, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (32, 19, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -55,6 +58,7 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (21, 15, '用户事件', '/module/user_events', 'ThunderboltOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (20, 15, '图片上传记录', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (41, 15, '内容安全', '/module/content_audits', 'SafetyOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (47, 15, '错误日志', '/module/system_error_logs', 'BugOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 6. 系统设置
   (22, 0, '系统设置', '/system', 'SettingOutlined', 6, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (23, 22, '管理员管理', '/module/staff', 'SafetyOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -63,7 +67,9 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (26, 22, '数据字典', '/module/dicts', 'DatabaseOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (27, 22, '序列管理', '/module/seqs', 'OrderedListOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (29, 22, '操作审计', '/module/staff_events', 'AuditOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (30, 22, '小程序配置', '/module/apps', 'AppstoreOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (30, 22, '小程序配置', '/module/apps', 'AppstoreOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (44, 22, '系统参数', '/module/system_params', 'SlidersOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (50, 8, '物理清除审计', '/module/staff_purges', 'DeleteOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_path = VALUES(menu_path), parent_id = VALUES(parent_id);
 
 -- 3. 角色-菜单（按 menu_id 关联，分组调整后关联保持不变）
@@ -119,7 +125,15 @@ INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (65, 'admin', 40, CURRENT_TIMESTAMP),
   (66, 'admin', 41, CURRENT_TIMESTAMP),
   (67, 'admin', 42, CURRENT_TIMESTAMP),
-  (68, 'admin', 43, CURRENT_TIMESTAMP)
+  (68, 'admin', 43, CURRENT_TIMESTAMP),
+  (69, 'admin', 44, CURRENT_TIMESTAMP),
+  (70, 'admin', 45, CURRENT_TIMESTAMP),
+  (71, 'admin', 46, CURRENT_TIMESTAMP),
+  (72, 'student', 46, CURRENT_TIMESTAMP),
+  (73, 'parent', 46, CURRENT_TIMESTAMP),
+  (74, 'family', 46, CURRENT_TIMESTAMP),
+  (75, 'admin', 47, CURRENT_TIMESTAMP),
+  (76, 'admin', 50, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_id = VALUES(menu_id);
 
 -- 4. 数据字典
@@ -176,6 +190,7 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, u
   ('task_id', '任务ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('task_checkin_id', '任务打卡ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('collection_id', '合集ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('subject_id', '科目ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('task_timeline_event_id', '任务时间轴事件ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
   ('point_log_id', '积分流水ID', 1, 1, 1, 500, CURRENT_TIMESTAMP),
   ('subscribe_grant_id', '订阅授权ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
@@ -186,12 +201,23 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, u
   ('invite_id', '邀请码ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('child_id', '孩子档案ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('staff_id', '管理员ID', 9002, 9001, 1, 200, CURRENT_TIMESTAMP),
-  ('role_id', '角色ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('menu_id', '菜单ID', 44, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('role_menu_id', '角色菜单ID', 69, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('role_id', '角色ID', 6, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('menu_id', '菜单ID', 51, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('role_menu_id', '角色菜单ID', 77, 1, 1, 200, CURRENT_TIMESTAMP),
   ('dict_type_id', '字典类型ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('dict_item_id', '字典项ID', 16, 1, 1, 200, CURRENT_TIMESTAMP)
+  ('dict_item_id', '字典项ID', 16, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('param_id', '系统参数ID', 4, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('account_cancel_id', '账号注销申请ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('purge_id', '物理清除审计ID', 1, 1, 1, 200, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE current_value = GREATEST(current_value, VALUES(current_value));
+
+-- 6. 系统参数种子（身份选择文案 / 注销说明文案，JSON 集中维护，后台「系统参数」可改）
+INSERT INTO t_system_params (param_id, app_id, param_key, param_value, param_type, param_desc, param_status, created_at, updated_at) VALUES
+  (1, 'miniprogram-kxm', 'identity_bind_copy', '{"parent":{"name":"我是家长","desc":"创建家庭档案，管理孩子任务与打卡"},"personal":{"name":"我是个人","desc":"创建个人账号，自己发布任务、自己打卡"},"invite":{"name":"我有邀请码","desc":"输入家长或管理员提供的邀请码，绑定孩子或家属身份"}}', 'json', '身份选择页绑定文案（JSON 集中维护）', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (2, 'miniprogram-kxm', 'account_cancel_copy', '{"title":"注销账号","readTitle":"请仔细阅读注销说明","countdownSeconds":10,"notices":["注销后，当前账号的绑定关系将立即解除，无法使用该账号登录课小满。","注销后，该账号下的任务、打卡、积分、徽章等数据将被清除，且不可恢复。","7天注销冷静期内将暂停使用业务功能，只能在本页撤销或等待生效；撤销后恢复正常。"],"risks":["注销属于不可逆操作，请谨慎决定。","若您是家长，注销后您将失去家长管理权限，名下相关邀请码将一并作废。","注销后即使重新绑定，也无法找回已清除的历史数据。"],"immediate":{"label":"立即注销","desc":"立即解除绑定并清除账号数据，即刻生效，不可恢复。"},"grace":{"label":"7天注销","desc":"提交后有7天冷静期，期间暂停使用业务功能，可随时撤销，到期自动注销。"},"pendingTitle":"注销申请待生效","pendingDesc":"冷静期内将暂停使用业务功能，您可随时撤销。","revokeBtn":"撤销注销申请","revokeModalContent":"撤销后账号可继续正常使用，确定撤销吗？"}', 'json', '注销账号说明文案（JSON 集中维护）', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (3, 'miniprogram-kxm', 'subject_presets', '["语文","数学","英语","科学","阅读","写作","作业","运动","音乐","美术","编程","书法","口语"]', 'json', '科目预置列表（JSON 数组；用户在「学习管理 → 科目」中选择创建，不自动初始化）', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ON DUPLICATE KEY UPDATE param_value = VALUES(param_value), param_type = VALUES(param_type),
+    param_desc = VALUES(param_desc), param_status = VALUES(param_status);
 
 -- 6. 初始化超级管理员（sys_admin / sk0987，bcrypt cost10）
 --    幂等：已存在 sys_admin 时跳过；显式取 MAX(staff_id)+1，避免与序列冲突

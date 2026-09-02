@@ -55,6 +55,7 @@ INSERT INTO `t_menus` VALUES (6, 5, '任务管理', '/module/tasks', 'UnorderedL
 INSERT INTO `t_menus` VALUES (39, 5, '任务管理（卡片模式）', '/module/card_tasks', 'ProfileOutlined', 4, 2, 1, '2026-08-18 10:00:00', '2026-08-18 10:00:00');
 INSERT INTO `t_menus` VALUES (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 6, 2, 1, '2026-08-12 10:13:18', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (46, 5, '科目管理', '/module/subjects', 'BookOutlined', 7, 2, 1, '2026-08-22 12:00:00', '2026-08-22 12:00:00');
 -- 3. 成员管理
 INSERT INTO `t_menus` VALUES (8, 0, '成员管理', '/members', 'UserOutlined', 3, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (9, 8, '用户管理', '/module/users', 'UserOutlined', 1, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
@@ -63,6 +64,7 @@ INSERT INTO `t_menus` VALUES (36, 8, '孩子档案', '/module/lp_children', 'Sol
 INSERT INTO `t_menus` VALUES (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 4, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (38, 8, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 5, 2, 1, '2026-08-14 18:21:48', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (40, 8, '家庭关系', '/module/lp_family_tree', 'ApartmentOutlined', 6, 2, 1, '2026-08-20 12:00:00', '2026-08-20 12:00:00');
+INSERT INTO `t_menus` VALUES (45, 8, '注销管理', '/module/account_cancellations', 'StopOutlined', 7, 2, 1, '2026-08-22 10:00:00', '2026-08-22 10:00:00');
 -- 4. 消息通知
 INSERT INTO `t_menus` VALUES (19, 0, '消息通知', '/message', 'BellOutlined', 4, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (32, 19, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 1, 2, 1, '2026-08-13 20:57:01', '2026-08-15 12:20:00');
@@ -77,6 +79,7 @@ INSERT INTO `t_menus` VALUES (18, 15, '会话画像', '/module/sessions', 'Mobil
 INSERT INTO `t_menus` VALUES (21, 15, '用户事件', '/module/user_events', 'ThunderboltOutlined', 4, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (20, 15, '文件管理', '/module/file_uploads', 'PictureOutlined', 5, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (41, 15, '内容安全', '/module/content_audits', 'SafetyOutlined', 6, 2, 1, '2026-08-20 14:00:00', '2026-08-20 14:00:00');
+INSERT INTO `t_menus` VALUES (47, 15, '错误日志', '/module/system_error_logs', 'BugOutlined', 7, 2, 1, '2026-08-23 12:00:00', '2026-08-23 12:00:00');
 -- 6. 系统设置
 INSERT INTO `t_menus` VALUES (22, 0, '系统设置', '/system', 'SettingOutlined', 6, 1, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (23, 22, '管理员管理', '/module/staff', 'SafetyOutlined', 1, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
@@ -86,5 +89,6 @@ INSERT INTO `t_menus` VALUES (26, 22, '数据字典', '/module/dicts', 'Database
 INSERT INTO `t_menus` VALUES (27, 22, '序列管理', '/module/seqs', 'OrderedListOutlined', 5, 2, 1, '2026-08-11 22:07:26', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (29, 22, '操作审计', '/module/staff_events', 'AuditOutlined', 6, 2, 1, '2026-08-12 10:51:24', '2026-08-15 12:20:00');
 INSERT INTO `t_menus` VALUES (30, 22, '小程序配置', '/module/apps', 'AppstoreOutlined', 7, 2, 1, '2026-08-11 15:17:58', '2026-08-15 12:20:00');
+INSERT INTO `t_menus` VALUES (44, 22, '系统参数', '/module/system_params', 'SlidersOutlined', 8, 2, 1, '2026-08-22 10:00:00', '2026-08-22 10:00:00');
 
 SET FOREIGN_KEY_CHECKS = 1;

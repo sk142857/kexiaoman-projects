@@ -33,7 +33,7 @@ async function logEvent({ appId, openid, eventType, eventName, pagePath = "", bi
       client_at: nowSql(),
     });
   } catch (e) {
-    console.error("[events] 事件入库失败:", e.message);
+    console.error("[events] 事件入库失败:", e);
   }
 }
 
@@ -77,7 +77,7 @@ async function logSession({ appId, openid, session = {} }) {
       payload: JSON.stringify(session),
     });
   } catch (e) {
-    console.error("[events] 会话入库失败:", e.message);
+    console.error("[events] 会话入库失败:", e);
   }
 }
 

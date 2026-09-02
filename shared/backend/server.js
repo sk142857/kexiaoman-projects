@@ -20,15 +20,22 @@ const { traceMiddleware } = require("./trace");
 const { resolveApp, ensureAppInDb } = require("./apps");
 const { normalizeOpenid } = require("./appAuth");
 const { startAuditWorker } = require("./contentSecurity");
+const { sweepDueCancellations } = require("./accountLib");
+const { logError, patchConsoleError } = require("./errorLog");
 
 const app = express();
+
+// ==================== 全局错误入库（类似 Java logger.error，见 errorLog.js） ====================
+// 拦截全部 console.error 自动提取 [模块]+Error 入库（覆盖既有 catch 分支，60s 同错去重）；
+// 未捕获异常/拒绝由下方 process 兜底打印（console 补丁已覆盖入库），避免进程崩溃丢日志
+patchConsoleError();
 
 // ==================== 全局兜底：未捕获异常/拒绝只记日志，不让单点错误拖垮整个服务 ====================
 process.on("unhandledRejection", (reason) => {
   console.error("[global] unhandledRejection", reason);
 });
 process.on("uncaughtException", (err) => {
-  console.error("[global] uncaughtException", err && err.stack ? err.stack : err);
+  console.error("[global] uncaughtException", err);
 });
 
 // ==================== 后台管理静态资源（React 构建产物）+ SPA fallback ====================
@@ -63,7 +70,7 @@ app.use((req, res, next) => {
   if (req.method === 'GET') return next();
   express.json({ strict: false, limit: '30mb' })(req, res, (err) => {
     if (err) {
-      console.error('[json] body 解析失败', err.message);
+      console.error('[json] body 解析失败', err);
       return res.status(200).json({ code: 400, msg: '请求体解析失败：' + err.message, data: null });
     }
     next();
@@ -136,6 +143,21 @@ app.use((req, res) => {
   res.status(404).json({ code: 404, msg: "接口不存在", data: null });
 });
 
+// 未捕获的同步异常统一兜底：入库错误日志 + 返回 500（async 异常由 process.unhandledRejection 兜底）
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  logError({
+    req,
+    module: "http",
+    code: 500,
+    message: (err && err.message) || "服务异常",
+    stack: (err && err.stack) || "",
+  }).catch(() => {});
+  if (!res.headersSent) {
+    res.status(500).json({ code: 500, msg: "服务异常", data: null });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`[cloudrun] kxm-service listening on port ${PORT}`);
   // 每 15 分钟采集一次服务监控（内存/CPU/句柄），写入 service_monitor 表；启动时先采集一次
@@ -144,4 +166,7 @@ app.listen(PORT, () => {
   startReminder();
   // 内容安全 worker（旁路检测；开关关闭时全链路短路，不影响业务）
   startAuditWorker();
+  // 账号注销到期扫描（7天冷静期到期自动注销；进程内定时器，多实例时靠状态更新幂等兜底）
+  setInterval(() => { sweepDueCancellations().catch((e) => console.error("[cancel] sweep error", e)); }, 10 * 60 * 1000);
+  setTimeout(() => { sweepDueCancellations().catch(() => {}); }, 30 * 1000);
 });

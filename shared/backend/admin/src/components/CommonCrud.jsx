@@ -749,7 +749,7 @@ export default function CommonCrud({
 
   // ==================== 表单字段渲染 ====================
   // 未显式配置 placeholder 时，按字段类型自动生成（保证所有输入框都有空文案）
-  const renderField = (f) => {
+  const renderField = (f, opts = {}) => {
     const autoPlaceholder = () => {
       if (f.placeholder) return f.placeholder;
       const base = String(f.label || '').replace(/[（(].*?[)）]/g, '').trim();
@@ -774,7 +774,17 @@ export default function CommonCrud({
         />
       );
     }
-    if (f.type === 'textarea') return <Input.TextArea rows={3} placeholder={autoPlaceholder()} />;
+    if (f.type === 'textarea') {
+      // 左右布局右侧文本域：按窗口高度拉伸（多个右侧文本域均分高度），其余保持常规三行
+      const tall = opts.tall || f.side === 'right';
+      return (
+        <Input.TextArea
+          rows={tall ? 14 : 3}
+          placeholder={autoPlaceholder()}
+          style={tall ? { minHeight: opts.tallHeight || 'calc(100vh - 320px)' } : undefined}
+        />
+      );
+    }
     if (f.type === 'rate') return <ScoreRate disabled={(f.disabledWhenCreate && !editing) || (typeof f.disabled === 'function' ? f.disabled() : f.disabled)} />;
     if (f.type === 'number') return <Input type="number" placeholder={autoPlaceholder()} />;
     if (f.type === 'password') return <Input.Password placeholder={f.placeholder || '请输入密码'} autoComplete="new-password" />;
@@ -785,10 +795,27 @@ export default function CommonCrud({
     return <Input placeholder={autoPlaceholder()} />;
   };
 
-  // 左右布局：字段带 side:'right' 时右侧列渲染（如任务图片、任务描述），其余字段渲染在左侧列
+  // 左右布局：字段带 side:'right' 时右侧列渲染（如任务图片、任务描述、系统参数参数值），其余字段渲染在左侧列
   const splitForm = formFields.some(f => f.side === 'right');
   const leftFields = formFields.filter(f => f.side !== 'right');
   const rightFields = formFields.filter(f => f.side === 'right');
+  // 右侧文本域数量（用于均分窗口高度）
+  const rightTallCount = Math.max(rightFields.filter(f => f.type === 'textarea').length, 1);
+  // 右侧文本域高度：整体约等于窗口高度（扣除模态框头/脚/边距），多个文本域均分
+  const rightTallHeight = `calc((100vh - 380px) / ${rightTallCount})`;
+
+  // 右侧列字段渲染：文本域拉伸占满高度，其余字段自适应
+  const renderRightField = (f) => {
+    const extra = typeof f.tip === 'function' ? f.tip({ editing }) : f.tip;
+    const tall = f.type === 'textarea';
+    return (
+      <div key={f.name} style={{ flex: tall ? 1 : '0 0 auto' }}>
+        <Form.Item name={f.name} label={f.label} rules={f.rules || []} extra={extra} style={{ marginBottom: 0 }}>
+          {renderField(f, { tall: true, tallHeight: rightTallHeight })}
+        </Form.Item>
+      </div>
+    );
+  };
 
   const renderFormField = (f) => {
     const span = f.span || (formColumns > 1 ? 12 : 24);
@@ -924,22 +951,21 @@ export default function CommonCrud({
         onCancel={() => setModalOpen(false)}
         destroyOnClose
         confirmLoading={submitting}
-        width={menuTree ? 640 : (modalWidth || (formColumns > 1 ? 680 : 520))}
+        width={menuTree ? 640 : (modalWidth || (splitForm ? 1000 : (formColumns > 1 ? 680 : 520)))}
+        bodyStyle={splitForm ? { maxHeight: 'calc(100vh - 220px)', overflow: 'auto' } : undefined}
       >
         <Form form={form} layout="vertical">
           {splitForm ? (
-            <Row gutter={24} wrap={false}>
-              <Col flex="auto" style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', gap: 24 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <Row gutter={16}>
-                  {leftFields.map(renderFormField)}
+                  {leftFields.map(f => (f.hideWhenKind && f.hideWhenKind.includes(watchKind) ? null : renderFormField(f)))}
                 </Row>
-              </Col>
-              <Col flex="0 0 420px">
-                <Row gutter={16}>
-                  {rightFields.map(renderFormField)}
-                </Row>
-              </Col>
-            </Row>
+              </div>
+              <div style={{ flex: '0 0 520px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {rightFields.map(renderRightField)}
+              </div>
+            </div>
           ) : (
             <Row gutter={16}>
               {formFields.map(f => (f.hideWhenKind && f.hideWhenKind.includes(watchKind) ? null : renderFormField(f)))}

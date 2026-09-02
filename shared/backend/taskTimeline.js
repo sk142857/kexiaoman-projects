@@ -37,7 +37,7 @@ async function logTaskEvent({ taskId, checkinId, bizType, eventType, eventName, 
     const { error } = await db.from("task_timeline").insert(metric);
     if (error) throw error;
   } catch (e) {
-    console.error("[taskTimeline] 写入失败", e.message);
+    console.error("[taskTimeline] 写入失败", e);
   }
 }
 

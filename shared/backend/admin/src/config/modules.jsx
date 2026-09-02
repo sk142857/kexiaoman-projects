@@ -2,10 +2,11 @@
 // columns: 表格列（渲染函数使用 components/fields.js 的丰富组件）
 // detailFields: 详情抽屉字段描述（type 对应 CommonCrud 渲染逻辑）
 import { Tag, message, Modal } from 'antd';
-import { SafetyOutlined, StopOutlined, UnlockOutlined, LinkOutlined, GiftOutlined, LockOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { SafetyOutlined, StopOutlined, UnlockOutlined, LinkOutlined, GiftOutlined, LockOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { crudApi } from '../services/api';
 import TaskProgressBar from '../components/TaskProgressBar.jsx';
+import { openPurgeConfirm, openUserPurgeConfirm } from '../components/PurgeConfirm.jsx';
 import {
   StatusTag, PlainText, EmptyText, EmojiAvatar, ImageAvatar, Percent, MemBar,
   BoolTag, SplitTags, MaskId, HttpStatusTag, CostText,
@@ -167,11 +168,13 @@ const NOTIFY_ROLE_MAP = {
   parent: { label: '主家长', color: 'green' },
   family: { label: '家属', color: 'orange' },
   admin: { label: '管理员', color: 'purple' },
+  personal: { label: '个人', color: 'cyan' },
 };
 const NOTIFY_ROLE_OPTIONS = [
   { value: 'student', label: '学生' },
   { value: 'parent', label: '主家长' },
   { value: 'family', label: '家属' },
+  { value: 'personal', label: '个人' },
 ];
 const NOTIFY_PLACEHOLDER_TIP = '可用占位符：{taskTitle} 任务标题 / {childName} 孩子昵称 / {studentName} 学生昵称 / {score} 积分 / {note} 审核意见 / {checkinDate} 打卡日期 / {assignerName} 布置人昵称 / {bizName} 业务类型（任务/打卡）';
 const EVENT_TYPE_MAP2 = {
@@ -206,19 +209,24 @@ const STAFF_EVENT_TYPE_MAP = {
   review: { label: '审核', color: 'magenta' },
   custom: { label: '其他', color: 'default' },
 };
-// 账号角色（后台管理员 / 学生 / 主家长 / 家属）
+// 账号角色（后台管理员 / 学生 / 主家长 / 家属 / 个人）
 const STAFF_ROLE_MAP = {
   admin: { label: '管理员', color: 'purple' },
   student: { label: '学生', color: 'blue' },
   parent: { label: '主家长', color: 'green' },
   family: { label: '家属', color: 'orange' },
+  personal: { label: '个人', color: 'cyan' },
 };
+// 超级管理员强保护：999999 超管禁止编辑/删除（服务端删除接口与级联删除同步拦截）
+const SUPER_ADMIN_ID = 999999;
+const isSuperAdminStaff = (r) => Number(r && r.staff_id) === SUPER_ADMIN_ID;
 // 用户管理：小程序用户绑定身份（课小满角色）
 const USER_LP_ROLE_MAP = {
   student: { label: '学生', color: 'blue' },
   parent: { label: '主家长', color: 'green' },
   family: { label: '家属', color: 'orange' },
   admin: { label: '管理员', color: 'purple' },
+  personal: { label: '个人', color: 'cyan' },
 };
 // 用户管理：账号锁定状态（锁定中 / 已禁用 / 正常）
 const USER_LOCK_STATUS_MAP = {
@@ -273,6 +281,14 @@ const LEVEL_MAP = {
   middle: { label: '中', color: 'orange' },
   low: { label: '低', color: 'green' },
 };
+// 系统参数值类型（支持多场景：字符串 / 数字 / 布尔 / JSON）
+const PARAM_TYPE_MAP = {
+  string: { label: '字符串', color: 'blue' },
+  number: { label: '数字', color: 'geekblue' },
+  bool: { label: '布尔', color: 'green' },
+  json: { label: 'JSON', color: 'purple' },
+};
+const PARAM_TYPE_OPTIONS = Object.entries(PARAM_TYPE_MAP).map(([value, m]) => ({ value, label: m.label }));
 
 export const MODULES = {
   users: {
@@ -344,6 +360,16 @@ export const MODULES = {
     ],
     // 账号锁定/解锁（按 user_id，含时效；操作写入操作审计）
     customActions: [
+      {
+        label: '物理清理',
+        icon: <DeleteOutlined />,
+        color: '#ff4d4f',
+        // 仅管理员：冗余数据物理清理（绑定/文件/画像 + 因此孤儿化的业务账号），删除前展示审计清单
+        show: (r, ctx) => ctx.isAdmin,
+        onClick: async (r, ctx) => {
+          await openUserPurgeConfirm(r, { refresh: () => ctx && ctx.refresh() });
+        },
+      },
       {
         label: '锁定账号',
         icon: <LockOutlined />,
@@ -458,6 +484,57 @@ export const MODULES = {
     formFields: [],
   },
 
+  // 系统错误日志（只读：errorLog.js 统一入库，错误异常类似 Java logger.error 落库审计）
+  system_error_logs: {
+    biz: 'system_error_logs',
+    title: '错误日志',
+    entityName: '错误日志',
+    searchable: ['message', 'module', 'api_path'],
+    searchKey: 'message',
+    readonly: true,
+    defaultDays: 3,
+    drawerWidth: 860,
+    tableScroll: { x: 1080 },
+    filters: [
+      { name: 'level', label: '级别', options: [
+        { value: 'error', label: 'error' },
+        { value: 'warn', label: 'warn' },
+        { value: 'info', label: 'info' },
+      ] },
+      { name: 'error_code', label: '错误码', options: [
+        { value: '400', label: '400' },
+        { value: '401', label: '401' },
+        { value: '403', label: '403' },
+        { value: '500', label: '500' },
+      ] },
+      { name: 'app_id', label: '所属小程序', optionsSource: 'apps', optionsMap: { value: 'app_id', label: 'app_name' } },
+    ],
+    columns: [
+      { title: '日志ID', dataIndex: 'log_id', key: 'log_id', width: 150, render: (v) => <MaskId value={v} maxWidth={140} /> },
+      { title: '级别', dataIndex: 'level', key: 'level', width: 80, render: (v) => <StatusTag value={v} map={{ error: { label: 'error', color: 'red' }, warn: { label: 'warn', color: 'orange' }, info: { label: 'info', color: 'blue' } }} /> },
+      { title: '模块', dataIndex: 'module', key: 'module', width: 130, render: (v) => (v ? <Tag color="blue">{v}</Tag> : <EmptyText />) },
+      { title: '错误码', dataIndex: 'error_code', key: 'error_code', width: 80, render: (v) => <HttpStatusTag value={v} /> },
+      { title: '接口路径', dataIndex: 'api_path', key: 'api_path', width: 200, render: (v) => <PlainText value={v} maxWidth={190} /> },
+      { title: '错误信息', dataIndex: 'message', key: 'message', width: 320, render: (v) => <PlainText value={v} maxWidth={310} /> },
+      { title: '小程序', dataIndex: 'app_id', key: 'app_id', width: 120, render: (v) => (v ? <PlainText value={v} maxWidth={110} /> : <EmptyText />) },
+      { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'log_id', label: '日志ID', type: 'text', span: 2 },
+      { name: 'level', label: '级别', type: 'tag', map: { error: { label: 'error', color: 'red' }, warn: { label: 'warn', color: 'orange' }, info: { label: 'info', color: 'blue' } } },
+      { name: 'module', label: '来源模块', type: 'tag', map: { lp: { label: 'lp', color: 'blue' }, admin: { label: 'admin', color: 'purple' }, global: { label: 'global', color: 'default' }, http: { label: 'http', color: 'cyan' } } },
+      { name: 'app_id', label: '所属小程序' },
+      { name: 'openid', label: '用户 openid', type: 'text', span: 2 },
+      { name: 'api_path', label: '接口路径', type: 'longText', span: 2 },
+      { name: 'error_code', label: '错误码', type: 'httpStatus' },
+      { name: 'message', label: '错误信息', type: 'longText', span: 2 },
+      { name: 'stack', label: '错误堆栈', type: 'longText', span: 3 },
+      { name: 'detail', label: '附加详情', type: 'json', span: 3 },
+      { name: 'created_at', label: '记录时间', type: 'date' },
+    ],
+    formFields: [],
+  },
+
   sessions: {
     biz: 'sessions',
     title: '会话画像',
@@ -518,6 +595,8 @@ export const MODULES = {
     title: '管理员管理',
     searchable: ['staff_username', 'staff_nickname'],
     searchKey: 'staff_username',
+    // 超级管理员强保护：999999 超管禁止编辑/删除（服务端删除接口同步拦截）
+    lockFn: (record) => isSuperAdminStaff(record) ? '超级管理员账号受强保护，禁止编辑与删除' : null,
     // 删除前先查名下关联数据，弹窗完整展示级联清理范围（后端同样执行全量级联删除）
     deleteTip: async (record) => {
       let stats = {};
@@ -543,7 +622,7 @@ export const MODULES = {
       return `${msg}\n确定删除吗？`;
     },
     columns: [
-      { title: 'ID', dataIndex: 'staff_id', key: 'staff_id', width: 80 },
+      { title: 'ID', dataIndex: 'staff_id', key: 'staff_id', width: 100, render: (v) => <PlainText value={v} /> },
       { title: '账号', dataIndex: 'staff_username', key: 'staff_username' },
       { title: '昵称', dataIndex: 'staff_nickname', key: 'staff_nickname' },
       { title: '角色', dataIndex: 'staff_role', key: 'staff_role', width: 100, render: (v) => <StatusTag value={v} map={STAFF_ROLE_MAP} /> },
@@ -560,6 +639,16 @@ export const MODULES = {
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
     customActions: [
+      {
+        label: '物理清除',
+        icon: <DeleteOutlined />,
+        color: '#ff4d4f',
+        // 仅管理员；受保护超管与管理员自身不允许物理清除
+        show: (r, ctx) => ctx.isAdmin && !isSuperAdminStaff(r) && r.staff_role !== 'admin',
+        onClick: async (r, ctx) => {
+          await openPurgeConfirm(r, { refresh: () => ctx && ctx.refresh() });
+        },
+      },
       {
         label: '赠送订阅次数',
         icon: <GiftOutlined />,
@@ -765,11 +854,11 @@ export const MODULES = {
           const needConfirm = !!(res.data && res.data.needConfirm);
           const warnings = (res.data && res.data.warnings) || [];
           const run = async () => {
-            await crudApi.lpChildBind(r.child_id, { parent_staff_id: values.parent_staff_id, force: 1 });
-            message.success('已绑定主家长');
+            const done = await crudApi.lpChildBind(r.child_id, { parent_staff_id: values.parent_staff_id, force: 1 });
+            message.success(done?.msg || '已绑定主家长');
             if (ctx && ctx.refresh) ctx.refresh();
           };
-          if (needConfirm && warnings.length > 0) {
+          if (needConfirm) {
             Modal.confirm({
               title: '确认绑定家长',
               content: (
@@ -798,11 +887,11 @@ export const MODULES = {
           const needConfirm = !!(res.data && res.data.needConfirm);
           const warnings = (res.data && res.data.warnings) || [];
           const run = async () => {
-            await crudApi.lpChildUnbind(r.child_id, { force: 1 });
-            message.success('已解绑，孩子现无主家长归属');
+            const done = await crudApi.lpChildUnbind(r.child_id, { force: 1 });
+            message.success(done?.msg || '已解绑，孩子现无主家长归属');
             if (ctx && ctx.refresh) ctx.refresh();
           };
-          if (needConfirm && warnings.length > 0) {
+          if (needConfirm) {
             Modal.confirm({
               title: '解绑风险提示',
               content: (
@@ -862,51 +951,30 @@ export const MODULES = {
           ],
         },
         onClick: async (_record, ctx, values) => {
-          // 第一阶段：仅逻辑校验并返回风险提示（不落库）
-          const res = await crudApi.lpChildBindCreate(values);
-          const needConfirm = !!(res.data && res.data.needConfirm);
-          const warnings = (res.data && res.data.warnings) || [];
-          const run = async () => {
-            const done = await crudApi.lpChildBindCreate({ ...values, force: 1 });
-            const data = done.data || {};
-            const code = data.invite_code || '';
-            const note = data.invite_note || '';
-            message.success(done?.msg || '已创建绑定');
-            if (code) {
-              Modal.success({
-                title: '绑定成功',
-                content: (
-                  <div style={{ lineHeight: 1.9 }}>
-                    <p>孩子档案与家长绑定已完成。</p>
-                    <p>学生邀请码：<b style={{ fontSize: 18, letterSpacing: 1 }}>{code}</b></p>
-                    <p style={{ color: '#999' }}>
-                      {note === 'reused'
-                        ? '该码为复用已有可用学生码，可发给学生在小程序「我是学生」输入绑定访问。'
-                        : '可发给学生在小程序「身份选择-我是学生」输入该码完成账号访问绑定（仅首次展示）。'}
-                    </p>
-                  </div>
-                ),
-                okText: '知道了',
-              });
-            }
-            if (ctx && ctx.refresh) ctx.refresh();
-          };
-          if (needConfirm && warnings.length > 0) {
-            Modal.confirm({
-              title: '确认创建绑定',
+          // 后端严格校验（学生账号已归属其它孩子档案时直接拒绝），无重复即直接创建
+          const done = await crudApi.lpChildBindCreate({ ...values, force: 1 });
+          const data = done.data || {};
+          const code = data.invite_code || '';
+          const note = data.invite_note || '';
+          message.success(done?.msg || '已创建绑定');
+          if (code) {
+            Modal.success({
+              title: '绑定成功',
               content: (
-                <div style={{ color: '#cf1322', whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
-                  {warnings.join('\n')}
+                <div style={{ lineHeight: 1.9 }}>
+                  <p>孩子档案与家长绑定已完成。</p>
+                  <p>学生邀请码：<b style={{ fontSize: 18, letterSpacing: 1 }}>{code}</b></p>
+                  <p style={{ color: '#999' }}>
+                    {note === 'reused'
+                      ? '该码为复用已有可用学生码，可发给学生在小程序「我是学生」输入绑定访问。'
+                      : '可发给学生在小程序「身份选择-我是学生」输入该码完成账号访问绑定（仅首次展示）。'}
+                  </p>
                 </div>
               ),
-              okText: '确认创建',
-              okButtonProps: { danger: true },
-              cancelText: '取消',
-              onOk: () => run(),
+              okText: '知道了',
             });
-          } else {
-            await run();
           }
+          if (ctx && ctx.refresh) ctx.refresh();
         },
       },
     ],
@@ -1046,7 +1114,7 @@ export const MODULES = {
     // 密钥明文存表（AppSecret/JWT密钥），列表与详情不展示，仅在编辑表单填写；编辑留空保持原值
     // 编辑表单统一两列网格布局：基础信息 → 服务与提醒 → 安全凭证与订阅，各区域字段 span 对齐
     formColumns: 2,
-    modalWidth: 860,
+    modalWidth: 1000,
     columns: [
       { title: '应用ID', dataIndex: 'app_id', key: 'app_id', width: 150, render: (v) => <PlainText value={v} maxWidth={140} /> },
       { title: '名称', dataIndex: 'app_name', key: 'app_name', width: 120 },
@@ -1072,7 +1140,7 @@ export const MODULES = {
       { name: 'created_at', label: '创建时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
-    // 两列网格：基础信息 + 服务与提醒 + 安全凭证与订阅
+    // 两列网格：基础信息 + 服务与提醒 + 安全凭证与订阅（右侧为文本域：订阅模板/内容安全/说明）
     formFields: [
       { name: 'app_id', label: '应用ID（如 miniprogram-kxm）', type: 'text', rules: [{ required: true }], placeholder: '应用ID不可重复', span: 12 },
       { name: 'app_name', label: '名称', type: 'text', rules: [{ required: true }], span: 12 },
@@ -1085,10 +1153,181 @@ export const MODULES = {
       { name: 'app_secret', label: 'AppSecret（code2session）', type: 'password', placeholder: '编辑留空则保持原值', span: 12 },
       { name: 'jwt_secret', label: 'JWT 签名密钥', type: 'password', placeholder: '编辑留空则保持原值', span: 12 },
       { name: 'jwt_expires', label: 'JWT 有效期', type: 'text', placeholder: '如 7d', span: 12 },
-      { name: 'subscribe_tmpl_ids', label: '订阅消息模板ID（逗号分隔）', type: 'text', placeholder: '如 审核结果通知模板ID,打卡提醒模板ID', span: 12 },
-      { name: 'content_security', label: '内容安全配置（JSON）', type: 'textarea', placeholder: '{"enabled":true,"scene":2}', span: 24, tip: 'enabled：true=开启内容安全检测（false/留空=关闭，业务不受影响）；scene：检测场景 1资料/2评论/3论坛/4社交日志。非法 JSON 一律视为关闭（fail-safe）' },
-      { name: 'app_desc', label: '说明', type: 'textarea', span: 24 },
+      { name: 'subscribe_tmpl_ids', label: '订阅消息模板ID（逗号分隔）', type: 'textarea', side: 'right', span: 24, placeholder: '每行一个或逗号分隔，如\n91HSfOQSSVKHPwT2oNM4NdGuKe9Gw1uY0VkLf_nyJ9I\naIReeE_R92te__wWL7EKRknaZ0pXhSJ2Kcct_rNWzVg', tip: '业务事件 → 模板ID（逗号分隔）；前端按事件发送订阅消息' },
+      { name: 'content_security', label: '内容安全配置（JSON）', type: 'textarea', side: 'right', span: 24, placeholder: '{"enabled":true,"scene":2}', tip: 'enabled：true=开启内容安全检测（false/留空=关闭，业务不受影响）；scene：检测场景 1资料/2评论/3论坛/4社交日志。非法 JSON 一律视为关闭（fail-safe）' },
+      { name: 'app_desc', label: '说明', type: 'textarea', side: 'right', span: 24 },
     ],
+  },
+
+  // 系统参数（常量维护：单条 key 或 JSON 集中文案，供小程序端绑定/注销等文案读取）
+  system_params: {
+    biz: 'system_params',
+    title: '系统参数',
+    entityName: '系统参数',
+    searchable: ['param_key', 'param_desc'],
+    searchKey: 'param_key',
+    createDefaults: { param_status: 1, param_type: 'string' },
+    modalWidth: 1000,
+    formColumns: 2,
+    filters: [
+      { name: 'param_type', label: '类型', options: PARAM_TYPE_OPTIONS },
+      { name: 'param_status', label: '状态', options: [
+        { value: 1, label: '启用' },
+        { value: 0, label: '停用' },
+      ] },
+    ],
+    columns: [
+      { title: 'ID', dataIndex: 'param_id', key: 'param_id', width: 70 },
+      { title: '参数键', dataIndex: 'param_key', key: 'param_key', width: 220, render: (v) => <PlainText value={v} strong /> },
+      { title: '类型', dataIndex: 'param_type', key: 'param_type', width: 80, render: (v) => <StatusTag value={v} map={PARAM_TYPE_MAP} /> },
+      { title: '说明', dataIndex: 'param_desc', key: 'param_desc', width: 220, render: (v) => <PlainText value={v} maxWidth={210} /> },
+      { title: '状态', dataIndex: 'param_status', key: 'param_status', width: 80, render: (v) => <StatusTag value={v} map={{ 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'default' } }} /> },
+      { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'param_id', label: '参数ID' },
+      { name: 'app_id', label: '所属小程序' },
+      { name: 'param_key', label: '参数键', span: 2 },
+      { name: 'param_type', label: '类型', type: 'tag', map: PARAM_TYPE_MAP },
+      { name: 'param_status', label: '状态', type: 'tag', map: { 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'default' } } },
+      // 参数值高度较常规 JSON 展示再增加 20%（320 → 384），便于查看长 JSON
+      { name: 'param_value', label: '参数值', type: 'json', span: 2, maxHeight: 384 },
+      { name: 'param_desc', label: '说明', type: 'longText', span: 2 },
+      { name: 'created_at', label: '创建时间', type: 'date' },
+      { name: 'updated_at', label: '更新时间', type: 'date' },
+    ],
+    // 左右布局：左侧普通字段，右侧参数值文本域（高度随窗口拉伸）
+    formFields: [
+      { name: 'param_key', label: '参数键（如 identity_bind_copy）', type: 'text', rules: [{ required: true }], span: 12, placeholder: '如 identity_bind_copy' },
+      { name: 'param_type', label: '值类型', type: 'select', options: PARAM_TYPE_OPTIONS, span: 12, tip: 'string=字符串；number=数字；bool=布尔（true/false/1/0）；json=JSON 对象/数组' },
+      { name: 'param_desc', label: '说明', type: 'text', span: 12, placeholder: '参数用途说明' },
+      { name: 'param_status', label: '状态', type: 'select', options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], span: 12 },
+      { name: 'param_value', label: '参数值', type: 'textarea', span: 24, side: 'right', placeholder: '字符串直接填写；number 填数字；bool 填 true/false 或 1/0；json 需合法 JSON 文本' },
+    ],
+  },
+
+  // 用户注销管理（家长/个人在小程序申请，后台集中查看 + 撤销待生效申请）
+  account_cancellations: {
+    biz: 'account_cancellations',
+    title: '注销管理',
+    entityName: '注销申请',
+    searchable: ['openid'],
+    searchKey: 'openid',
+    readonly: true,
+    rowDblClick: true,
+    filters: [
+      { name: 'status', label: '状态', options: [
+        { value: 'pending', label: '待生效' },
+        { value: 'executed', label: '已注销' },
+        { value: 'cancelled', label: '已撤销' },
+      ] },
+      { name: 'mode', label: '模式', options: [
+        { value: 'grace', label: '7天冷静期' },
+        { value: 'immediate', label: '立即注销' },
+      ] },
+    ],
+    columns: [
+      { title: 'ID', dataIndex: 'cancel_id', key: 'cancel_id', width: 80 },
+      { title: '账号', dataIndex: 'staff_nickname', key: 'staff_nickname', width: 120, render: (v, r) => <StaffCell staffId={r.staff_id} nickname={v || r.staff_username} /> },
+      { title: '角色', dataIndex: 'staff_role', key: 'staff_role', width: 90, render: (v) => <StatusTag value={v} map={STAFF_ROLE_MAP} /> },
+      { title: '申请人', dataIndex: '_userNickname', key: '_userNickname', width: 100, render: (v) => (v ? <PlainText value={v} maxWidth={90} /> : <EmptyText />) },
+      { title: 'openid', dataIndex: 'openid', key: 'openid', width: 200, render: (v) => <MaskId value={v} maxWidth={190} /> },
+      { title: '模式', dataIndex: 'mode', key: 'mode', width: 90, render: (v) => <StatusTag value={v} map={{ grace: { label: '7天', color: 'processing' }, immediate: { label: '立即', color: 'error' } }} /> },
+      { title: '状态', dataIndex: 'status', key: 'status', width: 90, render: (v) => <StatusTag value={v} map={{ pending: { label: '待生效', color: 'warning' }, executed: { label: '已注销', color: 'error' }, cancelled: { label: '已撤销', color: 'default' } }} /> },
+      { title: '申请时间', dataIndex: 'requested_at', key: 'requested_at', width: 150 },
+      { title: '生效时间', dataIndex: 'effective_at', key: 'effective_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'cancel_id', label: '注销申请ID' },
+      { name: 'staff_id', label: '账号ID' },
+      { name: 'staff_username', label: '账号' },
+      { name: 'staff_nickname', label: '账号昵称' },
+      { name: 'staff_role', label: '角色', type: 'tag', map: STAFF_ROLE_MAP },
+      { name: '_userNickname', label: '申请人昵称' },
+      { name: 'openid', label: 'openid', type: 'text', span: 2 },
+      { name: 'mode', label: '模式', type: 'tag', map: { grace: { label: '7天冷静期', color: 'processing' }, immediate: { label: '立即注销', color: 'error' } } },
+      { name: 'status', label: '状态', type: 'tag', map: { pending: { label: '待生效', color: 'warning' }, executed: { label: '已注销', color: 'error' }, cancelled: { label: '已撤销', color: 'default' } } },
+      { name: 'requested_at', label: '申请时间', type: 'date' },
+      { name: 'effective_at', label: '生效时间', type: 'date' },
+      { name: 'executed_at', label: '实际执行时间', type: 'date' },
+      { name: 'cancelled_at', label: '撤销时间', type: 'date' },
+      { name: 'created_at', label: '创建时间', type: 'date' },
+      { name: 'updated_at', label: '更新时间', type: 'date' },
+    ],
+    formFields: [],
+    customActions: [
+      {
+        label: '撤销申请',
+        icon: <StopOutlined />,
+        color: '#fa8c16',
+        show: (r, ctx) => ctx.isAdmin && r.status === 'pending',
+        confirm: '撤销后该注销申请失效，账号可继续正常使用。确定撤销？',
+        onClick: async (r, ctx) => {
+          const res = await crudApi.accountCancelRevoke(r.cancel_id);
+          message.success(res?.msg || '已撤销');
+          if (ctx && ctx.refresh) ctx.refresh();
+        },
+      },
+    ],
+  },
+
+  // 物理清除审计：后台「物理清除」删除账号（含整棵家庭树）时留存的删除审计清单（只读回看）
+  staff_purges: {
+    biz: 'staff_purges',
+    title: '物理清除审计',
+    entityName: '物理清除记录',
+    searchable: ['target_username', 'target_nickname', 'operator_username'],
+    searchKey: 'target_username',
+    readonly: true,
+    rowDblClick: true,
+    filters: [
+      { name: 'target_kind', label: '清除类型', options: [
+        { value: 'staff', label: '业务账号' },
+        { value: 'user', label: '微信用户' },
+      ] },
+      { name: 'status', label: '状态', options: [
+        { value: 'done', label: '完成' },
+        { value: 'partial', label: '部分失败' },
+      ] },
+      { name: 'target_role', label: '被清除角色', options: [
+        { value: 'parent', label: '主家长' },
+        { value: 'student', label: '孩子' },
+        { value: 'family', label: '家属' },
+        { value: 'personal', label: '个人' },
+      ] },
+    ],
+    columns: [
+      { title: '记录ID', dataIndex: 'purge_id', key: 'purge_id', width: 90 },
+      { title: '类型', dataIndex: 'target_kind', key: 'target_kind', width: 90, render: (v) => <StatusTag value={v} map={{ staff: { label: '业务账号', color: 'blue' }, user: { label: '微信用户', color: 'purple' } }} /> },
+      { title: '被清除账号', dataIndex: 'target_username', key: 'target_username', width: 130 },
+      { title: '昵称', dataIndex: 'target_nickname', key: 'target_nickname', width: 110 },
+      { title: '角色', dataIndex: 'target_role', key: 'target_role', width: 90, render: (v) => <StatusTag value={v} map={{ ...STAFF_ROLE_MAP, user: { label: '微信用户', color: 'purple' } }} /> },
+      { title: '状态', dataIndex: 'status', key: 'status', width: 90, render: (v) => <StatusTag value={v} map={{ done: { label: '完成', color: 'success' }, partial: { label: '部分失败', color: 'error' } }} /> },
+      { title: '媒体文件', dataIndex: 'media_files', key: 'media_files', width: 90, render: (v) => <PlainText value={v} /> },
+      { title: '操作人', dataIndex: 'operator_username', key: 'operator_username', width: 120 },
+      { title: '清除时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'purge_id', label: '清除记录ID' },
+      { name: 'target_kind', label: '清除类型', type: 'tag', map: { staff: { label: '业务账号', color: 'blue' }, user: { label: '微信用户', color: 'purple' } } },
+      { name: 'target_staff_id', label: '被清除账号ID' },
+      { name: 'target_username', label: '被清除账号' },
+      { name: 'target_nickname', label: '被清除账号昵称' },
+      { name: 'target_role', label: '被清除角色', type: 'tag', map: { ...STAFF_ROLE_MAP, user: { label: '微信用户', color: 'purple' } } },
+      { name: 'status', label: '状态', type: 'tag', map: { done: { label: '完成', color: 'success' }, partial: { label: '部分失败', color: 'error' } } },
+      { name: 'media_files', label: '物理删除媒体文件数', type: 'number' },
+      { name: 'scope_staff_ids', label: '清除账号范围（含孩子/家属）', type: 'text', span: 2 },
+      { name: 'scope_openids', label: '清除微信用户 openid', type: 'text', span: 2 },
+      { name: 'summary', label: '逐表清除计数', type: 'json', span: 2 },
+      { name: 'manifest', label: '完整删除审计清单', type: 'json', span: 2 },
+      { name: 'fail_detail', label: '失败明细', type: 'text', span: 2 },
+      { name: 'operator_staff_id', label: '操作人ID' },
+      { name: 'operator_username', label: '操作人账号' },
+      { name: 'client_ip', label: '操作人IP' },
+      { name: 'client_fingerprint', label: '操作人指纹' },
+      { name: 'created_at', label: '清除时间', type: 'date' },
+    ],
+    formFields: [],
   },
 
   // 订阅消息：用户授权记录（小程序主动订阅 / 后台赠送）——只读
@@ -1438,6 +1677,7 @@ export const MODULES = {
         { value: 'traces', label: '接口链路' },
         { value: 'sessions', label: '会话画像' },
         { value: 'lp_invites', label: '邀请码' },
+        { value: 'system_params', label: '系统参数' },
       ] },
     ],
     columns: [
@@ -1463,7 +1703,7 @@ export const MODULES = {
       { name: 'client_fingerprint', label: '客户端指纹', type: 'longText', span: 2 },
       { name: 'user_agent', label: 'User-Agent', type: 'longText', span: 2 },
       { name: 'api_path', label: '接口路径', type: 'longText', span: 2 },
-      { name: 'extra', label: '请求参数', type: 'json', span: 2 },
+      { name: 'extra', label: '操作过程', type: 'trace', span: 2 },
       { name: 'created_at', label: '事件时间', type: 'date' },
     ],
     formFields: [],
@@ -1672,7 +1912,7 @@ export const MODULES = {
       { title: '任务数', dataIndex: 'task_count', key: 'task_count', width: 80 },
       { title: '封面', dataIndex: 'cover_images', key: 'cover_images', width: 80, render: (v) => <CoverThumb value={v} size={64} /> },
       { title: '描述', dataIndex: 'description', key: 'description', width: 240, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
-      { title: '创建人', dataIndex: 'created_by', key: 'created_by', width: 140, render: (v, r) => <StaffCell staffId={v} nickname={r._creatorNickname} /> },
+      { title: '归属账号', dataIndex: 'staff_id', key: 'staff_id', width: 140, render: (v, r) => <StaffCell staffId={v} nickname={r._staffNickname} /> },
       { title: '状态', dataIndex: 'collection_status', key: 'collection_status', width: 80, render: (v) => <StatusTag value={v} map={{ 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'error' } }} /> },
       { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
     ],
@@ -1681,7 +1921,7 @@ export const MODULES = {
       { name: 'name', label: '合集名称' },
       { name: 'task_count', label: '任务数量' },
       { name: 'collection_status', label: '状态', type: 'tag', map: { 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'error' } } },
-      { name: 'created_by', label: '创建人', type: 'staffCell' },
+      { name: 'staff_id', label: '归属账号', type: 'staffCell' },
       { name: 'cover_images', label: '封面图', type: 'images', span: 2 },
       { name: 'description', label: '合集描述', type: 'longText', span: 2 },
       { name: 'created_at', label: '创建时间', type: 'date' },
@@ -1693,6 +1933,57 @@ export const MODULES = {
       { name: 'collection_status', label: '状态', type: 'select', span: 12, options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], placeholder: '请选择状态' },
       { name: 'cover_images', label: '封面图（1张，正方形）', type: 'images', span: 12, max: 1, size: 120, biz: 'tasks', square: true },
       { name: 'description', label: '合集描述', type: 'textarea', span: 24, placeholder: '请输入合集描述' },
+    ],
+  },
+
+  subjects: {
+    biz: 'subjects',
+    title: '科目管理',
+    entityName: '科目',
+    searchable: ['name'],
+    searchKey: 'name',
+    ownField: 'staff_id',
+    formColumns: 2,
+    createDefaults: () => ({ subject_status: 1, sort: 0 }),
+    filters: [
+      { name: 'subject_status', label: '状态', options: [
+        { value: 1, label: '启用' },
+        { value: 0, label: '停用' },
+      ] },
+    ],
+    columns: [
+      { title: 'ID', dataIndex: 'subject_id', key: 'subject_id', width: 70 },
+      { title: '科目名称', dataIndex: 'name', key: 'name', width: 160, render: (v) => <PlainText value={v} maxWidth={150} /> },
+      { title: '颜色', dataIndex: 'color', key: 'color', width: 120, render: (v) => (v ? <span style={{ display: 'inline-block', width: 18, height: 18, borderRadius: 4, background: v, verticalAlign: 'middle', marginRight: 6 }} /> : <EmptyText />) },
+      { title: '排序', dataIndex: 'sort', key: 'sort', width: 70 },
+      { title: '归属账号', dataIndex: 'staff_id', key: 'staff_id', width: 140, render: (v, r) => <StaffCell staffId={v} nickname={r._staffNickname} /> },
+      { title: '状态', dataIndex: 'subject_status', key: 'subject_status', width: 80, render: (v) => <StatusTag value={v} map={{ 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'error' } }} /> },
+      { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
+    ],
+    detailFields: [
+      { name: 'subject_id', label: '科目ID', type: 'text' },
+      { name: 'name', label: '科目名称' },
+      { name: 'color', label: '颜色', type: 'tag', map: { '#1677ff': { label: '蓝', color: 'blue' }, '#52c41a': { label: '绿', color: 'green' }, '#faad14': { label: '黄', color: 'gold' }, '#f5222d': { label: '红', color: 'red' } } },
+      { name: 'sort', label: '排序' },
+      { name: 'staff_id', label: '归属账号', type: 'staffCell' },
+      { name: 'subject_status', label: '状态', type: 'tag', map: { 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'error' } } },
+      { name: 'created_at', label: '创建时间', type: 'date' },
+      { name: 'updated_at', label: '更新时间', type: 'date' },
+    ],
+    formFields: [
+      { name: 'name', label: '科目名称', type: 'text', span: 12, rules: [{ required: true }], placeholder: '请输入科目名称，如：数学' },
+      { name: 'subject_id', label: '科目ID', type: 'pk', span: 12, createText: '创建后自动生成' },
+      { name: 'color', label: '颜色', type: 'select', span: 12, options: [
+        { value: '', label: '默认' },
+        { value: '#1677ff', label: '蓝色' },
+        { value: '#52c41a', label: '绿色' },
+        { value: '#faad14', label: '橙色' },
+        { value: '#f5222d', label: '红色' },
+        { value: '#722ed1', label: '紫色' },
+        { value: '#13c2c2', label: '青色' },
+      ], placeholder: '选择标签颜色' },
+      { name: 'sort', label: '排序', type: 'number', span: 12, placeholder: '越小越靠前' },
+      { name: 'subject_status', label: '状态', type: 'select', span: 12, options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], placeholder: '请选择状态' },
     ],
   },
 
