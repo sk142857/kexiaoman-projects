@@ -70,7 +70,7 @@ async function autoBindChild(parentStaffId, childStaffId) {
     if (error) throw error;
     const openids = [...new Set((data || []).map(r => r.openid).filter(Boolean))];
     for (const openid of openids) {
-      await activateBinding(openid, childStaffId);
+      await activateBinding(openid, childStaffId, "auto");
     }
   } catch (e) {
     console.error("[lp] auto bind child to parent error", e);

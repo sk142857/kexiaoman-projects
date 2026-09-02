@@ -220,6 +220,12 @@ const STAFF_ROLE_MAP = {
 // 超级管理员强保护：999999 超管禁止编辑/删除（服务端删除接口与级联删除同步拦截）
 const SUPER_ADMIN_ID = 999999;
 const isSuperAdminStaff = (r) => Number(r && r.staff_id) === SUPER_ADMIN_ID;
+// 绑定来源（lp_students.source）：区分「孩子自己的手机（邀请码）」vs「家长自动挂接」，降低绑定管理混乱观感
+const BIND_SOURCE_MAP = {
+  register: { label: '注册建档', color: 'green' },
+  invite: { label: '邀请码绑定', color: 'blue' },
+  auto: { label: '家长自动挂接', color: 'orange' },
+};
 // 用户管理：小程序用户绑定身份（课小满角色）
 const USER_LP_ROLE_MAP = {
   student: { label: '学生', color: 'blue' },
@@ -696,6 +702,11 @@ export const MODULES = {
     readonly: true,
     rowDblClick: true,
     filters: [
+      { name: 'source', label: '来源', options: [
+        { value: 'invite', label: '邀请码绑定' },
+        { value: 'register', label: '注册建档' },
+        { value: 'auto', label: '家长自动挂接' },
+      ] },
       { name: 'boundStatus', label: '状态', options: [
         { value: 1, label: '正常' },
         { value: 0, label: '已锁定' },
@@ -705,6 +716,7 @@ export const MODULES = {
       { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
       { title: '学生账号', dataIndex: 'staff_id', key: 'staff_id', width: 160, render: (v, r) => <StaffCell staffId={v} nickname={r.staff_nickname} /> },
       { title: '角色', dataIndex: 'staff_role', key: 'staff_role', width: 90, render: (v) => <StatusTag value={v} map={STAFF_ROLE_MAP} /> },
+      { title: '来源', dataIndex: 'source', key: 'source', width: 110, render: (v) => <StatusTag value={v} map={BIND_SOURCE_MAP} /> },
       { title: '小程序用户', dataIndex: '_userId', key: '_userId', width: 160, render: (v, r) => <UserCell userId={v || r.openid} nickname={r._userNickname} avatar={r._userAvatar} avatarChar={r._userAvatarChar} /> },
       { title: 'openid', dataIndex: 'openid', key: 'openid', width: 200, render: (v) => <MaskId value={v} maxWidth={190} /> },
       { title: '绑定状态', dataIndex: 'bound_status', key: 'bound_status', width: 90, render: (v) => <StatusTag value={v} map={{ 1: { label: '正常', color: 'success' }, 0: { label: '已锁定', color: 'error' } }} /> },
@@ -716,6 +728,7 @@ export const MODULES = {
       { name: 'staff_username', label: '绑定账号' },
       { name: 'staff_nickname', label: '账号昵称' },
       { name: 'staff_role', label: '账号角色', type: 'tag', map: STAFF_ROLE_MAP },
+      { name: 'source', label: '绑定来源', type: 'tag', map: BIND_SOURCE_MAP },
       { name: 'staff_invite_code', label: '绑定邀请码' },
       { name: 'staff_invite_code_status', label: '邀请码状态', type: 'tag', map: INVITE_STATUS_MAP },
       { name: '_userId', label: '小程序用户', type: 'userCell', span: 2 },

@@ -567,6 +567,7 @@ CREATE TABLE t_lp_students (
   openid       VARCHAR(64)  NOT NULL COMMENT '小程序用户 openid（去前缀规范值）',
   bound_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '绑定时间',
   bound_status TINYINT      NOT NULL DEFAULT 1 COMMENT '1正常 0已锁定（邀请码作废后锁定）',
+  source       VARCHAR(16)  NOT NULL DEFAULT 'invite' COMMENT '绑定来源 register注册建档 / invite邀请码 / auto家谱自动(家长一键/建档自动)',
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (id),

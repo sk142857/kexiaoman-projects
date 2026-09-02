@@ -274,8 +274,10 @@ async function hasBoundStaff(openid, staffId) {
   return !!(data && data[0]);
 }
 
-/** 激活/新增绑定：openid ↔ staff 已存在（含 bound_status=0 被作废的历史行）则恢复为有效，否则新增 */
-async function activateBinding(openid, staffId) {
+/** 激活/新增绑定：openid ↔ staff 已存在（含 bound_status=0 被作废的历史行）则恢复为有效，否则新增
+ *  @param {string} source 绑定来源：register=注册建档 / invite=邀请码 / auto=家谱自动（家长一键/建档自动）
+ *  激活历史行时不改写来源（保留首次来源，便于审计“孩子自己的手机”vs“家长自动挂”） */
+async function activateBinding(openid, staffId, source = "invite") {
   const { data, error } = await db.from("lp_students")
     .select("id").eq("app_id", LP_APP.app_id).eq("openid", openid)
     .eq("staff_id", Number(staffId)).limit(1);
@@ -290,6 +292,7 @@ async function activateBinding(openid, staffId) {
       app_id: LP_APP.app_id,
       openid,
       bound_status: 1,
+      source: String(source || "invite").slice(0, 16),
       bound_at: nowSql(),
       created_at: nowSql(),
       updated_at: nowSql(),
@@ -556,6 +559,7 @@ router.post("/registerParent", async (req, res) => {
       app_id: LP_APP.app_id,
       openid,
       bound_status: 1,
+      source: "register",
       bound_at: nowSql(),
       created_at: nowSql(),
       updated_at: nowSql(),
@@ -634,6 +638,7 @@ router.post("/registerPersonal", async (req, res) => {
       app_id: LP_APP.app_id,
       openid,
       bound_status: 1,
+      source: "register",
       bound_at: nowSql(),
       created_at: nowSql(),
       updated_at: nowSql(),
@@ -998,7 +1003,7 @@ router.post("/switchChild", async (req, res) => {
 
     // 孩子账号绑定到当前 openid（幂等；不消耗学生邀请码，孩子本人其它绑定不受影响）
     if (!(await hasBoundStaff(openid, targetId))) {
-      await activateBinding(openid, targetId);
+      await activateBinding(openid, targetId, "auto");
     }
 
     touchUserProfile(openid);

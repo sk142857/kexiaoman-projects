@@ -1788,7 +1788,7 @@ async function attachBindingInfo(rows) {
 // 绑定关系列表（分页 + 搜索 openid/staff + 过滤状态）
 router.get("/api/lp_students/list", adminAuth, async (req, res) => {
   try {
-    const { page = 1, pageSize = 20, keyword, order = "desc", boundStatus } = req.query;
+    const { page = 1, pageSize = 20, keyword, order = "desc", boundStatus, source } = req.query;
     const size = Math.min(Number(pageSize) || 20, 100);
     const pageNo = Math.max(1, Number(page) || 1);
     const offset = (pageNo - 1) * size;
@@ -1818,6 +1818,9 @@ router.get("/api/lp_students/list", adminAuth, async (req, res) => {
       }
       if (boundStatus !== undefined && boundStatus !== null && boundStatus !== "") {
         q = q.eq("bound_status", String(boundStatus).slice(0, 8));
+      }
+      if (source !== undefined && source !== null && source !== "") {
+        q = q.eq("source", String(source).slice(0, 16));
       }
       return q;
     };
