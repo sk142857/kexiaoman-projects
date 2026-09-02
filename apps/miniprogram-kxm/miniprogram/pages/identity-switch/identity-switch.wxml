@@ -14,7 +14,7 @@
       <!-- 提示文案 -->
       <view class="tip-card">
         <view class="tip-title">💡 一个微信，多身份随时切换</view>
-        <view class="tip-desc">本机同时绑定了家长 / 孩子 / 家属等身份，点击下方身份即可切换，切换后将以对应身份进入首页，无需重复登录。</view>
+        <view class="tip-desc">本机绑定的家长 / 孩子 / 家属等身份，以及您是主家长时可自动切换的「名下孩子」，点下方即可切换；切换后以对应身份进入首页，无需重复登录。</view>
         <view wx:if="{{parentNoPin}}" class="tip-warn">⚠️ 主家长尚未开启 PIN 锁，孩子可直接切换到「家长」身份查看家庭信息、后台账号等敏感内容，建议先开启下方身份保护。</view>
       </view>
 
@@ -34,6 +34,7 @@
             <text class="menu-label">{{item.nickname || item.username}}</text>
             <view class="identity-meta">
               <text class="role-tag role-tag--{{item.role}}">{{roleText(item.role)}}</text>
+              <text wx:if="{{item.inherit}}" class="auto-tag">名下孩子 · 无需邀请码</text>
               <text wx:if="{{item.pin_enabled && (item.role === 'parent' || item.role === 'admin')}}" class="pin-tag">🔒 PIN 已开启</text>
             </view>
           </view>

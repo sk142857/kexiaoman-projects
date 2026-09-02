@@ -246,23 +246,96 @@ async function signToken(openid, staffId) {
   );
 }
 
-/** 该 openid 全部有效绑定（bound_status=1 且员工在职），供切换身份 / 登录返回 */
+/** 该 openid 的全部「可用身份」（供登录 / 切换 / 身份切换页）：
+ *  1) 显式绑定：t_lp_students（注册建档 / 邀请码 / 历史 auto 行）中 bound_status=1 且账号在职；
+ *  2) 家谱继承：openid 绑定的主家长名下孩子（运行时推导，不再把「家长挂孩子」物化成绑定行）。
+ *  二者去重合并；这样家长无需任何额外绑定即可在“孩子档案/身份切换”里切入自己名下孩子，
+ *  孩子自己的手机凭邀请码显式绑定，两条通道互不影响。
+ */
 async function listBoundStaffs(openid) {
+  // 1) 显式绑定
   const { data, error } = await db.from("lp_students")
     .select("staff_id").eq("app_id", LP_APP.app_id).eq("openid", openid).eq("bound_status", 1).limit(50);
   if (error) throw error;
-  const staffIds = (data || []).map(r => Number(r.staff_id)).filter(Boolean);
-  if (staffIds.length === 0) return [];
+  const boundIds = (data || []).map(r => Number(r.staff_id)).filter(v => v > 0);
+
+  // 2) 家谱继承：这些绑定中的主家长，其名下孩子
+  const inheritIds = [];
+  if (boundIds.length > 0) {
+    let parentIds = [];
+    try {
+      const { data: ps, error: pErr } = await db.from("staff")
+        .select("staff_id").in("staff_id", boundIds).eq("staff_role", "parent").eq("staff_status", 1).limit(boundIds.length);
+      if (!pErr) parentIds = (ps || []).map(p => Number(p.staff_id));
+    } catch (_) { parentIds = []; }
+    if (parentIds.length > 0) {
+      try {
+        const { data: cs } = await db.from("lp_children")
+          .select("student_staff_id").in("parent_staff_id", parentIds).eq("child_status", 1).limit(300);
+        const seen = new Set(boundIds);
+        (cs || []).forEach(c => { const sid = Number(c.student_staff_id); if (sid > 0 && !seen.has(sid)) { seen.add(sid); inheritIds.push(sid); } });
+      } catch (_) {}
+    }
+  }
+
+  const allIds = [...new Set([...boundIds, ...inheritIds])];
+  if (allIds.length === 0) return [];
   const { data: staffs, error: sErr } = await db.from("staff")
     .select("staff_id, staff_username, staff_nickname, staff_avatar, staff_role, staff_status, pin_hash")
-    .in("staff_id", staffIds).limit(staffIds.length);
+    .in("staff_id", allIds).limit(allIds.length);
   if (sErr) throw sErr;
   const rows = staffs || [];
   const order = { parent: 0, family: 1, student: 2, admin: 3, personal: 4 };
+  const inheritSet = new Set(inheritIds.map(String));
   return rows
     .filter(s => s.staff_status === 1 && LP_ROLES.includes(s.staff_role))
     .sort((a, b) => (order[a.staff_role] ?? 9) - (order[b.staff_role] ?? 9))
-    .map(s => ({ ...staffBrief(s), pin_enabled: !!s.pin_hash }));
+    .map(s => ({ ...staffBrief(s), pin_enabled: !!s.pin_hash, inherit: inheritSet.has(String(s.staff_id)) }));
+}
+
+/**
+ * 该 openid 是否可用指定身份（登录态实时校验）：
+ *  - 直接绑定：t_lp_students (openid, staff) bound=1；
+ *  - 家谱继承：openid 绑定的主家长名下孩子；
+ *  - 平台管理员（openid 绑定了 admin 身份）：可代表任意有效学生（与后台“以孩子身份进入/学习视图”一致）。
+ * 后台解除绑定/删除家庭后，对应身份即时不可用（实时复核，不依赖缓存）。
+ */
+async function openidMayUseStaff(openid, staffId) {
+  const target = Number(staffId);
+  if (!openid || !target) return false;
+  if (await hasBoundStaff(openid, target)) return true;
+
+  // openid 已绑定的身份（找主家长 / 平台管理员）
+  let boundIds = [];
+  try {
+    const { data: binds } = await db.from("lp_students")
+      .select("staff_id").eq("app_id", LP_APP.app_id).eq("openid", openid).eq("bound_status", 1).limit(50);
+    boundIds = (binds || []).map(r => Number(r.staff_id)).filter(v => v > 0);
+  } catch (_) { return false; }
+  if (!boundIds.length) return false;
+
+  // 家谱继承：openid 绑定的主家长名下孩子
+  try {
+    const { data: ps } = await db.from("staff")
+      .select("staff_id").in("staff_id", boundIds).eq("staff_role", "parent").eq("staff_status", 1).limit(boundIds.length);
+    const parentIds = (ps || []).map(p => Number(p.staff_id));
+    if (parentIds.length) {
+      const { data: rel } = await db.from("lp_children")
+        .select("child_id").in("parent_staff_id", parentIds).eq("student_staff_id", target).eq("child_status", 1).limit(1);
+      if (rel && rel[0]) return true;
+    }
+  } catch (_) {}
+
+  // 平台管理员：可代表任意有效学生
+  try {
+    const { data: as } = await db.from("staff")
+      .select("staff_id").in("staff_id", boundIds).eq("staff_role", "admin").eq("staff_status", 1).limit(boundIds.length);
+    if (as && as.length) {
+      const t = await staffById(target);
+      if (t && t.staff_role === "student" && t.staff_status === 1) return true;
+    }
+  } catch (_) {}
+  return false;
 }
 
 /** 该 openid 是否已绑定指定 staff_id（有效） */
@@ -746,8 +819,10 @@ router.post("/bind", async (req, res) => {
       if (!student || student.staff_role !== "student" || student.staff_status !== 1) {
         return res.json(fail("该学生账号不可用，请联系家长", 400));
       }
-      // 多身份：同一 openid 可追加绑定多个孩子/家长身份；同 staff 幂等
-      if (await hasBoundStaff(openid, student.staff_id)) {
+      // 多身份：同一 openid 可追加绑定多个孩子/家长身份；同 staff 幂等。
+      // 家谱继承：本 openid 已是该孩子主家长（可切孩）时，直接幂等返回、不消耗学生邀请码
+      // （学生码应留给孩子自己的手机/其它设备）。
+      if (await openidMayUseStaff(openid, student.staff_id)) {
         const identities = await listBoundStaffs(openid);
         const token = await signToken(openid, student.staff_id);
         return res.json(ok({
@@ -1001,9 +1076,11 @@ router.post("/switchChild", async (req, res) => {
       if (!(rel && rel[0])) return res.json(fail("无权切换到该孩子身份", 403));
     }
 
-    // 孩子账号绑定到当前 openid（幂等；不消耗学生邀请码，孩子本人其它绑定不受影响）
-    if (!(await hasBoundStaff(openid, targetId))) {
-      await activateBinding(openid, targetId, "auto");
+    // 家谱继承即授权：家长名下孩子无需物化绑定即可切入（运行时推导，见 openidMayUseStaff），
+    // 不消耗学生邀请码、也不写 lp_students；孩子本人在其它微信凭码绑定的账号完全不受影响。
+    // 切换前目标须为「可用身份」（直接绑定或家谱继承），保证即使直接调用本接口也不能越权。
+    if (!(await openidMayUseStaff(openid, targetId))) {
+      return res.json(fail("无权切换到该孩子身份", 403));
     }
 
     touchUserProfile(openid);
@@ -1197,18 +1274,17 @@ async function lpAuth(req, res, next) {
       return next();
     }
 
-    // 业务身份由「会话 openid + 活动身份 staffId ↔ 绑定」实时解析，绑定换绑即时生效
-    // 多身份：token 携带当前活动身份 staffId，本 openid 须有对该 staff 的有效绑定
+    // 业务身份由「会话 openid + 活动身份 staffId」实时解析：
+    // 允许 = 直接绑定（lp_students）或 家谱继承（openid 绑定的主家长名下孩子）。解除/删除即时生效。
+    // 多身份：token 携带当前活动身份 staffId
     const activeStaffId = Number(decoded.staffId) || 0;
 
-    // 锁定检查与绑定校验相互独立，并行执行（上报接口无需绑定校验，跳过）
-    const [lockRec, bindRes] = await Promise.all([
+    // 锁定检查与身份可用校验相互独立，并行执行（上报接口无需校验，跳过）
+    const [lockRec, usableRes] = await Promise.all([
       userLockedUntil(openid),
       isReport
-        ? Promise.resolve({ data: [], error: null })
-        : db.from("lp_students")
-            .select().eq("app_id", LP_APP.app_id).eq("openid", openid)
-            .eq("staff_id", activeStaffId).eq("bound_status", 1).limit(1),
+        ? Promise.resolve(false)
+        : openidMayUseStaff(openid, activeStaffId),
     ]);
 
     // 账号级锁定（后台按 user_id 锁定 t_users）：锁定期内实时拦截，作废即刻生效
@@ -1230,18 +1306,17 @@ async function lpAuth(req, res, next) {
       return next();
     }
 
-    let bind = null;
-    try { bind = (bindRes.data && bindRes.data[0]) || null; } catch (_) { bind = null; }
+    const usable = !!usableRes;
 
     let staff = null;
-    if (bind) {
-      try { staff = await staffById(bind.staff_id); } catch (_) { staff = null; }
+    if (activeStaffId) {
+      try { staff = await staffById(activeStaffId); } catch (_) { staff = null; }
     }
 
     const role = staff && LP_ROLES.includes(staff.staff_role) ? staff.staff_role : "";
-    const invalid = !staff || staff.staff_status !== 1 || !role || !bind || bind.bound_status !== 1 || !activeStaffId;
+    const invalid = !staff || staff.staff_status !== 1 || !role || !usable || !activeStaffId;
     if (invalid) {
-      // 绑定解除/账号不可用 ≠ 账号被锁定：按会话失效处理（前端回身份页重新绑定，不展示锁定态）
+      // 绑定解除/账号不可用/家谱关系断开 ≠ 账号被锁定：按会话失效处理（前端回身份页重新绑定，不展示锁定态）
       return res.status(401).json({ code: 401, msg: "绑定状态已失效，请重新绑定", data: null });
     }
 
@@ -1303,6 +1378,7 @@ module.exports = {
   genRandomPassword,
   signToken,
   listBoundStaffs,
+  openidMayUseStaff,
   hasBoundStaff,
   activateBinding,
   verifySession,

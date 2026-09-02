@@ -1514,17 +1514,32 @@ async function managerTodos(req, res) {
 // 注：本文件已有 notificationLib.notifyReviewResult（对象入参）导入，此处旧位置参数版本改名避免重名（并发编辑遗留，待外部 WIP 收敛）
 async function notifyReviewResultLegacy(req, checkin, task, result, note) {
   try {
-    // 多身份（共用微信）：该学生所有有效绑定 openid（家长手机 + 孩子手机）都通知
+    // 多身份/家谱继承（共用微信）：该学生所有可达 openid = 直接绑定（孩子手机）∪ 主家长绑定（家长手机）。
+    // 重构 C 后家长切孩不再物化 auto 行，这里按「学生主家长绑定的 openid」补充，保证共用手机也能收到审核结果。
+    const appId = req.appId || "miniprogram-kxm";
+    const studentId = checkin.created_by;
     const { data: stuRows } = await db.from("lp_students")
       .select("openid")
-      .eq("staff_id", checkin.created_by)
-      .eq("app_id", req.appId || "miniprogram-kxm")
+      .eq("staff_id", studentId)
+      .eq("app_id", appId)
       .eq("bound_status", 1)
       .limit(50);
     const openids = [...new Set((stuRows || []).map(r => r.openid).filter(Boolean))];
-    for (const openid of openids) {
+    // 补充：该学生主家长绑定的 openid
+    try {
+      const { data: rel } = await db.from("lp_children")
+        .select("parent_staff_id").eq("app_id", appId).eq("student_staff_id", Number(studentId)).eq("child_status", 1).limit(10);
+      const parentIds = (rel || []).map(r => Number(r.parent_staff_id)).filter(v => v > 0);
+      if (parentIds.length > 0) {
+        const { data: pRows } = await db.from("lp_students")
+          .select("openid").eq("app_id", appId).eq("bound_status", 1).in("staff_id", parentIds).limit(50);
+        (pRows || []).forEach(r => { if (r.openid) openids.push(r.openid); });
+      }
+    } catch (_) {}
+    const uniq = [...new Set(openids)];
+    for (const openid of uniq) {
       await sendReviewNotification({
-        appId: req.appId || "miniprogram-kxm",
+        appId,
         openid,
         staffId: checkin.created_by,
         checkinId: checkin.checkin_id,

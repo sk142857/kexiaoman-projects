@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640">
+<rect width="1000" height="640" fill="#ffffff"/>
+<rect x="60" y="60" width="420" height="90" rx="12" fill="#EAF2FB" stroke="#4A90D9" stroke-width="2"/>
+<text x="270.0" y="105.0" text-anchor="middle" dominant-baseline="central" font-size="18" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>客户端（表示层）</text>
+<rect x="90" y="108" width="170" height="34" rx="12" fill="white" stroke="#4A90D9" stroke-width="2"/>
+<text x="175.0" y="125.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>微信小程序端</text>
+<rect x="280" y="108" width="170" height="34" rx="12" fill="white" stroke="#4A90D9" stroke-width="2"/>
+<text x="365.0" y="125.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>Web管理后台</text>
+<rect x="520" y="60" width="420" height="90" rx="12" fill="#EAF2FB" stroke="#4A90D9" stroke-width="2"/>
+<text x="730.0" y="105.0" text-anchor="middle" dominant-baseline="central" font-size="18" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>外部服务</text>
+<rect x="550" y="108" width="170" height="34" rx="12" fill="white" stroke="#4A90D9" stroke-width="2"/>
+<text x="635.0" y="125.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>微信登录服务</text>
+<rect x="740" y="108" width="170" height="34" rx="12" fill="white" stroke="#4A90D9" stroke-width="2"/>
+<text x="825.0" y="125.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>消息推送服务</text>
+<rect x="60" y="240" width="880" height="150" rx="12" fill="#FDF6E3" stroke="#F5A623" stroke-width="2"/>
+<text x="500.0" y="315.0" text-anchor="middle" dominant-baseline="central" font-size="18" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>应用服务层（云托管 Node.js + Express）</text>
+<rect x="90" y="292" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="185.0" y="310.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>用户认证</text>
+<rect x="300" y="292" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="395.0" y="310.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>任务管理</text>
+<rect x="510" y="292" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="605.0" y="310.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>打卡管理</text>
+<rect x="720" y="292" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="815.0" y="310.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>积分账本</text>
+<rect x="90" y="338" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="185.0" y="356.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>徽章系统</text>
+<rect x="300" y="338" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="395.0" y="356.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>数据统计</text>
+<rect x="510" y="338" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="605.0" y="356.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>消息通知</text>
+<rect x="720" y="338" width="190" height="36" rx="12" fill="white" stroke="#F5A623" stroke-width="2"/>
+<text x="815.0" y="356.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>系统管理</text>
+<rect x="60" y="470" width="880" height="130" rx="12" fill="#EDF7ED" stroke="#52C41A" stroke-width="2"/>
+<text x="500.0" y="535.0" text-anchor="middle" dominant-baseline="central" font-size="18" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>数据存储层</text>
+<rect x="90" y="520" width="250" height="60" rx="12" fill="white" stroke="#52C41A" stroke-width="2"/>
+<text x="215.0" y="550.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>MySQL 关系数据库</text>
+<rect x="380" y="520" width="250" height="60" rx="12" fill="white" stroke="#52C41A" stroke-width="2"/>
+<text x="505.0" y="550.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>文件存储</text>
+<rect x="670" y="520" width="250" height="60" rx="12" fill="white" stroke="#52C41A" stroke-width="2"/>
+<text x="795.0" y="550.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>缓存存储</text>
+<line x1="270" y1="150" x2="270" y2="232" stroke="#4A90D9" stroke-width="2"/>
+<polygon points="264,232 276,232 270,240" fill="#4A90D9"/>
+<line x1="650" y1="150" x2="650" y2="232" stroke="#4A90D9" stroke-width="2"/>
+<polygon points="644,232 656,232 650,240" fill="#4A90D9"/>
+<line x1="500" y1="390" x2="500" y2="462" stroke="#F5A623" stroke-width="2"/>
+<polygon points="494,462 506,462 500,470" fill="#F5A623"/>
+</svg>

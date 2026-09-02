@@ -1,0 +1,29 @@
+<view class="page">
+  <view class="card">
+    <view class="field">
+      <view class="label">标题</view>
+      <input class="input" placeholder="任务标题" value="{{form.title}}" bindinput="onTitle" />
+    </view>
+    <view class="field">
+      <view class="label">科目</view>
+      <picker range="{{subjects}}" value="{{form.subject}}" bindchange="onSubject">
+        <view class="picker-value">{{form.subject || '请选择科目'}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <view class="label">描述</view>
+      <textarea class="textarea" placeholder="任务描述" value="{{form.description}}" bindinput="onDesc" maxlength="1000"></textarea>
+    </view>
+    <view class="field">
+      <view class="label">分值</view>
+      <input class="input" type="number" placeholder="完成分值" value="{{form.score}}" bindinput="onScore" />
+    </view>
+    <view class="field">
+      <view class="label">截止日期</view>
+      <picker mode="date" value="{{form.deadline}}" bindchange="onDeadline">
+        <view class="picker-value">{{form.deadline || '请选择日期'}}</view>
+      </picker>
+    </view>
+  </view>
+  <button class="btn-primary" loading="{{saving}}" bindtap="onSave">保存</button>
+</view>

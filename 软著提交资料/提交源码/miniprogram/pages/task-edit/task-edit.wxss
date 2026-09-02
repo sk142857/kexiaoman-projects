@@ -1,0 +1,44 @@
+.page {
+  padding: 32rpx;
+  background: #F5F6FA;
+  min-height: 100vh;
+}
+
+.card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 32rpx;
+}
+
+.field {
+  margin-bottom: 32rpx;
+}
+
+.label {
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 600;
+  margin-bottom: 12rpx;
+}
+
+.input,
+.textarea,
+.picker-value {
+  width: 100%;
+  background: #F7F8FA;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+  font-size: 28rpx;
+}
+
+.textarea {
+  height: 200rpx;
+}
+
+.btn-primary {
+  background: #4A90D9;
+  color: #fff;
+  border-radius: 44rpx;
+}

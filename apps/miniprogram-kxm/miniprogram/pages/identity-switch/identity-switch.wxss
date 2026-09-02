@@ -129,6 +129,17 @@
   color: #8c6d1f;
   background: #fffbe6;
 }
+.auto-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 20rpx;
+  line-height: 1;
+  padding: 6rpx 14rpx;
+  border-radius: 8rpx;
+  color: #1677ff;
+  background: #e6f4ff;
+  margin-left: 10rpx;
+}
 .identity-tag {
   font-size: 22rpx;
   color: #2b6de0;

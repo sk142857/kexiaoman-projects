@@ -1,0 +1,19 @@
+<view class="page">
+  <view class="header">
+    <view class="header-title">成就徽章</view>
+    <view class="header-sub">已解锁 {{badges.length}} 枚</view>
+  </view>
+
+  <view class="badge-grid">
+    <view class="badge-item" wx:for="{{badges}}" wx:key="key">
+      <view class="badge-icon {{item.unlocked ? 'badge-on' : 'badge-off'}}">
+        {{item.unlocked ? '★' : '☆'}}
+      </view>
+      <view class="badge-name">{{item.name}}</view>
+      <view class="badge-desc">{{item.desc}}</view>
+      <view class="badge-time" wx:if="{{item.unlockedAt}}">{{item.unlockedAt}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading">加载中…</view>
+</view>

@@ -63,7 +63,7 @@ Page({
     const items = [];
     const actions = [];
 
-    // 家长/管理员：一键以孩子身份进入（自动绑定孩子账号到本微信，不影响孩子本人账号使用）
+    // 家长/管理员：一键以孩子身份进入（家谱即授权，无需绑定/邀请码；不影响孩子本人账号使用）
     if (this.data.canManage && child.student_staff_id) {
       items.push({ label: '以孩子身份进入' });
       actions.push(() => this._enterAsChild(child));
@@ -103,8 +103,8 @@ Page({
 
   noop() {},
 
-  // 一键以孩子身份进入：自动绑定孩子账号到当前微信（不消耗邀请码），
-  // 孩子本人在其它手机绑定的账号完全不受影响，各自独立使用。
+  // 一键以孩子身份进入：家谱即授权（家长名下孩子运行时推导可切换，无需绑定/不消耗邀请码），
+  // 孩子本人在其它微信凭码绑定的账号完全不受影响，各自独立使用。
   async _enterAsChild(child) {
     wx.showLoading({ title: '切换中', mask: true });
     try {

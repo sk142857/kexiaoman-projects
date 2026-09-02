@@ -23,7 +23,7 @@ const { invalidateParams } = require("../params");
 const { isProtectedStaff } = require("../protect");
 const { sendReviewNotification } = require("../subscribeLib");
 const { notifyReviewResult, notifyTaskAssigned, notifyTaskDone } = require("../notificationLib");
-const { collectPurgeManifest, executePurge, collectUserPurgeManifest, executeUserPurge } = require("../purgeLib");
+const { collectPurgeManifest, executePurge, collectUserPurgeManifest, executeUserPurge, collectUserPurgeManifest2, executeUserPurge2 } = require("../purgeLib");
 
 const router = express.Router();
 
@@ -295,14 +295,15 @@ const DEFAULT_MENU_GROUPS = [
     { id: "46", name: "科目管理", path: "/module/subjects", icon: "BookOutlined", type: "leaf" },
   ]},
   { id: "8", parent_id: "0", name: "成员管理", path: "/members", icon: "UserOutlined", sort: 3, type: "group", status: 1, children: [
-    { id: "9", name: "用户管理", path: "/module/users", icon: "UserOutlined", type: "leaf" },
-    { id: "31", name: "绑定管理", path: "/module/lp_students", icon: "LinkOutlined", type: "leaf" },
-    { id: "36", name: "孩子档案", path: "/module/lp_children", icon: "SolutionOutlined", type: "leaf" },
-    { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "HeartOutlined", type: "leaf" },
-    { id: "38", name: "邀请码管理", path: "/module/lp_invites", icon: "KeyOutlined", type: "leaf" },
-    { id: "40", name: "家庭关系", path: "/module/lp_family_tree", icon: "ApartmentOutlined", type: "leaf" },
-    { id: "45", name: "注销管理", path: "/module/account_cancellations", icon: "StopOutlined", type: "leaf" },
-    { id: "50", name: "物理清除审计", path: "/module/staff_purges", icon: "DeleteOutlined", type: "leaf" },
+    { id: "40", name: "家庭关系", path: "/module/lp_family_tree", icon: "ApartmentOutlined", type: "leaf", sort: 1 },
+    { id: "36", name: "孩子档案", path: "/module/lp_children", icon: "SolutionOutlined", type: "leaf", sort: 2 },
+    { id: "37", name: "家属关系", path: "/module/lp_family_members", icon: "HeartOutlined", type: "leaf", sort: 3 },
+    { id: "31", name: "绑定管理", path: "/module/lp_students", icon: "LinkOutlined", type: "leaf", sort: 4 },
+    { id: "38", name: "邀请码管理", path: "/module/lp_invites", icon: "KeyOutlined", type: "leaf", sort: 5 },
+    { id: "9", name: "用户管理", path: "/module/users", icon: "UserOutlined", type: "leaf", sort: 6 },
+    { id: "45", name: "注销管理", path: "/module/account_cancellations", icon: "StopOutlined", type: "leaf", sort: 7 },
+    { id: "51", name: "数据清理", path: "/module/data_clean", icon: "ClearOutlined", type: "leaf", sort: 8 },
+    { id: "50", name: "物理清除审计", path: "/module/staff_purges", icon: "DeleteOutlined", type: "leaf", sort: 9 },
   ]},
   { id: "19", parent_id: "0", name: "消息通知", path: "/message", icon: "BellOutlined", sort: 4, type: "group", status: 1, children: [
     { id: "32", name: "订阅授权", path: "/module/subscribe_grants", icon: "BellOutlined", type: "leaf" },
@@ -346,8 +347,8 @@ async function ensureDefaultMenus() {
 
     const flatten = [];
     for (const g of DEFAULT_MENU_GROUPS) {
-      const gid = await nextSeq("menu_id");
-      flatten.push({ menu_id: gid, parent_id: 0, menu_name: g.name, menu_path: g.path, menu_icon: g.icon, sort: g.sort || 1, menu_type: g.type === 'leaf' ? 2 : 1, menu_status: 1, created_at: nowSql(), updated_at: nowSql() });
+      const gid = Number(g.id) || await nextSeq("menu_id");
+      flatten.push({ menu_id: gid, parent_id: 0, menu_name: g.name, menu_path: g.path, menu_icon: g.icon, sort: g.sort || 1, menu_type: 1, menu_status: 1, created_at: nowSql(), updated_at: nowSql() });
       for (const c of (g.children || [])) {
         flatten.push({ menu_id: await nextSeq("menu_id"), parent_id: gid, menu_name: c.name, menu_path: c.path, menu_icon: c.icon, sort: c.sort || 1, menu_type: 2, menu_status: 1, created_at: nowSql(), updated_at: nowSql() });
       }
@@ -700,8 +701,9 @@ router.get("/api/users/purgePreview", adminAuth, async (req, res) => {
     if (!userId) return res.json(fail("缺少用户 ID"));
     const openid = await loadOpenidByUserId(userId);
     if (!openid) return res.json(fail("用户不存在"));
-    const manifest = await collectUserPurgeManifest(openid);
-    const { orphan_staff_ids, ...out } = manifest;
+    // 强语义：删小程序用户 → 连同其绑定的主家长整棵家庭树（孩子/家属及其用户）一并删除；孩子/家属/个人删单账号
+    const manifest = await collectUserPurgeManifest2(openid);
+    const { anchors, ...out } = manifest;
     res.json(ok(out));
   } catch (e) {
     console.error("[admin] users purgePreview error", e);
@@ -716,16 +718,55 @@ router.post("/api/users/purge", adminAuth, async (req, res) => {
     if (!userId) return res.json(fail("缺少用户 ID"));
     const openid = await loadOpenidByUserId(userId);
     if (!openid) return res.json(fail("用户不存在"));
-    const result = await executeUserPurge(openid, (req.staff && req.staff.staff_id) || 0, req);
+    const result = await executeUserPurge2(openid, (req.staff && req.staff.staff_id) || 0, req, { userId: Number(userId) });
     // 操作审计留痕（staff_events）
     logStaffEvent({
       req, staff: req.staff, eventType: "delete", eventName: "物理清理微信用户",
       module: "users", apiPath: "/api/users/purge", bizId: userId,
-      extra: { purge_id: result.purge_id, target: result.target, orphan_staff_ids: result.orphan_staff_ids, summary: result.items, media_files: result.media_files, status: result.status },
+      extra: { purge_id: result.purge_id, target: result.target, anchors: result.anchors, summary: result.items, status: result.status, failed: result.failed },
     });
+    // 关键步骤失败不得宣称成功：明确返回失败与原因，避免“记录仍在却提示已清理”
+    if (result.status === "partial") {
+      return res.json(fail("物理清理未完全成功，仍有记录未删除：\n" + (result.failed || []).join("\n"), 400));
+    }
     res.json(ok(result, "已物理清理"));
   } catch (e) {
     console.error("[admin] users purge error", e);
+    res.json(fail((e && e.message) || "服务异常", 400));
+  }
+});
+
+// ==================== 脏数据清理（数据健康：孤儿绑定/邀请码/家庭/空壳账号） ====================
+// 处理历史脏数据，与「物理清除」（按账号/家庭/用户全量删）互补：只清确定无用的孤儿/残留关联。
+// 两段式：GET /data_clean/preview 返回各类目计数供审阅；POST /data_clean/run 执行指定类目清理。
+const { previewClean, runClean } = require("../dataCleanLib");
+
+router.get("/api/data_clean/preview", adminAuth, async (req, res) => {
+  try {
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可操作", 403));
+    const items = await previewClean();
+    res.json(ok({ items }));
+  } catch (e) {
+    console.error("[admin] data_clean preview error", e);
+    res.json(fail("服务异常", 500));
+  }
+});
+
+router.post("/api/data_clean/run", adminAuth, async (req, res) => {
+  try {
+    if ((req.staff && req.staff.role) !== "admin") return res.json(fail("仅管理员可操作", 403));
+    const { category } = req.body || {};
+    if (!category) return res.json(fail("缺少清理类目"));
+    const result = await runClean(category);
+    // 操作审计留痕（staff_events，含受影响样本 id）
+    logStaffEvent({
+      req, staff: req.staff, eventType: "delete", eventName: "脏数据清理",
+      module: "data_clean", apiPath: "/api/data_clean/run", bizId: category,
+      extra: { label: result.label, table: result.table, candidate: result.candidate, deleted: result.deleted, affected_ids: result.affected_ids },
+    });
+    res.json(ok(result, `已清理 ${result.deleted} 条`));
+  } catch (e) {
+    console.error("[admin] data_clean run error", e);
     res.json(fail((e && e.message) || "服务异常", 400));
   }
 });
@@ -1478,11 +1519,16 @@ router.use("/api/staff", adminAuth, crudRouter({
   // 自我保护：禁止删除/禁用/修改自己的账号，避免误操作锁死后台
   protectSelf: true,
   pkGenerator: () => nextSeq("staff_id"),
-  // 删除改为全量级联清理（见 cascadeDeleteStaffData）：不再拦截，名下所有关联记录一并删除
+  // 删除收敛（减法）：普通「删除」仅用于后台 admin 账号；
+  // 业务身份（家长/孩子/家属/个人）禁止普通删除 → 必须走「物理清除」（带预览+完整审计），
+  // 避免普通级联“只删本人、残留孩子/关联”的历史脏数据问题。
   onBeforeDelete: async (req, record) => {
     // 超级管理员强保护：禁止删除 999999 超管账号（级联删除同样受 cascadeDeleteStaffData 跳过保护）
     if (record && isProtectedStaff(record.staff_id)) {
       return "超级管理员账号受强保护，禁止删除";
+    }
+    if (record && record.staff_role && record.staff_role !== "admin") {
+      return "业务身份（家长/孩子/家属/个人）请使用「物理清除」删除，将完整清理家庭与关联数据并留审计";
     }
     return null;
   },

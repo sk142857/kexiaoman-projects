@@ -1,0 +1,72 @@
+.page {
+  padding: 32rpx;
+  background: #F5F6FA;
+  min-height: 100vh;
+}
+
+.card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+}
+
+.note-input {
+  width: 100%;
+  height: 260rpx;
+  background: #F7F8FA;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+  font-size: 28rpx;
+}
+
+.image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 24rpx;
+}
+
+.image-item {
+  width: 200rpx;
+  height: 200rpx;
+  margin: 0 16rpx 16rpx 0;
+  position: relative;
+}
+
+.image-item image {
+  width: 100%;
+  height: 100%;
+  border-radius: 12rpx;
+}
+
+.remove {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  width: 40rpx;
+  height: 40rpx;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 40rpx;
+  font-size: 28rpx;
+}
+
+.image-add {
+  width: 200rpx;
+  height: 200rpx;
+  border: 2rpx dashed #ccc;
+  border-radius: 12rpx;
+  text-align: center;
+  line-height: 196rpx;
+  font-size: 60rpx;
+  color: #ccc;
+}
+
+.btn-primary {
+  background: #4A90D9;
+  color: #fff;
+  border-radius: 44rpx;
+  margin-top: 32rpx;
+}

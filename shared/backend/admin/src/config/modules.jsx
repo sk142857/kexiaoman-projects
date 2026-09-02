@@ -220,11 +220,12 @@ const STAFF_ROLE_MAP = {
 // 超级管理员强保护：999999 超管禁止编辑/删除（服务端删除接口与级联删除同步拦截）
 const SUPER_ADMIN_ID = 999999;
 const isSuperAdminStaff = (r) => Number(r && r.staff_id) === SUPER_ADMIN_ID;
-// 绑定来源（lp_students.source）：区分「孩子自己的手机（邀请码）」vs「家长自动挂接」，降低绑定管理混乱观感
+// 绑定来源（lp_students.source）：区分「孩子自己的手机（邀请码）」vs「注册建档」；
+// auto=旧版家长自动挂接（历史存量行，新版起不再新增，家长切孩改由家谱继承运行时推导）
 const BIND_SOURCE_MAP = {
   register: { label: '注册建档', color: 'green' },
   invite: { label: '邀请码绑定', color: 'blue' },
-  auto: { label: '家长自动挂接', color: 'orange' },
+  auto: { label: '家长挂接（历史）', color: 'orange' },
 };
 // 用户管理：小程序用户绑定身份（课小满角色）
 const USER_LP_ROLE_MAP = {
@@ -603,6 +604,9 @@ export const MODULES = {
     searchKey: 'staff_username',
     // 超级管理员强保护：999999 超管禁止编辑/删除（服务端删除接口同步拦截）
     lockFn: (record) => isSuperAdminStaff(record) ? '超级管理员账号受强保护，禁止编辑与删除' : null,
+    // 删除收敛（减法）：普通「删除」仅对后台 admin 账号保留；
+    // 家长/孩子/家属/个人等业务身份一律隐藏普通删除，使用「物理清除」（带预览+完整审计，见下方按钮）。
+    deleteShow: (r) => !!r && r.staff_role === 'admin',
     // 删除前先查名下关联数据，弹窗完整展示级联清理范围（后端同样执行全量级联删除）
     deleteTip: async (record) => {
       let stats = {};
@@ -691,8 +695,10 @@ export const MODULES = {
     ],
   },
 
-  // 课小满绑定关系管理：小程序用户 openid ↔ 账号（t_lp_students）统一维护（只读+管理）
-  // 绑定由用户在小程序输码自动完成；后台仅查看、换绑（变更绑定账号/状态）、解除绑定（踢出）
+  // 课小满绑定关系管理：小程序用户 openid ↔ 账号（t_lp_students）统一维护（只读+管理）。
+  // 含义：绑定 = 「真实授权」（注册建档 / 邀请码绑定 / 历史 auto 行）。
+  //      家长切孩由「家谱继承」运行时推导（见 lpAuth.listBoundStaffs / openidMayUseStaff），
+  //      不写绑定行，因此这里看不到；家长能看到/切入哪些孩子请在「家庭关系」查看。
   lp_students: {
     biz: 'lp_students',
     title: '绑定管理',
@@ -705,7 +711,7 @@ export const MODULES = {
       { name: 'source', label: '来源', options: [
         { value: 'invite', label: '邀请码绑定' },
         { value: 'register', label: '注册建档' },
-        { value: 'auto', label: '家长自动挂接' },
+        { value: 'auto', label: '家长挂接（历史）' },
       ] },
       { name: 'boundStatus', label: '状态', options: [
         { value: 1, label: '正常' },

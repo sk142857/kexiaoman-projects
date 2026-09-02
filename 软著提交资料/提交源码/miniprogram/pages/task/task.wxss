@@ -1,0 +1,110 @@
+.page {
+  padding: 32rpx;
+  background: #F5F6FA;
+  min-height: 100vh;
+}
+
+.card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 32rpx;
+}
+
+.task-title {
+  font-size: 38rpx;
+  font-weight: 600;
+}
+
+.task-meta {
+  font-size: 26rpx;
+  color: #888;
+  margin-top: 12rpx;
+}
+
+.task-desc {
+  font-size: 28rpx;
+  color: #555;
+  margin-top: 20rpx;
+  line-height: 1.6;
+}
+
+.task-score {
+  font-size: 28rpx;
+  color: #F5A623;
+  margin-top: 16rpx;
+  font-weight: 600;
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  margin-bottom: 24rpx;
+}
+
+.checkin-item {
+  border-bottom: 2rpx solid #f0f0f0;
+  padding: 20rpx 0;
+}
+
+.checkin-date {
+  font-size: 26rpx;
+  color: #999;
+}
+
+.checkin-note {
+  font-size: 28rpx;
+  margin-top: 8rpx;
+  line-height: 1.5;
+}
+
+.checkin-status {
+  display: inline-block;
+  font-size: 22rpx;
+  margin-top: 12rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+}
+
+.status-approved {
+  color: #52C41A;
+  background: #F6FFED;
+}
+
+.status-pending {
+  color: #FAAD14;
+  background: #FFFBE6;
+}
+
+.status-rejected {
+  color: #FF4D4F;
+  background: #FFF1F0;
+}
+
+.empty {
+  text-align: center;
+  color: #bbb;
+  padding: 40rpx 0;
+}
+
+.checkin-input {
+  width: 100%;
+  height: 200rpx;
+  background: #F7F8FA;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+  margin-bottom: 24rpx;
+}
+
+.btn-primary {
+  background: #4A90D9;
+  color: #fff;
+  border-radius: 44rpx;
+}
+
+.loading {
+  text-align: center;
+  color: #999;
+  padding: 80rpx 0;
+}

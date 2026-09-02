@@ -1,0 +1,25 @@
+<view class="page">
+  <view class="profile-card" wx:if="{{profile}}">
+    <view class="profile-name">{{profile.name}}</view>
+    <view class="profile-role">{{profile.role}}</view>
+    <view class="level-badge">Lv.{{level}}</view>
+    <view class="xp-line">
+      <text>积分 {{xp}}</text>
+      <text>距下一级还需 {{nextXp - xp}} 分</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">我的徽章</view>
+    <view class="badge-grid">
+      <view class="badge-item" wx:for="{{badges}}" wx:key="key">
+        <view class="badge-icon {{item.unlocked ? '' : 'badge-locked'}}">{{item.unlocked ? '★' : '☆'}}</view>
+        <view class="badge-name">{{item.name}}</view>
+        <view class="badge-desc">{{item.desc}}</view>
+      </view>
+    </view>
+  </view>
+
+  <button class="btn-plain" bindtap="onLogout" wx:if="{{profile}}">退出登录</button>
+  <button class="btn-primary" bindtap="onLogin" wx:else>去登录</button>
+</view>

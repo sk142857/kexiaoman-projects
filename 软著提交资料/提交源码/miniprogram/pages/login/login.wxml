@@ -1,0 +1,26 @@
+<view class="page">
+  <view class="login-title">学习打卡</view>
+  <view class="form">
+    <input class="input" placeholder="账号" value="{{account}}" bindinput="onAccount" />
+    <input
+      class="input"
+      placeholder="密码"
+      password
+      value="{{password}}"
+      bindinput="onPassword"
+    />
+    <input
+      wx:if="{{mode === 'register'}}"
+      class="input"
+      placeholder="姓名"
+      value="{{name}}"
+      bindinput="onName"
+    />
+    <button class="btn-primary" loading="{{loading}}" bindtap="onSubmit">
+      {{mode === 'login' ? '登 录' : '注 册'}}
+    </button>
+    <view class="switch" bindtap="switchMode">
+      {{mode === 'login' ? '还没有账号？去注册' : '已有账号？去登录'}}
+    </view>
+  </view>
+</view>

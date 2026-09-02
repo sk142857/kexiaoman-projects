@@ -35,15 +35,17 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (7, 5, '打卡管理', '/module/task_checkins', 'CalendarOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (28, 5, '合集管理', '/module/task_collections', 'FolderOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (46, 5, '科目管理', '/module/subjects', 'BookOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  -- 3. 成员管理
+  -- 3. 成员管理（前台菜单为两层结构，叶子直接挂在分组下）
   (8, 0, '成员管理', '/members', 'UserOutlined', 3, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (9, 8, '用户管理', '/module/users', 'UserOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (31, 8, '绑定管理', '/module/lp_students', 'LinkOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (36, 8, '孩子档案', '/module/lp_children', 'SolutionOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (40, 8, '家庭关系', '/module/lp_family_tree', 'ApartmentOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (36, 8, '孩子档案', '/module/lp_children', 'SolutionOutlined', 2, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (37, 8, '家属关系', '/module/lp_family_members', 'HeartOutlined', 3, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (31, 8, '绑定管理', '/module/lp_students', 'LinkOutlined', 4, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (38, 8, '邀请码管理', '/module/lp_invites', 'KeyOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (40, 8, '家庭关系', '/module/lp_family_tree', 'ApartmentOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (9, 8, '用户管理', '/module/users', 'UserOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (45, 8, '注销管理', '/module/account_cancellations', 'StopOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (51, 8, '数据清理', '/module/data_clean', 'ClearOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (50, 8, '物理清除审计', '/module/staff_purges', 'DeleteOutlined', 9, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   -- 4. 消息通知
   (19, 0, '消息通知', '/message', 'BellOutlined', 4, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (32, 19, '订阅授权', '/module/subscribe_grants', 'BellOutlined', 1, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -68,8 +70,7 @@ INSERT INTO t_menus (menu_id, parent_id, menu_name, menu_path, menu_icon, sort, 
   (27, 22, '序列管理', '/module/seqs', 'OrderedListOutlined', 5, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (29, 22, '操作审计', '/module/staff_events', 'AuditOutlined', 6, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (30, 22, '小程序配置', '/module/apps', 'AppstoreOutlined', 7, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (44, 22, '系统参数', '/module/system_params', 'SlidersOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (50, 8, '物理清除审计', '/module/staff_purges', 'DeleteOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (44, 22, '系统参数', '/module/system_params', 'SlidersOutlined', 8, 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_name = VALUES(menu_name), menu_path = VALUES(menu_path), parent_id = VALUES(parent_id);
 
 -- 3. 角色-菜单（按 menu_id 关联，分组调整后关联保持不变）
@@ -133,7 +134,8 @@ INSERT INTO t_role_menus (id, role_code, menu_id, created_at) VALUES
   (73, 'parent', 46, CURRENT_TIMESTAMP),
   (74, 'family', 46, CURRENT_TIMESTAMP),
   (75, 'admin', 47, CURRENT_TIMESTAMP),
-  (76, 'admin', 50, CURRENT_TIMESTAMP)
+  (76, 'admin', 50, CURRENT_TIMESTAMP),
+  (77, 'admin', 51, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE menu_id = VALUES(menu_id);
 
 -- 4. 数据字典
@@ -202,8 +204,8 @@ INSERT INTO t_seqs (seq_key, seq_name, current_value, init_value, step, batch, u
   ('child_id', '孩子档案ID', 1, 1, 1, 200, CURRENT_TIMESTAMP),
   ('staff_id', '管理员ID', 9002, 9001, 1, 200, CURRENT_TIMESTAMP),
   ('role_id', '角色ID', 6, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('menu_id', '菜单ID', 51, 1, 1, 200, CURRENT_TIMESTAMP),
-  ('role_menu_id', '角色菜单ID', 77, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('menu_id', '菜单ID', 52, 1, 1, 200, CURRENT_TIMESTAMP),
+  ('role_menu_id', '角色菜单ID', 78, 1, 1, 200, CURRENT_TIMESTAMP),
   ('dict_type_id', '字典类型ID', 5, 1, 1, 200, CURRENT_TIMESTAMP),
   ('dict_item_id', '字典项ID', 16, 1, 1, 200, CURRENT_TIMESTAMP),
   ('param_id', '系统参数ID', 4, 1, 1, 200, CURRENT_TIMESTAMP),

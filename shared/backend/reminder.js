@@ -59,7 +59,10 @@ async function runOnce() {
   const startDate = shiftDate(today, -overdueDays);
   const endDate = shiftDate(today, remindDays);
 
-  // 1. 已绑定学生（有 openid；多身份共用微信：一个学生可能绑到多个 openid）
+  // 1. 学生候选与可达 openid：
+  //    a) 直接绑定：学生自身的 openid（孩子自己的手机）
+  //    b) 家谱继承：学生主家长绑定的 openid（共用微信/家长手机；重构 C 后家长切孩不再物化 auto 行，
+  //       孩子“被谁可用”= 自身绑定 ∪ 主家长绑定）
   const { data: binds } = await db.from("lp_students")
     .select("staff_id, openid").eq("app_id", APP_ID).eq("bound_status", 1).limit(5000);
   const openidMap = {};
@@ -68,6 +71,40 @@ async function runOnce() {
     if (!openidMap[sid]) openidMap[sid] = [];
     if (b.openid) openidMap[sid].push(b.openid);
   });
+  // 家长角色的绑定 openid（供孩子继承补充）
+  const bindRows = binds || [];
+  const allStaffIds = [...new Set(bindRows.map(b => Number(b.staff_id)).filter(v => v > 0))];
+  let parentOpenidOf = {}; // parentStaffId -> [openid]
+  if (allStaffIds.length > 0) {
+    try {
+      const { data: roles } = await db.from("staff")
+        .select("staff_id").in("staff_id", allStaffIds).eq("staff_role", "parent").limit(allStaffIds.length);
+      const parentSet = new Set((roles || []).map(s => Number(s.staff_id)));
+      bindRows.forEach(b => {
+        if (b.openid && parentSet.has(Number(b.staff_id))) {
+          (parentOpenidOf[String(b.staff_id)] = parentOpenidOf[String(b.staff_id)] || []).push(b.openid);
+        }
+      });
+    } catch (_) { /* 继承补充失败不影响直接绑定 */ }
+  }
+  // 孩子 ← 主家长：把孩子主家长绑定的 openid 补到该孩子
+  if (Object.keys(parentOpenidOf).length > 0) {
+    try {
+      const parentIds = [...new Set(Object.keys(parentOpenidOf).map(Number).filter(v => v > 0))];
+      const { data: rel } = await db.from("lp_children")
+        .select("parent_staff_id, student_staff_id").eq("app_id", APP_ID).eq("child_status", 1)
+        .in("parent_staff_id", parentIds).limit(2000);
+      (rel || []).forEach(r => {
+        const c = String(r.student_staff_id);
+        if (!c) return;
+        const p = String(r.parent_staff_id);
+        (parentOpenidOf[p] || []).forEach(o => {
+          if (!openidMap[c]) openidMap[c] = [];
+          if (!openidMap[c].includes(o)) openidMap[c].push(o);
+        });
+      });
+    } catch (_) {}
+  }
   const staffIds = Object.keys(openidMap).map(Number).filter(Boolean);
   if (staffIds.length === 0) return;
 

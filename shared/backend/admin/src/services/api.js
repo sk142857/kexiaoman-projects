@@ -114,6 +114,9 @@ export const crudApi = {
   // 用户冗余数据物理清理（用户管理 → 物理清理）：两段式预览 + 执行
   userPurgePreview: (userId) => api.get('/admin/api/users/purgePreview', { params: { userId } }),
   userPurge: (userId) => api.post('/admin/api/users/purge', { userId }),
+  // 脏数据清理（数据健康）：预览各类目计数 / 执行清理
+  dataCleanPreview: () => api.get('/admin/api/data_clean/preview'),
+  dataCleanRun: (category) => api.post('/admin/api/data_clean/run', { category }),
   // 上传图片（base64 → 云存储）
   upload: (biz, file) => api.post('/admin/api/upload', { biz, file }),
   // 课小满邀请码独立管理（t_lp_invites，仅管理员）：作废 / 重新生成

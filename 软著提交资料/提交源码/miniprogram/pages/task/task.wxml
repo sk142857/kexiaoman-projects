@@ -1,0 +1,30 @@
+<view class="page" wx:if="{{task}}">
+  <view class="card">
+    <view class="task-title">{{task.title}}</view>
+    <view class="task-meta" wx:if="{{task.subject}}">科目：{{task.subject}}</view>
+    <view class="task-meta">状态：{{task.status}}</view>
+    <view class="task-desc" wx:if="{{task.description}}">{{task.description}}</view>
+    <view class="task-score" wx:if="{{task.score > 0}}">分值：{{task.score}}</view>
+    <button class="btn-primary" bindtap="onFinish" wx:if="{{task.status !== 'done'}}">完成任务</button>
+  </view>
+
+  <view class="card">
+    <view class="card-title">打卡记录</view>
+    <view class="checkin-list">
+      <view class="checkin-item" wx:for="{{checkins}}" wx:key="id">
+        <view class="checkin-date">{{item.checkin_date}}</view>
+        <view class="checkin-note">{{item.note}}</view>
+        <view class="checkin-status status-{{item.audit_status}}">{{item.audit_status}}</view>
+      </view>
+      <view wx:if="{{checkins.length === 0}}" class="empty">暂无打卡记录</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">今日打卡</view>
+    <textarea class="checkin-input" placeholder="写点今天的收获吧…" value="{{checkinText}}" bindinput="onInput" maxlength="500"></textarea>
+    <button class="btn-primary" bindtap="onSubmitCheckin">提交打卡</button>
+  </view>
+</view>
+
+<view wx:if="{{loading}}" class="loading">加载中…</view>

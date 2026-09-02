@@ -4,12 +4,12 @@
 // 数据源 /admin/api/lp_family_tree（只读，后台专用），与「绑定管理/孩子档案/家属关系」表格模块并存。
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Row, Col, Tag, Avatar, Space, Empty, Tree, Typography, Input, Button,
+  Card, Row, Col, Tag, Avatar, Space, Empty, Tree, Typography, Input, Button, Modal, message, Alert,
 } from 'antd';
 import {
   ReloadOutlined, ApartmentOutlined, UserOutlined,
   LinkOutlined, DisconnectOutlined, KeyOutlined, CheckCircleOutlined, MinusCircleOutlined,
-  BookOutlined, CheckSquareOutlined, GiftOutlined, DeleteOutlined,
+  BookOutlined, CheckSquareOutlined, GiftOutlined, DeleteOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import { crudApi } from '../services/api';
 import {
@@ -282,6 +282,48 @@ export default function FamilyTreePage() {
     await openPurgeConfirm(parent, { refresh: () => load() });
   };
 
+  // 家庭关系「孤儿/失效数据」清理（低风险：无主家长的孩子档案、失效家属关系、空壳孤儿学生账号）。
+  // 复用 /api/data_clean 的数据健康规则：先统计、确认后按依赖顺序执行，再刷新本页。
+  const CLEAN_KEYS = [
+    { key: 'orphan_children', label: '孤儿孩子档案（无主家长/无学生）', after: [] },
+    { key: 'orphan_family', label: '失效家属关系（主家长/家属账号已删）', after: [] },
+    { key: 'orphan_students', label: '空壳孤儿学生账号（档案清理后无绑定无数据）', after: ['orphan_children'] },
+  ];
+  const [cleaning, setCleaning] = useState(false);
+  const handleCleanOrphans = async () => {
+    let counts = {};
+    try {
+      const res = await crudApi.dataCleanPreview();
+      ((res.data && res.data.items) || []).forEach(i => { counts[i.key] = i.count || 0; });
+    } catch (_) {}
+    const lines = CLEAN_KEYS.map(c => `${c.label}：${counts[c.key] ?? 0} 条`);
+    Modal.confirm({
+      title: '清理孤儿 / 失效家庭数据',
+      okText: '确认清理',
+      okType: 'danger',
+      cancelText: '取消',
+      content: (
+        <div>
+          <Alert type="warning" showIcon message="仅清理「无主/失效」的孤儿档案与空壳学生账号，不影响正常家庭与在绑用户；结果写操作审计。" style={{ marginBottom: 12 }} />
+          {lines.map((l, i) => <div key={i} style={{ fontSize: 13, lineHeight: '24px' }}>{l}</div>)}
+        </div>
+      ),
+      onOk: async () => {
+        setCleaning(true);
+        try {
+          for (const c of CLEAN_KEYS) {
+            await crudApi.dataCleanRun(c.key);
+          }
+          message.success('家庭孤儿/失效数据已清理');
+          await load();
+        } catch (_) {
+        } finally {
+          setCleaning(false);
+        }
+      },
+    });
+  };
+
   // 关键词过滤：主家长昵称/账号、孩子姓名、学生昵称/账号
   const match = (text) => {
     const kw = String(keyword || '').trim().toLowerCase();
@@ -366,7 +408,20 @@ export default function FamilyTreePage() {
             />
           </Col>
           <Col flex="none">
-            <ReloadOutlined style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }} onClick={() => load()} />
+            <Space>
+              {isAdmin && (
+                <Button
+                  size="middle"
+                  danger
+                  loading={cleaning}
+                  icon={<ClearOutlined />}
+                  onClick={handleCleanOrphans}
+                >
+                  清理孤儿/失效数据
+                </Button>
+              )}
+              <ReloadOutlined style={{ fontSize: 18, color: '#1677ff', cursor: 'pointer' }} onClick={() => load()} />
+            </Space>
           </Col>
         </Row>
       </Card>

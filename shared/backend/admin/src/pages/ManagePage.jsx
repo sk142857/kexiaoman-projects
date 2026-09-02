@@ -9,6 +9,7 @@ import CheckinCardsPage from './CheckinCardsPage.jsx';
 import FileUploadsCardsPage from './FileUploadsCardsPage.jsx';
 import ContentAuditsCardsPage from './ContentAuditsCardsPage.jsx';
 import FamilyTreePage from './FamilyTreePage.jsx';
+import DataCleanPage from './DataCleanPage.jsx';
 import { MODULES } from '../config/modules.jsx';
 
 export default function ManagePage() {
@@ -29,6 +30,8 @@ export default function ManagePage() {
   if (module === 'content_audits') return <ContentAuditsCardsPage key={module} />;
   // 家庭关系（树形集中视图）：主家长 → 孩子/家属 → 小程序绑定 一目了然
   if (module === 'lp_family_tree') return <FamilyTreePage key={module} />;
+  // 数据清理（脏数据）：孤儿绑定/邀请码/家庭/空壳账号的历史遗留清理
+  if (module === 'data_clean') return <DataCleanPage key={module} />;
   const cfg = MODULES[module];
   if (!cfg) return <div>模块不存在</div>;
   // key={module}：切换菜单时强制重建 CommonCrud，避免 ProTable 复用上一个模块的 request/数据

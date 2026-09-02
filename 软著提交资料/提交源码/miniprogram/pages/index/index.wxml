@@ -1,0 +1,35 @@
+<view class="page">
+  <view class="banner">
+    <view class="banner-title">你好，{{profile.name || '同学'}}</view>
+    <view class="banner-sub">坚持打卡，遇见更好的自己</view>
+  </view>
+
+  <view class="stat-grid">
+    <view class="stat-card">
+      <view class="stat-num">{{streak}}</view>
+      <view class="stat-label">连续打卡(天)</view>
+    </view>
+    <view class="stat-card">
+      <view class="stat-num">{{xp}}</view>
+      <view class="stat-label">当前积分</view>
+    </view>
+    <view class="stat-card">
+      <view class="stat-num">{{badges.length}}</view>
+      <view class="stat-label">已获徽章</view>
+    </view>
+    <view class="stat-card">
+      <view class="stat-num">{{todoCount}}</view>
+      <view class="stat-label">进行中任务</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">今日提醒</view>
+    <view class="today-line">{{todayTask}}</view>
+  </view>
+
+  <view class="actions">
+    <button class="btn-primary" bindtap="goEdit">发布新任务</button>
+    <button class="btn-plain" bindtap="goTask" data-id="">查看任务列表</button>
+  </view>
+</view>

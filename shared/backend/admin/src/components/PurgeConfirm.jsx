@@ -2,7 +2,7 @@
 // openPurgeConfirm(record) → 拉取完整删除审计清单 → Modal 展示逐表审计项 → 确认后执行 purge
 // 供「管理员管理」行操作 与「家庭关系」一级主家长节点 共用，保证删除审计体验一致。
 import React from 'react';
-import { Modal, Table, Tag, message } from 'antd';
+import { Modal, Table, Tag, message, Alert } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
 import { crudApi } from '../services/api';
 
@@ -90,8 +90,14 @@ export async function openPurgeConfirm(record, { refresh } = {}) {
       content: <PurgePreview manifest={manifest} />,
       onOk: async () => {
         try {
-          await crudApi.staffPurge(staffId);
-          message.success('已物理清除');
+          const res = await crudApi.staffPurge(staffId);
+          const r = (res && res.data) || {};
+          const failed = (r && r.failed) || [];
+          if (r && r.status === 'partial') {
+            message.warning(`物理清除部分失败（${failed.length} 步）：${failed.join('；') || '详见操作审计'}`);
+          } else {
+            message.success('已物理清除');
+          }
           if (refresh) refresh();
           resolve(true);
         } catch (_) {
@@ -127,11 +133,25 @@ export async function openUserPurgeConfirm(record, { refresh } = {}) {
       okText: '确认物理清理',
       okType: 'danger',
       cancelText: '取消',
-      content: <PurgePreview manifest={manifest} />,
+      content: (
+        <div>
+          <Alert type="warning" showIcon message="物理清理为双向强删：该微信若绑定主家长，会连同其名下孩子/家属（含孩子自己手机绑定的微信）一并物理删除；绑定孩子/家属/个人则删除该账号自身数据。均为不可恢复。" style={{ marginBottom: 8 }} />
+          <div style={{ marginBottom: 8, color: '#8c8c8c', fontSize: 12 }}>
+            删除后若该微信号再次打开小程序会自动重建画像（属正常）。
+          </div>
+          <PurgePreview manifest={manifest} />
+        </div>
+      ),
       onOk: async () => {
         try {
-          await crudApi.userPurge(userId);
-          message.success('已物理清理');
+          const res = await crudApi.userPurge(userId);
+          const r = (res && res.data) || {};
+          const failed = (r && r.failed) || [];
+          if (r && r.status === 'partial') {
+            message.error(`物理清理未完全成功，仍有记录未删除：${failed.join('；') || '详见操作审计'}`);
+          } else {
+            message.success('已物理清理');
+          }
           if (refresh) refresh();
           resolve(true);
         } catch (_) {

@@ -80,6 +80,9 @@ export default function CommonCrud({
   ownField = null, collectionPicker = false, entityName = null,
   // 删除确认提醒：async (record) => string，返回自定义删除确认文案（如任务级联删除提醒），缺省用通用文案
   deleteTip = null,
+  // 行级“是否允许普通删除”：(record, { isAdmin }) => bool（缺省全部允许）。
+  // 用于把“业务身份删除”收敛到“物理清除”等带审计入口（如管理员管理：业务角色禁用普通删除）。
+  deleteShow = null,
   // 业务时间轴：{ paramField, paramName, title }，操作列渲染「时间轴」按钮并打开 TimelineDrawer
   timeline = null,
   pk = null,
@@ -649,7 +652,7 @@ export default function CommonCrud({
         if (copyCreate && !ownOnly) {
           btns.push(<Button key="copy" size="small" type="link" icon={<CopyOutlined />} onClick={() => openCopy(record)}>复制</Button>);
         }
-        if (canDelete && !ownOnly) {
+        if (canDelete && !ownOnly && (!deleteShow || deleteShow(record, { isAdmin }))) {
           btns.push(<Button key="delete" size="small" type="link" danger disabled={locked} title={lockTip} icon={<DeleteOutlined />} onClick={() => openConfirm('delete', record)}>删除</Button>);
         }
         return gridOps ? (

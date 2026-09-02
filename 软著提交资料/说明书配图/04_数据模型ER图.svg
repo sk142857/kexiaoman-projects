@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
+<rect width="1000" height="620" fill="#ffffff"/>
+<rect x="50" y="90" width="210" height="164" rx="12" fill="#F7F9FC" stroke="#4A90D9" stroke-width="2"/>
+<text x="155.0" y="172.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>t_user 用户表</text>
+<rect x="400" y="90" width="210" height="164" rx="12" fill="#F7F9FC" stroke="#4A90D9" stroke-width="2"/>
+<text x="505.0" y="172.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>t_task 任务表</text>
+<rect x="750" y="90" width="210" height="164" rx="12" fill="#F7F9FC" stroke="#4A90D9" stroke-width="2"/>
+<text x="855.0" y="172.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>t_task_assignee 任务派发表</text>
+<rect x="50" y="330" width="210" height="164" rx="12" fill="#F7F9FC" stroke="#4A90D9" stroke-width="2"/>
+<text x="155.0" y="412.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>t_checkin 打卡表</text>
+<rect x="400" y="330" width="210" height="164" rx="12" fill="#F7F9FC" stroke="#4A90D9" stroke-width="2"/>
+<text x="505.0" y="412.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>t_point_log 积分账本表</text>
+<rect x="750" y="330" width="210" height="164" rx="12" fill="#F7F9FC" stroke="#4A90D9" stroke-width="2"/>
+<text x="855.0" y="412.0" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#333333" font-family='Microsoft YaHei, SimHei, sans-serif'>t_badge_unlock 徽章解锁表</text>
+<line x1="260" y1="190" x2="400" y2="200" stroke="#999999" stroke-width="2"/>
+<line x1="610" y1="190" x2="750" y2="200" stroke="#999999" stroke-width="2"/>
+<line x1="155" y1="330" x2="200" y2="254" stroke="#999999" stroke-width="2"/>
+<line x1="505" y1="330" x2="550" y2="254" stroke="#999999" stroke-width="2"/>
+<line x1="260" y1="390" x2="400" y2="360" stroke="#999999" stroke-width="2"/>
+<line x1="610" y1="390" x2="750" y2="360" stroke="#999999" stroke-width="2"/>
+<line x1="650" y1="470" x2="690" y2="470" stroke="#999999" stroke-width="2"/>
+<text x="300" y="175" font-size="13" fill="#E74C3C" font-family='Microsoft YaHei, SimHei, sans-serif'>1:N</text>
+<text x="620" y="175" font-size="13" fill="#E74C3C" font-family='Microsoft YaHei, SimHei, sans-serif'>N:M</text>
+<text x="185" y="285" font-size="13" fill="#E74C3C" font-family='Microsoft YaHei, SimHei, sans-serif'>1:N</text>
+<text x="535" y="285" font-size="13" fill="#E74C3C" font-family='Microsoft YaHei, SimHei, sans-serif'>1:N</text>
+<text x="320" y="365" font-size="13" fill="#E74C3C" font-family='Microsoft YaHei, SimHei, sans-serif'>1:N</text>
+<text x="630" y="365" font-size="13" fill="#E74C3C" font-family='Microsoft YaHei, SimHei, sans-serif'>1:N</text>
+</svg>

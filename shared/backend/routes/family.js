@@ -15,7 +15,7 @@ const { db } = require("../db");
 const { ok, fail } = require("../response");
 const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
-const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword, activateBinding } = require("./lpAuth");
+const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword } = require("./lpAuth");
 const { logEvent } = require("../events");
 const { invalidateStaffRows, cachedStaffRows } = require("../learningLib");
 const { textCheckNow, submitForAudit } = require("../contentSecurity");
@@ -55,26 +55,6 @@ function logChildAudit(req, childId, { nameCheck, schoolCheck, name, schoolName 
 /** 当前用户是主家长或平台管理员 */
 function isParentOrAdmin(req) {
   return ["parent", "admin"].includes(myRole(req));
-}
-
-/**
- * 把新建孩子账号自动绑定到主家长的 openid（家长可一键切到孩子身份，不消耗学生邀请码）。
- * 仅在 t_lp_students 追加 (parent openid ↔ 孩子) 行，孩子本人在其它设备绑定的账号不受影响。
- * 主家长尚未登录过小程序（无绑定记录）时静默跳过，登录后经 switchChild 接口按需绑定。
- */
-async function autoBindChild(parentStaffId, childStaffId) {
-  try {
-    const { data, error } = await db.from("lp_students")
-      .select("openid").eq("app_id", LP_APP.app_id)
-      .eq("staff_id", Number(parentStaffId)).eq("bound_status", 1).limit(50);
-    if (error) throw error;
-    const openids = [...new Set((data || []).map(r => r.openid).filter(Boolean))];
-    for (const openid of openids) {
-      await activateBinding(openid, childStaffId, "auto");
-    }
-  } catch (e) {
-    console.error("[lp] auto bind child to parent error", e);
-  }
 }
 
 /** 当前用户的家庭范围（孩子 student staff_id 集合）；admin=null 全部 */
@@ -245,8 +225,8 @@ router.post("/family/children/create", async (req, res) => {
     // 生成学生邀请码
     const inv = await createInvite({ kind: "student", ownerStaffId: student.staff_id, childId, createdBy: Number(me(req)) });
 
-    // 一键切换支持：把新建孩子账号绑定到主家长 openid（幂等；不消耗学生邀请码，孩子本人账号不受影响）
-    await autoBindChild(parentId, student.staff_id);
+    // 家长切孩授权不再物化绑定：运行时按「家谱继承」推导（见 lpAuth openidMayUseStaff），
+    // 新孩子即刻在家长的可切换身份里出现，无需写入 lp_students、也不消耗孩子学生邀请码。
 
     logEvent({
       appId: LP_APP.app_id, openid: myOpenid(req), eventType: "create", eventName: "新增孩子档案",

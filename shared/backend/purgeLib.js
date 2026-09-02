@@ -93,12 +93,14 @@ const SAMPLE_FIELDS = {
   staff: ["staff_id", "staff_username", "staff_nickname", "staff_role"],
 };
 
-/** 数值去重、过滤非法值，分块（避免 SQL IN 过长） */
+/** 数值去重、过滤非法值，分块（避免 SQL IN 过长）；兼容标量（单个 id/openid）入参 */
 function numList(arr) {
-  return [...new Set((arr || []).map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0))];
+  const list = Array.isArray(arr) ? arr : [arr];
+  return [...new Set(list.map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0))];
 }
 function strList(arr) {
-  return [...new Set((arr || []).map(v => String(v || "").trim()).filter(Boolean))];
+  const list = Array.isArray(arr) ? arr : [arr];
+  return [...new Set(list.map(v => String(v || "").trim()).filter(Boolean))];
 }
 const CHUNK = 500;
 function* chunks(list, size = CHUNK) {
@@ -414,6 +416,7 @@ async function collectPurgeManifest(staffId, opts = {}) {
         return { staff_id: String(sid), username: info.staff_username || "", nickname: info.staff_nickname || "", role: info.staff_role || "" };
       }),
       openids: openids.map(o => ({ openid: o })),
+      childIds,
     },
     items,
     media_files: mediaPaths.length,
@@ -473,7 +476,7 @@ async function executePurge(staffId, actorStaffId, req, opts = {}) {
   const staffArr = scope.staff;
   const openids = scope.openids;
   const { taskIds, checkinIds, colIds } = manifest._biz;
-  const childIds = scope.childIds;
+  const childIds = (scope.childIds || []).map(Number).filter(v => Number.isFinite(v) && v > 0);
 
   // 受保护账号 & 操作人自己排除出账号删除集（数据仍按范围删，但账号行保留）
   const deletableStaff = numList(staffArr).filter(s => !isProtectedStaff(s) && s !== actor);
@@ -787,10 +790,11 @@ async function collectUserPurgeManifest(openid) {
  * 执行用户冗余数据物理清理：删除 openid 维度全部数据 + 完全孤儿化的业务账号数据 + 写入审计。
  * 只删除该用户自己相关的数据（绝不触碰其它 openid 的用户数据）。
  */
-async function executeUserPurge(openid, actorStaffId, req) {
+async function executeUserPurge(openid, actorStaffId, req, opts = {}) {
   const oid = String(openid || "").trim();
   if (!oid) throw new Error("缺少用户 openid");
   const actor = Number(actorStaffId) || 0;
+  const userId = Number((opts && opts.userId) || 0); // 权威删除键（用户管理列表按 user_id 展示）
 
   const manifest = await collectUserPurgeManifest(oid);
   const orphanStaffIds = manifest.orphan_staff_ids || [];
@@ -822,7 +826,19 @@ async function executeUserPurge(openid, actorStaffId, req) {
   await note(() => delByStr("lp_invites", "bound_openid", oid), "删除邀请码");
   await note(() => delByStr("account_cancellations", "openid", oid), "删除注销申请");
   await note(() => delByStr("lp_students", "openid", oid), "删除绑定关系");
+  // 用户画像行：按 openid 与（给定则）主键 user_id 双重删除，保证用户管理列表对应行必然移除
   await note(() => delByStr("users", "openid", oid), "删除微信用户画像");
+  if (userId) await note(() => delByNum("users", "user_id", [userId]), "删除微信用户画像(按ID)");
+
+  // 复核：用户画像行必须已删除；仍在则视为失败，禁止对外“已清理成功”
+  try {
+    const q = userId ? db.from("users").select("user_id").eq("user_id", userId) : db.from("users").select("openid").eq("openid", oid);
+    const { data: still } = await q.limit(1);
+    if (still && still.length > 0) failures.push("用户画像未删除：记录仍存在（请重试或检查迁移）");
+  } catch (_) { /* 复核失败不追加 */ }
+
+  // 关键失败 = 除“云存储媒体删除失败”（可容忍，不影响记录清理）外的删除失败
+  const criticalFailures = failures.filter(f => !String(f).startsWith("删除用户媒体文件"));
 
   // 2) 完全孤儿化的绑定账号：单账号物理清除（family=false，不扩散家庭树，不动其它 openid 的账号）
   for (const sid of orphanStaffIds) {
@@ -858,7 +874,7 @@ async function executeUserPurge(openid, actorStaffId, req) {
     summary: JSON.stringify(summary),
     manifest: JSON.stringify(manifest.items),
     media_files: manifest.media_files,
-    status: failures.length ? "partial" : "done",
+    status: criticalFailures.length ? "partial" : "done",
     fail_detail: failures.join("；").slice(0, 2000),
     operator_staff_id: actor,
     operator_username: actorUsername,
@@ -874,9 +890,200 @@ async function executeUserPurge(openid, actorStaffId, req) {
     orphan_staff_ids: orphanStaffIds,
     items: summary,
     media_files: manifest.media_files,
-    status: failures.length ? "partial" : "done",
+    status: criticalFailures.length ? "partial" : "done",
     failed: failures,
   };
 }
 
-module.exports = { collectPurgeManifest, executePurge, gatherScope, collectUserPurgeManifest, executeUserPurge };
+// ==================== 双向强物理删除（V2：删任何一方，把连到的整块都清掉，不留孤儿） ====================
+// 语义：
+//   - 删小程序用户(openid)：把它“绑定的账号”连同整棵向下家庭树（主家长→孩子/家属）全部删除，
+//     并删除这些账号绑定的所有 openid 的用户画像/会话/文件/媒体等（孩子自己手机的 openid 也一并清，
+//     因为它们属于被删家庭）；反之删后台账号/主家长同理（executePurge family=true 已删其 openid 用户）。
+//   - 删孩子/家属/个人这类“非主家长”openid：只删该账号自身及其数据（不向上牵连家长）。
+
+/** openid 已绑定（bound=1）的业务账号及角色 */
+async function boundStaffsOf(oid) {
+  const out = [];
+  try {
+    const { data } = await db.from("lp_students")
+      .select("staff_id").eq("app_id", "miniprogram-kxm").eq("openid", oid).eq("bound_status", 1).limit(100);
+    const ids = [...new Set((data || []).map(r => Number(r.staff_id)).filter(v => v > 0))];
+    if (!ids.length) return out;
+    const { data: staffs } = await db.from("staff")
+      .select("staff_id, staff_role").in("staff_id", ids).limit(ids.length);
+    (staffs || []).forEach(s => {
+      const sid = Number(s.staff_id);
+      const role = s.staff_role;
+      if (["parent", "family", "student", "personal"].includes(role)) out.push({ staff_id: sid, role });
+    });
+  } catch (_) {}
+  return out;
+}
+
+/** 用户清理锚点：parent→整棵家庭(family:true)；family/student/personal→单账号(family:false) */
+async function userPurgeAnchors(oid) {
+  const bound = await boundStaffsOf(oid);
+  const parents = bound.filter(b => b.role === "parent");
+  const others = bound.filter(b => b.role !== "parent");
+  return { parents: parents.map(b => b.staff_id), others: others.map(b => b.staff_id) };
+}
+
+/** 用户清理预览（与执行一致：按锚点整棵/整块统计） */
+async function collectUserPurgeManifest2(oid) {
+  const oid2 = String(oid || "").trim();
+  const anchors = await userPurgeAnchors(oid2);
+  const itemsMap = {};
+  const scopeStaff = [];
+  const seenStaff = new Set();
+  const scopeOpenids = [];
+  let mediaFiles = 0;
+  const addStaffManifest = async (staffId, family) => {
+    try {
+      const m = await collectPurgeManifest(staffId, { family });
+      (m.items || []).forEach(it => {
+        const cur = itemsMap[it.key];
+        if (cur) cur.count += Number(it.count) || 0;
+        else itemsMap[it.key] = { ...it };
+      });
+      (m.scope.staff || []).forEach(s => {
+        if (!seenStaff.has(s.staff_id)) { seenStaff.add(s.staff_id); scopeStaff.push(s); }
+      });
+      (m.scope.openids || []).forEach(o => { if (!scopeOpenids.includes(o.openid)) scopeOpenids.push(o.openid); });
+      mediaFiles += m.media_files || 0;
+    } catch (_) {}
+  };
+  for (const p of anchors.parents) await addStaffManifest(p, true);
+  for (const o of anchors.others) await addStaffManifest(o, false);
+
+  let items;
+  if (anchors.parents.length || anchors.others.length) {
+    items = Object.values(itemsMap);
+  } else {
+    items = await statUserOpenid(oid2); // 无绑定账号：仅该 openid 自身
+  }
+  let nickname = oid2;
+  let username = oid2;
+  try {
+    const { data } = await db.from("users").select("nickname, user_uid").eq("openid", oid2).limit(1);
+    if (data && data[0]) { nickname = data[0].nickname || oid2; username = data[0].user_uid || oid2; }
+  } catch (_) {}
+  return {
+    target: { staff_id: "", username, nickname, role: "user", openid: oid2 },
+    scope: { staff: scopeStaff, openids: scopeOpenids.length ? scopeOpenids : [oid2] },
+    items,
+    media_files: mediaFiles,
+    anchors: { parents: anchors.parents, others: anchors.others },
+  };
+}
+
+/** openid 维度兜底清理（无绑定账号时的纯 openid 数据 + 已删账号残留） */
+async function cleanOpenidRows(oid) {
+  const failures = [];
+  const note = async (fn, label) => {
+    try { await fn(); } catch (e) { failures.push(`${label}: ${(e && e.message) || e}`); }
+  };
+  await note(async () => {
+    const { data: files } = await db.from("file_uploads").select("file_path").eq("openid", oid).limit(10000);
+    const paths = [...new Set((files || []).map(f => f.file_path).filter(Boolean))];
+    if (paths.length) {
+      const { deleted } = await removeFiles(paths);
+      if (deleted.length) { try { await delByStr("file_uploads", "file_path", deleted); } catch (_) {} }
+    }
+  }, "删除用户媒体文件");
+  await note(() => delByStr("file_uploads", "openid", oid), "删除文件登记");
+  await note(() => delByStr("user_sessions", "openid", oid), "删除会话画像");
+  await note(() => delByStr("user_events", "openid", oid), "删除用户事件");
+  await note(() => delByStr("api_trace", "openid", oid), "删除接口链路");
+  await note(() => delByStr("content_audits", "openid", oid), "删除内容安全审核");
+  await note(() => delByStr("subscribe_grants", "openid", oid), "删除订阅授权");
+  await note(() => delByStr("subscribe_sends", "openid", oid), "删除订阅发送");
+  await note(() => delByStr("lp_family_members", "member_openid", oid), "删除家属关系");
+  await note(() => delByStr("lp_invites", "bound_openid", oid), "删除邀请码");
+  await note(() => delByStr("account_cancellations", "openid", oid), "删除注销申请");
+  await note(() => delByStr("lp_students", "openid", oid), "删除绑定关系");
+  await note(() => delByStr("users", "openid", oid), "删除微信用户画像");
+  return failures;
+}
+
+/** 双向强物理删除小程序用户（V2） */
+async function executeUserPurge2(openid, actorStaffId, req, opts = {}) {
+  const oid = String(openid || "").trim();
+  if (!oid) throw new Error("缺少用户 openid");
+  const actor = Number(actorStaffId) || 0;
+  const userId = Number((opts && opts.userId) || 0);
+  const failures = [];
+
+  const anchors = await userPurgeAnchors(oid);
+  // 1) 锚定账号：主家长→整棵家庭（family:true，含孩子/家属及其绑定用户全部清掉）；其它→单账号
+  for (const p of anchors.parents) {
+    try { await executePurge(p, actor, req, { family: true }); }
+    catch (e) { failures.push(`主家长 ${p} 清理失败: ${(e && e.message) || e}`); }
+  }
+  for (const o of anchors.others) {
+    // 若该账号已被上面某家庭整棵删除（父含子）则跳过
+    if (anchors.parents.length) {
+      const still = await (async () => {
+        try { const { data } = await db.from("staff").select("staff_id").eq("staff_id", o).limit(1); return !!(data && data[0]); } catch (_) { return false; }
+      })();
+      if (!still) continue;
+    }
+    try { await executePurge(o, actor, req, { family: false }); }
+    catch (e) { failures.push(`账号 ${o} 清理失败: ${(e && e.message) || e}`); }
+  }
+  // 2) 兜底清理该 openid 自身残留（含无绑定账号/已删账号残留）
+  failures.push(...(await cleanOpenidRows(oid)));
+
+  // 3) 复核：用户画像必须已删除
+  try {
+    const q = userId ? db.from("users").select("user_id").eq("user_id", userId) : db.from("users").select("openid").eq("openid", oid);
+    const { data: still } = await q.limit(1);
+    if (still && still.length > 0) failures.push("用户画像未删除：记录仍存在（请重试或检查迁移）");
+  } catch (_) {}
+
+  const criticalFailures = failures.filter(f => !String(f).includes("媒体文件"));
+  // 4) 审计（kind=user）
+  const summary = anchors.parents.length || anchors.others.length
+    ? [{ key: "staff_family", label: "关联后台账号及家庭", count: anchors.parents.length + anchors.others.length }]
+    : [];
+  const purgeId = await nextSeq("purge_id");
+  let actorUsername = "";
+  try {
+    const { data } = await db.from("staff").select("staff_username").eq("staff_id", actor).limit(1);
+    if (data && data[0]) actorUsername = data[0].staff_username || "";
+  } catch (_) {}
+  await db.from("staff_purges").insert({
+    purge_id: purgeId,
+    app_id: "miniprogram-kxm",
+    target_kind: "user",
+    target_staff_id: anchors.parents[0] || anchors.others[0] || 0,
+    target_role: "user",
+    target_username: String(userId || oid).slice(0, 64),
+    target_nickname: String(oid).slice(0, 64),
+    scope_staff_ids: [...anchors.parents, ...anchors.others].join(","),
+    scope_openids: oid,
+    summary: JSON.stringify(summary),
+    manifest: JSON.stringify(summary),
+    media_files: 0,
+    status: criticalFailures.length ? "partial" : "done",
+    fail_detail: failures.join("；").slice(0, 2000),
+    operator_staff_id: actor,
+    operator_username: actorUsername,
+    client_ip: req ? getClientIp(req) : "",
+    client_fingerprint: req ? getBrowserFingerprint(req) : "",
+    created_at: nowSql(),
+  });
+
+  return {
+    purge_id: String(purgeId),
+    target: { staff_id: "", username: String(userId || oid), nickname: oid, role: "user" },
+    anchors,
+    scope: { staff: [], openids: [oid] },
+    items: summary,
+    media_files: 0,
+    status: criticalFailures.length ? "partial" : "done",
+    failed: failures,
+  };
+}
+
+module.exports = { collectPurgeManifest, executePurge, gatherScope, collectUserPurgeManifest, executeUserPurge, collectUserPurgeManifest2, executeUserPurge2 };

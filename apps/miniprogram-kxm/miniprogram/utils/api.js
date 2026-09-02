@@ -340,7 +340,7 @@ export const lpAuth = {
     data: { staffId: String(staffId), ...(pin ? { pin: String(pin) } : {}) },
     redirect: false,
   }),
-  /** 家长一键切到孩子身份（自动绑定孩子账号到当前 openid，不消耗邀请码，不影响孩子本人账号使用）{ staffId } */
+  /** 家长一键切到孩子身份（家谱即授权：家长名下孩子运行时推导可切换，无需绑定/不消耗邀请码，不影响孩子本人账号使用）{ staffId } */
   switchChild: (staffId) => request('/api/lp/switchChild', {
     method: 'POST',
     data: { staffId: String(staffId) },
@@ -390,7 +390,7 @@ export const lp = {
   /** 切换身份（共用微信家长↔孩子↔家属），需 PIN 时后端校验 */
   switchIdentity: (staffId, pin) => lpAuth.switch(staffId, pin),
 
-  /** 家长一键切到孩子身份（孩子档案页「以孩子身份进入」），不影响孩子本人账号使用 */
+  /** 家长一键切到孩子身份（孩子档案页「以孩子身份进入」；家谱即授权，不影响孩子本人账号使用） */
   switchToChild: (staffId) => lpAuth.switchChild(staffId),
 
   dashboard: (asStaffId) => request('/api/lp/dashboard', { data: asStaffId ? { asStaffId } : {} }),
