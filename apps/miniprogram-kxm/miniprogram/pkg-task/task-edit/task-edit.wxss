@@ -288,3 +288,80 @@
   font-size: 24rpx;
   color: #b0b6c0;
 }
+
+/* 任务图片：三列等宽网格（与打卡页 img-grid 一致，避免 t-upload 布局异常） */
+.img-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.img-item {
+  position: relative;
+  width: 190rpx;
+  height: 190rpx;
+}
+.img {
+  width: 100%;
+  height: 100%;
+  border-radius: 12rpx;
+  background: #f2f3f5;
+}
+.img-del {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  font-size: 24rpx;
+  line-height: 44rpx;
+  text-align: center;
+}
+.img.add {
+  width: 190rpx;
+  height: 190rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64rpx;
+  color: #b0b6c0;
+  border: 2rpx dashed #d8dce3;
+  border-radius: 12rpx;
+}
+.img-mask {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 12rpx;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  font-size: 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.img-mask.failed {
+  background: rgba(213, 73, 65, 0.75);
+}
+
+/* 图片上传状态提示（审计 B6：未完成/失败不静默丢弃） */
+.upload-status {
+  margin-top: 16rpx;
+  padding: 12rpx 20rpx;
+  border-radius: 12rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+.upload-status.uploading {
+  color: #e37318;
+  background: #fdf1e4;
+}
+.upload-status.failed {
+  color: #d54941;
+  background: #fdeeed;
+}

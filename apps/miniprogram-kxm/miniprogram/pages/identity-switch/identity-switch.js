@@ -32,7 +32,8 @@ Page({
   // 加载本机已绑定的全部身份（含 PIN 状态）
   async _load() {
     const role = getRole();
-    this.setData({ isParent: role === 'parent' || role === 'admin' });
+    const isParent = role === 'parent' || role === 'admin';
+    this.setData({ isParent });
     try {
       const profile = await lp.profile();
       let identities = (profile && profile.identities) || getIdentities();
@@ -44,24 +45,18 @@ Page({
         }));
         setIdentities(identities);
       }
+      const list = Array.isArray(identities) ? identities : [];
+      // 当前身份 PIN 状态由 identities[].pin_enabled 推导（不再空 PIN 探活，
+      // 空 PIN 会被后端记为失败尝试累计致自锁，见审计 A3）
+      const me = list.find(it => String(it.staff_id) === curId) || list[0] || {};
       this.setData({
-        identities: Array.isArray(identities) ? identities : [],
+        identities: list,
         currentStaffId: curId,
-        parentNoPin: (Array.isArray(identities) ? identities : []).some(it => it.role === 'parent' && !it.pin_enabled),
+        parentNoPin: list.some(it => it.role === 'parent' && !it.pin_enabled),
+        pinEnabled: isParent && !!(me && me.pin_enabled),
       });
-      if (this.data.isParent) this._loadPinState();
     } catch (e) {
       wx.showToast({ title: e.msg || '加载失败', icon: 'none' });
-    }
-  },
-
-  // 查询当前身份的 PIN 状态（t_staff.pin_hash 是否已设置）
-  async _loadPinState() {
-    try {
-      const res = await lpAuth.pin('verify', '');
-      this.setData({ pinEnabled: !!(res && res.enabled) });
-    } catch (_) {
-      this.setData({ pinEnabled: false });
     }
   },
 
@@ -81,37 +76,72 @@ Page({
     }
   },
 
-  // 设置 / 修改 PIN：先说明风险，再输入 4-6 位数字
+  // 开启 / 修改 PIN：未开启直接设置；已开启时修改必须先验证当前 PIN（审计 B2）
   _askSetPin() {
     wx.showModal({
       title: '开启身份 PIN 锁',
       content: '设置后，孩子在同一手机上切换到「家长」身份时需输入 PIN。未设置时孩子可一键切换家长模式，存在隐私风险。是否开启？',
       success: (r) => {
         if (!r.confirm) return;
+        if (!this.data.pinEnabled) {
+          this._inputNewPin('');
+          return;
+        }
         wx.showModal({
-          title: '设置 PIN',
+          title: '验证当前 PIN',
+          content: '修改 PIN 前需先验证当前 PIN',
           editable: true,
-          placeholderText: '4-6 位数字',
-          success: async (r2) => {
-            if (!r2.confirm) return;
-            const pin = String(r2.content || '').trim();
-            if (!/^\d{4,6}$/.test(pin)) {
+          placeholderText: '当前 PIN',
+          success: async (r0) => {
+            if (!r0.confirm) return;
+            const old = String(r0.content || '').trim();
+            if (!/^\d{4,6}$/.test(old)) {
               wx.showToast({ title: 'PIN 需为 4-6 位数字', icon: 'none' });
               return;
             }
-            wx.showLoading({ title: '保存中', mask: true });
+            wx.showLoading({ title: '验证中', mask: true });
             try {
-              await lpAuth.pin('set', pin);
-              this.setData({ pinEnabled: true, parentNoPin: false });
+              const chk = await lpAuth.pin('verify', old);
               wx.hideLoading();
-              wx.showToast({ title: '身份 PIN 已开启', icon: 'success' });
-              trackEvent('button_click', '身份切换-开启PIN');
+              if (!chk || !chk.valid) {
+                wx.showToast({ title: '原 PIN 错误，请重试', icon: 'none' });
+                return;
+              }
+              this._inputNewPin(old);
             } catch (e) {
               wx.hideLoading();
-              wx.showToast({ title: e.msg || '保存失败', icon: 'none' });
+              wx.showToast({ title: e.msg || '验证失败', icon: 'none' });
             }
           },
         });
+      },
+    });
+  },
+
+  // 输入新 PIN 并保存（oldPin 非空 = 修改模式，提交时带原 PIN 供后端校验）
+  _inputNewPin(oldPin) {
+    wx.showModal({
+      title: '设置 PIN',
+      editable: true,
+      placeholderText: '4-6 位数字',
+      success: async (r2) => {
+        if (!r2.confirm) return;
+        const pin = String(r2.content || '').trim();
+        if (!/^\d{4,6}$/.test(pin)) {
+          wx.showToast({ title: 'PIN 需为 4-6 位数字', icon: 'none' });
+          return;
+        }
+        wx.showLoading({ title: '保存中', mask: true });
+        try {
+          await lpAuth.pin('set', pin, oldPin);
+          this.setData({ pinEnabled: true, parentNoPin: false });
+          wx.hideLoading();
+          wx.showToast({ title: oldPin ? 'PIN 已更新' : '身份 PIN 已开启', icon: 'success' });
+          trackEvent('button_click', oldPin ? '身份切换-修改PIN' : '身份切换-开启PIN');
+        } catch (e) {
+          wx.hideLoading();
+          wx.showToast({ title: e.msg || '保存失败', icon: 'none' });
+        }
       },
     });
   },

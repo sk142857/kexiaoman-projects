@@ -629,7 +629,7 @@ export default function CardTasksPage() {
     if (f.type === 'number') return <Input type="number" placeholder={autoPlaceholder()} />;
     if (f.type === 'date') return <DatePicker style={{ width: '100%' }} placeholder={autoPlaceholder()} />;
     if (f.type === 'images') return <ImageUploader max={f.max || 9} biz={f.biz || 'tasks'} size={f.size || 96} square={f.square} />;
-    if (f.type === 'assignee') return <AssigneeSelect disabled={!isAdmin} />;
+    if (f.type === 'assignee') return <AssigneeSelect disabled={!isAdmin} assignedNames={editing ? editing.assignee_names : undefined} />;
     if (f.type === 'tags') return <Select mode="tags" style={{ width: '100%' }} placeholder={f.placeholder || '输入后回车添加'} tokenSeparators={[',']} open={false} />;
     return <Input placeholder={autoPlaceholder()} />;
   };

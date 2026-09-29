@@ -346,10 +346,10 @@ export const lpAuth = {
     data: { staffId: String(staffId) },
     redirect: false,
   }),
-  /** 身份 PIN 管理：set 设置/修改（4-6 位数字）/ verify 校验 / remove 关闭（需正确 PIN） */
-  pin: (action, pin) => request('/api/lp/pin', {
+  /** 身份 PIN 管理：set 设置/修改（4-6 位数字，已设 PIN 时需带 oldPin 验证原 PIN）/ verify 校验 / remove 关闭（需正确 PIN） */
+  pin: (action, pin, oldPin) => request('/api/lp/pin', {
     method: 'POST',
-    data: { action, pin: String(pin || '') },
+    data: { action, pin: String(pin || ''), ...(oldPin ? { oldPin: String(oldPin) } : {}) },
     redirect: false,
   }),
   /** 会话心跳：实时复核绑定状态（后台解除邀请码后立即收到 403 → 前端清登录态回绑定页）

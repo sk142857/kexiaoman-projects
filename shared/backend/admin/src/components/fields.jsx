@@ -978,28 +978,46 @@ export function ScoreTag({ value }) {
 // ==================== 任务派发学生多选（assignee） ====================
 // 后台任务新增/编辑表单使用：加载学生角色员工（仅启用），可多选派发。
 // disabled 用于「学生自建任务派发固定为本人，禁止派发」场景（值为当前登录学生本人）。
+// staff_id 为 BIGINT 列，不同接口序列化可能是数字或字符串，统一按 Number 归一匹配，
+// 避免回填时「已派发学生」因类型不一致显示为空白/裸 ID。
 const assigneeCache = {}; // 已加载过的学生选项缓存（避免每次弹窗重复请求）
+const toStaffId = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
 export function loadStudentOptions() {
   if (!assigneeCache.list) {
     assigneeCache.list = crudApi.list('staff', { page: 1, pageSize: 200, staff_role: 'student' })
       .then((res) => (res.data.list || [])
         .filter(s => Number(s.staff_status) === 1)
         .map(s => ({
-          value: s.staff_id,
-          label: s.staff_nickname ? `${s.staff_nickname}（${s.staff_username}）` : (s.staff_username || `#${s.staff_id}`),
+          value: toStaffId(s.staff_id),
+          label: s.staff_nickname ? `${s.staff_nickname}（${s.staff_username}）` : (s.staff_username || (s.staff_id ? `#${s.staff_id}` : '')),
           searchText: `${s.staff_nickname || ''} ${s.staff_username || ''} ${s.staff_id || ''}`,
-        })))
+        }))
+        .filter(o => o.value != null))
       .catch(() => []);
   }
   return assigneeCache.list;
 }
-export function AssigneeSelect({ value, onChange, disabled }) {
+export function AssigneeSelect({ value, onChange, disabled, assignedNames = [] }) {
   const [options, setOptions] = useState([]);
   useEffect(() => {
     let alive = true;
     loadStudentOptions().then((list) => { if (alive) setOptions(list); });
     return () => { alive = false; };
   }, []);
+  // 编辑回填防御：
+  // 1) 值统一转 Number（兼容 DB 返回字符串）；
+  // 2) 已派发但不在下拉名单（如已停用学生/名单未加载）的 id 补齐为可见选项，保证标签一定展示姓名而非空白/裸数字
+  const valIds = (Array.isArray(value) ? value : []).map(toStaffId).filter(v => v != null);
+  const opts = (options || []).filter(o => o.value != null);
+  const optKeys = new Set(opts.map(o => Number(o.value)));
+  const names = Array.isArray(assignedNames) ? assignedNames : [];
+  const missing = valIds
+    .filter(id => !optKeys.has(id))
+    .map(id => {
+      const idx = valIds.indexOf(id);
+      return { value: id, label: names[idx] || `#${id}`, searchText: names[idx] ? `${names[idx]} ${id}` : String(id) };
+    });
+  const merged = [...missing, ...opts];
   return (
     <Select
       mode="multiple"
@@ -1008,9 +1026,9 @@ export function AssigneeSelect({ value, onChange, disabled }) {
       allowClear
       showSearch
       filterOption={(input, opt) => String(opt?.searchText || opt?.label || '').toLowerCase().includes(String(input || '').toLowerCase())}
-      value={value}
+      value={valIds}
       onChange={onChange}
-      options={options}
+      options={merged}
       disabled={disabled}
       optionFilterProp="label"
     />

@@ -1,12 +1,14 @@
 // pages/settings/settings.js
 // 设置：系统通知 / 后台账号（仅主家长）/ 订阅消息 / 身份 PIN（家长自选保护）/ 重新绑定 / 注销账号（家长、个人）
-const { getRole, lpAuth, lp } = require('../../utils/api');
+const { getRole, getIdentities, setIdentities, getActiveStaffId, lpAuth, lp } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
   data: {
     scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     isParent: false,
+    canBackend: false,   // 后台账号入口：仅主家长（后端密码重置仅 parent）
+    canShare: false,     // 家属共享入口：仅主家长（后端共享码按 parent 维度）
     canCancel: false,   // 家长/个人：支持注销账号
     pinEnabled: false,   // 当前家长身份是否已开 PIN
     appVersion: 'v1.0.3',   // 小程序版本号（关于版本展示；无值时兜底）
@@ -20,6 +22,8 @@ Page({
     const isParent = role === 'parent' || role === 'admin';
     this.setData({
       isParent,
+      canBackend: role === 'parent',
+      canShare: role === 'parent',
       canCancel: role === 'parent' || role === 'personal',
       appVersion: this._appVersion(),
     });
@@ -55,11 +59,18 @@ Page({
     }
   },
 
-  // 查询当前身份的 PIN 状态（t_staff.pin_hash 是否已设置）
+  // 当前身份的 PIN 状态：由 profile.identities[].pin_enabled 推导。
+  // （不再用 pin('verify','') 空 PIN 探活——空 PIN 会被后端记为失败尝试，进出本页即累计，
+  //   达到上限会把自己锁死 15 分钟无法修改/关闭 PIN，见审计 A3。）
   async _loadPinState() {
     try {
-      const res = await lpAuth.pin('verify', '');
-      this.setData({ pinEnabled: !!(res && res.enabled) });
+      const profile = await lp.profile();
+      const identities = (profile && profile.identities) || getIdentities();
+      if (Array.isArray(identities) && identities.length > 0) setIdentities(identities);
+      const cur = String(getActiveStaffId() || '');
+      const list = Array.isArray(identities) ? identities : [];
+      const me = list.find(it => String(it.staff_id) === cur) || list[0] || {};
+      this.setData({ pinEnabled: !!(me && me.pin_enabled) });
     } catch (_) {
       this.setData({ pinEnabled: false });
     }
@@ -97,37 +108,73 @@ Page({
     }
   },
 
-  // 设置 / 修改 PIN：先说明风险，再输入 4-6 位数字
+  // 开启 / 修改 PIN：未开启直接设置；已开启时修改必须先验证当前 PIN（审计 B2），
+  // 防止借用已登录家长会话直接覆盖他人 PIN。
   _askSetPin() {
     wx.showModal({
       title: '开启身份 PIN 锁',
       content: '设置后，孩子在同一手机上切换到「家长」身份时需输入 PIN。未设置时孩子可一键切换家长模式，存在隐私风险。是否开启？',
       success: (r) => {
         if (!r.confirm) return;
+        if (!this.data.pinEnabled) {
+          this._inputNewPin('');
+          return;
+        }
         wx.showModal({
-          title: '设置 PIN',
+          title: '验证当前 PIN',
+          content: '修改 PIN 前需先验证当前 PIN',
           editable: true,
-          placeholderText: '4-6 位数字',
-          success: async (r2) => {
-            if (!r2.confirm) return;
-            const pin = String(r2.content || '').trim();
-            if (!/^\d{4,6}$/.test(pin)) {
+          placeholderText: '当前 PIN',
+          success: async (r0) => {
+            if (!r0.confirm) return;
+            const old = String(r0.content || '').trim();
+            if (!/^\d{4,6}$/.test(old)) {
               wx.showToast({ title: 'PIN 需为 4-6 位数字', icon: 'none' });
               return;
             }
-            wx.showLoading({ title: '保存中', mask: true });
+            wx.showLoading({ title: '验证中', mask: true });
             try {
-              await lpAuth.pin('set', pin);
-              this.setData({ pinEnabled: true });
+              const chk = await lpAuth.pin('verify', old);
               wx.hideLoading();
-              wx.showToast({ title: '身份 PIN 已开启', icon: 'success' });
-              trackEvent('button_click', '设置-开启PIN');
+              if (!chk || !chk.valid) {
+                wx.showToast({ title: '原 PIN 错误，请重试', icon: 'none' });
+                return;
+              }
+              this._inputNewPin(old);
             } catch (e) {
               wx.hideLoading();
-              wx.showToast({ title: e.msg || '保存失败', icon: 'none' });
+              wx.showToast({ title: e.msg || '验证失败', icon: 'none' });
             }
           },
         });
+      },
+    });
+  },
+
+  // 输入新 PIN 并保存（oldPin 非空 = 修改模式，提交时带原 PIN 供后端校验）
+  _inputNewPin(oldPin) {
+    wx.showModal({
+      title: '设置 PIN',
+      editable: true,
+      placeholderText: '4-6 位数字',
+      success: async (r2) => {
+        if (!r2.confirm) return;
+        const pin = String(r2.content || '').trim();
+        if (!/^\d{4,6}$/.test(pin)) {
+          wx.showToast({ title: 'PIN 需为 4-6 位数字', icon: 'none' });
+          return;
+        }
+        wx.showLoading({ title: '保存中', mask: true });
+        try {
+          await lpAuth.pin('set', pin, oldPin);
+          this.setData({ pinEnabled: true });
+          wx.hideLoading();
+          wx.showToast({ title: oldPin ? 'PIN 已更新' : '身份 PIN 已开启', icon: 'success' });
+          trackEvent('button_click', oldPin ? '设置-修改PIN' : '设置-开启PIN');
+        } catch (e) {
+          wx.hideLoading();
+          wx.showToast({ title: e.msg || '保存失败', icon: 'none' });
+        }
       },
     });
   },

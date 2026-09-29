@@ -61,8 +61,8 @@
           <text class="menu-label">孩子档案</text>
           <text class="menu-arrow">›</text>
         </view>
-        <!-- 学习管理：合集 / 科目（主家长/家属/个人维护，家庭共享） -->
-        <view wx:if="{{isManager || isPersonal}}" class="menu-item" bindtap="goLearningManage">
+        <!-- 学习管理：合集 / 科目（主家长/家属/个人维护，家庭共享）；⚠️ 特殊情况：别名家庭（900001 家庭）禁用该入口，直接使用管理员维护的科目/合集 -->
+        <view wx:if="{{(isManager || isPersonal) && !learningManageDisabled}}" class="menu-item" bindtap="goLearningManage">
           <view class="menu-icon menu-icon--green">📚</view>
           <text class="menu-label">学习管理</text>
           <view wx:if="{{subjectCount === 0}}" class="menu-tag">去设置科目</view>

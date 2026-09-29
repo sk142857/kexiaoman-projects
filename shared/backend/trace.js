@@ -153,10 +153,16 @@ function traceMiddleware(req, res, next) {
   next();
 }
 
-/** 异步写入 api_trace（失败仅记日志，不影响主流程） */
+/** 异步写入 api_trace（失败仅记日志，不影响主流程）
+ *  使用 upsert + ignoreDuplicates：request_id 为主键，前端在网关重试/弱网重发时可能携带
+ *  相同 X-Request-Id 再次命中，若用 insert 会抛 1062 主键冲突，被 patchConsoleError 收进错误日志形成噪音；
+ *  ignoreDuplicates 语义为「已存在则跳过」，保留首条记录（server_only→complete 不被覆盖）。 */
 async function writeTraceAsync(metric) {
   try {
-    const { error } = await db.from("api_trace").insert(metric);
+    const { error } = await db.from("api_trace").upsert(metric, {
+      onConflict: "request_id",
+      ignoreDuplicates: true,
+    });
     if (error) throw error;
   } catch (e) {
     console.error("[trace] 入库失败 requestId=" + metric.request_id, e);

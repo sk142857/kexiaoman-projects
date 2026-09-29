@@ -10,11 +10,6 @@
   </view>
   <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
     <view class="page">
-      <view wx:if="{{first}}" class="welcome">
-        🎉 家长注册成功！
-        这是您的后台登录账号，请妥善保存
-      </view>
-
       <view class="tip-card">该账号用于登录课小满管理后台，可管理本家庭孩子的任务与打卡审核。</view>
 
       <view class="phone-tip">📱 目前暂不支持手机号码绑定，后续版本会支持，敬请期待。</view>

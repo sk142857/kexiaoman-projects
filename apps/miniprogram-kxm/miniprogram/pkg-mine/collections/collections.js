@@ -45,6 +45,8 @@ Page({
         page: page + 1,
         hasMore: !!res.hasMore,
         loadingMore: false,
+        // ⚠️ 特殊情况：别名家庭（900001 家庭）直接使用管理员维护的合集 → 仅查看，禁用管理操作
+        ...(res && res.manage_disabled ? { canManage: false } : {}),
       });
     } catch (e) {
       this.setData({ loadingMore: false });

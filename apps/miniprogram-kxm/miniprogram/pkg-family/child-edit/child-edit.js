@@ -1,6 +1,7 @@
 // pages/child-edit/child-edit.js
 // 孩子档案新增/编辑（主家长）：步骤式表单（基本信息 → 年级班级 → 确认保存），字典选项用卡片风格
 const { family } = require('../../utils/api');
+const { getRole } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 const GRADES = [
@@ -47,6 +48,18 @@ Page({
     const mode = options && options.mode === 'edit' ? 'edit' : 'add';
     const childId = (options && options.id) || '';
     this.setData({ mode, childId });
+    // 角色守卫（审计 B9）：仅主家长/管理员可维护档案；新增仅主家长（后端同强度校验）
+    const role = getRole();
+    if (role !== 'parent' && role !== 'admin') {
+      wx.showToast({ title: '仅主家长可维护孩子档案', icon: 'none' });
+      setTimeout(() => wx.navigateBack(), 600);
+      return;
+    }
+    if (mode === 'add' && role === 'admin') {
+      wx.showToast({ title: '管理员请在后台为孩子建档', icon: 'none' });
+      setTimeout(() => wx.navigateBack(), 600);
+      return;
+    }
     if (mode === 'edit' && childId) this._loadDetail(childId);
     trackEvent('page_view', mode === 'edit' ? '编辑孩子档案' : '添加孩子档案');
   },

@@ -95,16 +95,17 @@
 
       <view class="field">
         <view class="label">任务图片（最多 9 张）</view>
-        <t-upload
-          files="{{files}}"
-          max="{{9}}"
-          media-type="{{['image']}}"
-          grid-config="{{uploadGrid}}"
-          config="{{uploadConfig}}"
-          remove-btn="{{true}}"
-          bind:add="handleUploadAdd"
-          bind:remove="handleUploadRemove"
-        />
+        <view class="img-grid">
+          <view wx:for="{{files}}" wx:key="_uid" class="img-item">
+            <image class="img" src="{{item.url}}" mode="aspectFill" lazy-load data-index="{{index}}" bindtap="previewUploadImage" />
+            <view wx:if="{{item.status === 'loading'}}" class="img-mask">上传中…</view>
+            <view wx:elif="{{item.status === 'failed'}}" class="img-mask failed">上传失败</view>
+            <view class="img-del" data-index="{{index}}" catchtap="handleUploadRemove">✕</view>
+          </view>
+          <view wx:if="{{files.length < 9}}" class="img add" bindtap="chooseImages">＋</view>
+        </view>
+        <view wx:if="{{uploading}}" class="upload-status uploading">图片上传中，请稍候…</view>
+        <view wx:if="{{failedCount > 0}}" class="upload-status failed" bindtap="onRetryFailedUploads">{{failedCount}} 张图片上传失败，点击此处重试</view>
       </view>
 
       <view class="field">

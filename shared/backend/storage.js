@@ -436,7 +436,7 @@ async function compressImageAsync({ path } = {}) {
  * - openid：小程序用户；staffId：后台登录员工（后台上传归属当前登录员工）
  * 失败仅打日志，不影响上传主流程
  */
-async function logUpload({ openid, biz, bizId = "", file, fileStatus = "active", staffId = "" }) {
+async function logUpload({ openid, biz, bizId = "", file, fileStatus = "active", staffId = "", skipAudit = false }) {
   try {
     const { db } = require("./db");
     const row = {
@@ -475,15 +475,18 @@ async function logUpload({ openid, biz, bizId = "", file, fileStatus = "active",
       }
     }
     // 内容安全：媒体登记成功后旁路入队检测（fire-and-forget；关闭/失败不影响上传流程）
-    const auditMediaType = mediaTypeOf(file.contentType);
-    if (auditMediaType >= 2 && file.path) {
-      submitForAudit({
-        bizType: "file",
-        bizId: file.path,
-        mediaType: auditMediaType,
-        content: file.path,
-        openid: openid || "",
-      }).catch(() => {});
+    // skipAudit：复制任务/打卡时物理复制的媒体沿用源文件（已在上传时检测过），无需重复检测
+    if (!skipAudit) {
+      const auditMediaType = mediaTypeOf(file.contentType);
+      if (auditMediaType >= 2 && file.path) {
+        submitForAudit({
+          bizType: "file",
+          bizId: file.path,
+          mediaType: auditMediaType,
+          content: file.path,
+          openid: openid || "",
+        }).catch(() => {});
+      }
     }
   } catch (e) {
     console.error("[storage] file_uploads 入库失败", e);
@@ -576,7 +579,7 @@ async function copyImageNew({ openid, staffId, srcPath, contentType, biz, target
     // 复制任务/打卡：沿用源文件原始名称，源无名称则用新存储文件名兜底（file_uploads.file_name 不落空）
     fileName: fileName || `${fileId}.${ext}`,
   };
-  await logUpload({ openid, staffId, biz, bizId: String(targetBizId), file: fileObj });
+  await logUpload({ openid, staffId, biz, bizId: String(targetBizId), file: fileObj, skipAudit: true });
   return newPath;
 }
 

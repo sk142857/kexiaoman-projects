@@ -10,7 +10,9 @@ Page({
     scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     loading: true,
     children: [],
-    canManage: false,   // 主家长/管理员：可编辑/邀请码/删除；家属仅查看 + 切换默认
+    canManage: false,   // 主家长/管理员：可编辑/邀请码/重生成/以孩子身份进入；家属仅查看 + 切换默认
+    canAdd: false,      // 新增孩子档案：仅主家长（后端 create 对 admin 需 parent_staff_id）
+    canDelete: false,   // 删除孩子档案：仅主家长（避免 admin 对任意家庭孩子误删，后端保留鉴权）
     currentId: '',
     sheetVisible: false,
     sheetItems: [],
@@ -39,9 +41,18 @@ Page({
           gradeText: GRADE_CN[c.grade] ? `${GRADE_CN[c.grade]}（${c.class_no}）` : (c.grade ? `${c.grade}（${c.class_no}）` : ''),
           genderText: c.gender === 1 ? '男生' : c.gender === 2 ? '女生' : '保密',
           isCurrent: !!c.student_staff_id && String(c.student_staff_id) === String(effectiveCurrent),
+          // 当前邀请码状态：available 可绑定 / bound 已绑定 / revoked 已作废（避免复制失效码发给新设备）
+          inviteStatusText: c.invite_status === 'bound' ? '已绑定' : c.invite_status === 'revoked' ? '已作废' : '可绑定',
         };
       });
-      this.setData({ children, canManage: role === 'parent' || role === 'admin', loading: false });
+      const isParent = role === 'parent';
+      this.setData({
+        children,
+        canManage: role === 'parent' || role === 'admin',
+        canAdd: isParent,
+        canDelete: isParent,
+        loading: false,
+      });
     } catch (e) {
       wx.showToast({ title: e.msg || '加载失败', icon: 'none' });
       this.setData({ loading: false });
@@ -77,10 +88,13 @@ Page({
       items.push({ label: '编辑档案' });
       actions.push(() => this._edit(child));
       const codeText = child.invite_code ? `（${child.invite_code}）` : '（暂无邀请码）';
-      items.push({ label: `复制邀请码${codeText}` });
+      const codeUsable = !!child.invite_code && (!child.invite_status || child.invite_status === 'available');
+      items.push({ label: codeUsable ? `复制邀请码${codeText}` : '复制邀请码（当前码已不可用，请重新生成）' });
       actions.push(() => this._copyCode(child));
       items.push({ label: '重新生成邀请码' });
       actions.push(() => this._regen(child));
+    }
+    if (this.data.canDelete) {
       items.push({ label: '删除档案', danger: true });
       actions.push(() => this._delete(child));
     }
@@ -141,6 +155,14 @@ Page({
   _copyCode(child) {
     if (!child.invite_code) {
       wx.showToast({ title: '暂无邀请码，可重新生成', icon: 'none' });
+      return;
+    }
+    // bound/revoked 码不可再绑定新设备，禁止复制误导（审计 B4）
+    if (child.invite_status && child.invite_status !== 'available') {
+      wx.showToast({
+        title: child.invite_status === 'bound' ? '该邀请码已被绑定使用，请先「重新生成」再复制' : '该邀请码已作废，请先「重新生成」再复制',
+        icon: 'none',
+      });
       return;
     }
     wx.setClipboardData({

@@ -50,35 +50,129 @@ const isPersonal = (req) => (req.lp && req.lp.role) === "personal";
 const myScope = (req) => (req.lp && req.lp.scope) || null;
 
 /**
+ * ============================================================================
+ * ⚠️⚠️ 特殊情况处理（硬编码别名，勿随意改动 / 勿复用为通用能力）⚠️⚠️
+ * ============================================================================
+ * 场景：超管孩子账号 900001 直接复用超级管理员 999999 创建的科目 / 合集。
+ *   900001 实际是超管（999999）的孩子，属极特殊场景：该家庭不单独维护科目/合集，
+ *   而是直接使用 999999 名下已有的科目与合集。
+ *
+ * 做法：对「家庭归属 staff_id」做一层别名重定向 ——
+ *   900001（及其家属/孩子）解析出的归属账号统一替换为 999999，
+ *   因此小程序端 /collections、/subjects 的 查/增/改/删 都落到 999999 名下。
+ *
+ * 范围：仅作用于合集 / 科目归属解析（见 familyOwnerStaffId），
+ *   不影响任务 / 打卡的家庭可见范围与权限。
+ *
+ * 配置：默认映射 { 900001: 999999 }；可用环境变量 FAMILY_OWNER_ALIAS 覆盖/追加
+ *   （格式 "900001:999999,其它:目标"，逗号分隔多组，冒号分隔 from:to）。
+ *   如需彻底移除该特殊处理，把默认 map 清空为 {} 即可。
+ *
+ * 影响 / 风险：900001 家庭将能查看并管理 999999 名下的合集与科目，
+ *   切勿把普通账号配置进该映射，避免越权共享。
+ * ============================================================================
+ */
+const FAMILY_OWNER_ALIAS = (() => {
+  const map = { 900001: 999999 };
+  const raw = String(process.env.FAMILY_OWNER_ALIAS || "").trim();
+  if (raw) {
+    for (const pair of raw.split(",")) {
+      const [from, to] = pair.split(":").map(s => Number(String(s).trim()));
+      if (Number.isFinite(from) && from > 0 && Number.isFinite(to) && to > 0) map[from] = to;
+    }
+  }
+  return map;
+})();
+
+/** 归属账号命中别名则替换为目标账号（字符串），否则原样返回（null/空原样透传） */
+function withOwnerAlias(ownerId) {
+  if (ownerId === null || ownerId === undefined || ownerId === "") return ownerId;
+  const to = FAMILY_OWNER_ALIAS[Number(ownerId)];
+  return to ? String(to) : String(ownerId);
+}
+
+/** 家庭孩子 staff_id 集合命中别名基准时返回目标账号（如 900001 → 999999），否则返回空串 */
+function aliasTargetOfChildren(childIds) {
+  for (const id of childIds || []) {
+    const to = FAMILY_OWNER_ALIAS[Number(id)];
+    if (to) return String(to);
+  }
+  return "";
+}
+
+/** 某主家长名下的孩子 student staff_id（家庭关系读多写少，短 TTL 缓存，避免每次合集/科目查询往返） */
+async function cachedChildrenOfParent(parentStaffId) {
+  const pid = Number(parentStaffId);
+  if (!pid) return [];
+  return cached(`familyOwnerChildren:${pid}`, async () => {
+    try {
+      const { data } = await db.from("lp_children")
+        .select("student_staff_id").eq("parent_staff_id", pid).eq("child_status", 1).limit(200);
+      return (data || []).map(c => String(c.student_staff_id)).filter(Boolean);
+    } catch (_) {
+      return [];
+    }
+  }, 15 * 1000);
+}
+
+/**
  * 当前用户的「家庭归属 staff_id」：合集/科目按主家长归属（staff_id）查询与管理。
  * - admin → null（全部，不过滤）
  * - parent / personal → 本人 staff_id
  * - family → 邀请他的主家长（lp_family_members.owner_staff_id）
  * - student → 其主家长（lp_children.parent_staff_id）
  * 查不到归属关系时回退本人，保证查询不空转。
+ * ⚠️ 特殊情况：FAMILY_OWNER_ALIAS 以「家庭基准孩子」staff_id 为键（如超管孩子 900001 → 超管 999999）。
+ *    请求者本人命中基准、或请求者家庭（主家长名下孩子）命中基准时，整户改用目标账号的科目/合集，
+ *    因此主家长/家属/孩子任一账号登录都能自动适配（详见 FAMILY_OWNER_ALIAS 注释）。
+ * @returns {{owner: (string|null), aliased: boolean}} aliased=true 表示该家庭命中了别名（特殊家庭）
  */
-async function familyOwnerStaffId(req) {
+async function resolveFamilyOwner(req) {
   const role = (req.lp && req.lp.role) || "";
   const staffId = me(req);
-  if (role === "admin") return null;
-  if (role === "parent" || role === "personal") return staffId;
+  if (role === "admin") return { owner: null, aliased: false };
+  // ⚠️ 特殊情况：请求者本人命中别名基准（如特殊家庭基准孩子 900001 自身）
+  const selfAlias = withOwnerAlias(staffId);
+  if (selfAlias !== String(staffId)) return { owner: selfAlias, aliased: true };
+
+  // 解析家庭归属主（主家长）staff_id：family → 邀请他的主家长；student → 其主家长；parent/personal → 本人
+  let ownerRaw = String(staffId);
   if (role === "family") {
     try {
       const { data } = await db.from("lp_family_members")
         .select("owner_staff_id").eq("member_staff_id", Number(staffId)).eq("member_status", 1).limit(1);
-      if (data && data[0] && data[0].owner_staff_id) return String(data[0].owner_staff_id);
+      if (data && data[0] && data[0].owner_staff_id) ownerRaw = String(data[0].owner_staff_id);
     } catch (_) { /* 回退本人 */ }
-    return staffId;
-  }
-  if (role === "student") {
+  } else if (role === "student") {
     try {
       const { data } = await db.from("lp_children")
         .select("parent_staff_id").eq("student_staff_id", Number(staffId)).eq("child_status", 1).limit(1);
-      if (data && data[0] && data[0].parent_staff_id) return String(data[0].parent_staff_id);
+      if (data && data[0] && data[0].parent_staff_id) ownerRaw = String(data[0].parent_staff_id);
     } catch (_) { /* 回退本人 */ }
-    return staffId;
   }
-  return staffId;
+
+  // ⚠️ 特殊情况：以家庭基准孩子为准——该主家长名下孩子命中别名基准时，整户统一重定向到目标账号
+  const target = aliasTargetOfChildren(await cachedChildrenOfParent(ownerRaw));
+  if (target) return { owner: target, aliased: true };
+
+  // 归属主本身命中别名（防御性兜底）
+  const ownerAlias = withOwnerAlias(ownerRaw);
+  if (ownerAlias !== ownerRaw) return { owner: ownerAlias, aliased: true };
+
+  return { owner: ownerRaw, aliased: false };
+}
+
+/** 家庭归属 staff_id（仅取归属，不关心是否特殊家庭） */
+async function familyOwnerStaffId(req) {
+  return (await resolveFamilyOwner(req)).owner;
+}
+
+/**
+ * ⚠️ 特殊情况：命中家庭归属别名的家庭（如超管孩子 900001 家庭）直接使用目标账号（999999）的科目/合集，
+ * 因此禁用该家庭在小程序端「合集/科目管理」模块（增删改），仅保留查看与任务选用。
+ */
+async function familyManageDisabled(req) {
+  return !!(await resolveFamilyOwner(req)).aliased;
 }
 
 /** 业务表 staff_id 归属过滤（同步构建，避免 async 吞掉 thenable 查询链）；admin owner=null 不过滤 */
@@ -279,6 +373,8 @@ router.get("/profile", async (req, res) => {
     } catch (_) { /* 静默注册失败不阻断资料查询 */ }
     // 多身份（共用微信）：返回该 openid 全部有效身份 + PIN 状态，供前端切换
     const identities = await listBoundStaffs(myOpenid(req));
+    // ⚠️ 特殊情况：别名家庭（超管孩子 900001 家庭）直接使用管理员维护的科目/合集，小程序端禁用「学习管理」入口
+    const learningManageDisabled = await familyManageDisabled(req);
     res.json(ok({
       app: req.appId || "miniprogram-kxm",
       userId,
@@ -289,6 +385,7 @@ router.get("/profile", async (req, res) => {
         avatar: staff.staff_avatar || "",
       },
       identities,
+      learning_manage_disabled: learningManageDisabled,
     }));
   } catch (e) {
     console.error("[lp] profile error", e);
@@ -1144,6 +1241,8 @@ router.post("/checkins/create", async (req, res) => {
     const vDur2 = Math.floor(Number(videoDuration) || 0);
 
     let imgList = [];
+    // 默认打卡文本：前端已默认填「已完成」，此处后端兜底（清空文字只传图片/语音/视频时仍记为「已完成」）
+    const noteText = String(note || "").trim();
     if (checkinType === "voice") {
       // 语音打卡：必须携带已上传的语音文件，禁止图片
       if (!vUrl || !vUrl.startsWith("kxm/voice/")) return res.json(fail("请先录制语音再打卡"));
@@ -1166,15 +1265,15 @@ router.post("/checkins/create", async (req, res) => {
       if ((await storageFileExists(vUrl2)) === false) return res.json(fail("视频文件不存在，请重新上传"));
     } else {
       imgList = (Array.isArray(images) ? images : []).slice(0, 9);
-      // 图文打卡强约束：必须输入文字 + 至少上传一张图片（与任务发布的打卡方式一致）
-      const noteText = String(note || "").trim();
-      if (!noteText) return res.json(fail("图文打卡需输入打卡文字"));
-      if (imgList.length < 1) return res.json(fail("图文打卡需至少上传一张图片"));
-      // 完整性校验：每张图片必须已登记上传（归属本人，active）
-      const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("openid", myOpenid(req)).eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
-      const registered = new Set((imgRows || []).map(r => r.file_path));
-      const missing = imgList.filter(p => !registered.has(p));
-      if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
+      // 图文打卡：文字或图片二选一即可（小程序默认备注“已完成”，仅二者都为空时拦截）
+      if (!noteText && imgList.length < 1) return res.json(fail("图文打卡请填写打卡文字或上传图片"));
+      if (imgList.length > 0) {
+        // 完整性校验：每张图片必须已登记上传（归属本人，active）
+        const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("openid", myOpenid(req)).eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
+        const registered = new Set((imgRows || []).map(r => r.file_path));
+        const missing = imgList.filter(p => !registered.has(p));
+        if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
+      }
     }
     // 视频大小后端复核（登记记录里取；无登记记录时以路径前缀校验兜底）
     let videoSize = 0;
@@ -1187,13 +1286,15 @@ router.post("/checkins/create", async (req, res) => {
 
     const checkinDate = date || formatDate(new Date());
     const checkinId = await nextSeq("task_checkin_id");
+    // 默认打卡文本：未填写时记为「已完成」
+    const noteVal = noteText || "已完成";
     // 个人身份：自己打卡，无审核方 → 直接置为已通过（自服务，最简单）
     const autoApproved = isPersonal(req);
     const { error: insErr } = await db.from("task_checkins").insert({
       checkin_id: checkinId,
       task_id: tid,
       checkin_date: String(checkinDate).slice(0, 10),
-      checkin_note: String(note || "").slice(0, 500),
+      checkin_note: noteVal.slice(0, 500),
       checkin_images: JSON.stringify(imgList),
       checkin_type: checkinType,
       source: "miniprogram",
@@ -1212,7 +1313,7 @@ router.post("/checkins/create", async (req, res) => {
     if (insErr) throw insErr;
 
     // 内容安全：打卡正文旁路入队检测（fire-and-forget；媒体已在 logUpload 登记时入队）
-    submitForAudit({ appId: req.appId, bizType: "checkin", bizId: checkinId, field: "checkin_note", mediaType: 1, content: String(note || ""), openid: myOpenid(req) }).catch(() => {});
+    submitForAudit({ appId: req.appId, bizType: "checkin", bizId: checkinId, field: "checkin_note", mediaType: 1, content: noteVal, openid: myOpenid(req) }).catch(() => {});
 
     // 视频打卡：后端后台压缩视频节省云存储空间（异步，压缩/抽帧完成后回写 video_url/video_size/video_cover）
     if (checkinType === "video" && vUrl2) {
@@ -1994,7 +2095,7 @@ router.get("/badges", async (req, res) => {
 router.get("/collections", async (req, res) => {
   try {
     const { page, pageSize, offset } = pageInfo(req);
-    const owner = await familyOwnerStaffId(req);
+    const { owner, aliased } = await resolveFamilyOwner(req);
     const applyFilters = (q) => ownerStaffEq(owner, q.eq("collection_status", 1));
     const [total, listRes] = await Promise.all([
       countRows("task_collections", "collection_id", applyFilters),
@@ -2005,7 +2106,7 @@ router.get("/collections", async (req, res) => {
     const { data: rows, error } = listRes;
     if (error) throw error;
     const list0 = rows || [];
-    if (list0.length === 0) return res.json(ok({ list: [], total, page, pageSize, hasMore: false }));
+    if (list0.length === 0) return res.json(ok({ list: [], total, page, pageSize, hasMore: false, manage_disabled: aliased }));
     const [withStaff, withCnt] = await Promise.all([attachStaffInfo(list0), attachCollectionCount(list0)]);
     const list = list0.map((c, i) => ({ ...c, ...(withStaff[i] || {}), ...(withCnt[i] || {}) }));
     res.json(ok({
@@ -2023,6 +2124,7 @@ router.get("/collections", async (req, res) => {
       page,
       pageSize,
       hasMore: offset + list.length < total,
+      manage_disabled: aliased,
     }));
   } catch (e) {
     console.error("[lp] collections list error", e);
@@ -2033,6 +2135,8 @@ router.get("/collections", async (req, res) => {
 router.post("/collections/create", async (req, res) => {
   try {
     if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理合集", 403));
+    // ⚠️ 特殊情况：别名家庭（超管孩子 900001 家庭）直接用管理员维护的合集，禁用自行管理
+    if (await familyManageDisabled(req)) return res.json(fail("该家庭直接使用管理员维护的合集，暂不支持自行管理", 403));
     const staffId = Number(me(req));
     if (!staffId) return res.json(fail("未登录", 401));
     const { name, description, cover_images } = req.body || {};
@@ -2064,6 +2168,7 @@ router.post("/collections/create", async (req, res) => {
 router.post("/collections/update", async (req, res) => {
   try {
     if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理合集", 403));
+    if (await familyManageDisabled(req)) return res.json(fail("该家庭直接使用管理员维护的合集，暂不支持自行管理", 403));
     const b = req.body || {};
     const id = Number(b.id);
     if (!id) return res.json(fail("缺少合集 ID"));
@@ -2086,6 +2191,7 @@ router.post("/collections/update", async (req, res) => {
 router.post("/collections/delete", async (req, res) => {
   try {
     if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理合集", 403));
+    if (await familyManageDisabled(req)) return res.json(fail("该家庭直接使用管理员维护的合集，暂不支持自行管理", 403));
     const { id } = req.body || {};
     const cid = Number(id);
     if (!cid) return res.json(fail("缺少合集 ID"));
@@ -2123,7 +2229,7 @@ async function subjectPresets(req) {
 
 router.get("/subjects", async (req, res) => {
   try {
-    const owner = await familyOwnerStaffId(req);
+    const { owner, aliased } = await resolveFamilyOwner(req);
     const { data: rows, error } = await ownerStaffEq(owner, db.from("subjects").select())
       .order("sort", { ascending: true }).order("subject_id", { ascending: true }).limit(200);
     if (error) throw error;
@@ -2136,6 +2242,7 @@ router.get("/subjects", async (req, res) => {
         subject_status: s.subject_status,
         staff_id: s.staff_id,
       })),
+      manage_disabled: aliased,
     }));
   } catch (e) {
     console.error("[lp] subjects list error", e);
@@ -2155,6 +2262,7 @@ router.get("/subjects/presets", async (req, res) => {
 router.post("/subjects/create", async (req, res) => {
   try {
     if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理科目", 403));
+    if (await familyManageDisabled(req)) return res.json(fail("该家庭直接使用管理员维护的科目，暂不支持自行管理", 403));
     const staffId = Number(me(req));
     if (!staffId) return res.json(fail("未登录", 401));
     const b = req.body || {};
@@ -2189,6 +2297,7 @@ router.post("/subjects/create", async (req, res) => {
 router.post("/subjects/update", async (req, res) => {
   try {
     if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理科目", 403));
+    if (await familyManageDisabled(req)) return res.json(fail("该家庭直接使用管理员维护的科目，暂不支持自行管理", 403));
     const b = req.body || {};
     const id = Number(b.id || b.subject_id);
     if (!id) return res.json(fail("缺少科目 ID"));
@@ -2219,6 +2328,7 @@ router.post("/subjects/update", async (req, res) => {
 router.post("/subjects/delete", async (req, res) => {
   try {
     if (!canManageLearning(req)) return res.json(fail("仅主家长/家属/个人可管理科目", 403));
+    if (await familyManageDisabled(req)) return res.json(fail("该家庭直接使用管理员维护的科目，暂不支持自行管理", 403));
     const { id } = req.body || {};
     const sid = Number(id);
     if (!sid) return res.json(fail("缺少科目 ID"));

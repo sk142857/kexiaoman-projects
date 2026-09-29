@@ -11,7 +11,7 @@
   <scroll-view scroll-y scroll-top="{{scrollTop}}" class="lp-scroll">
     <view class="page">
       <view class="menu-card">
-        <view wx:if="{{isParent}}" class="menu-item" bindtap="goBackendAccount">
+        <view wx:if="{{canBackend}}" class="menu-item" bindtap="goBackendAccount">
           <view class="menu-icon menu-icon--blue">🔐</view>
           <text class="menu-label">后台账号</text>
           <text class="menu-arrow">›</text>
@@ -25,7 +25,7 @@
           <text class="identity-status {{pinEnabled ? 'identity-status--on' : ''}}">{{pinEnabled ? '已开启' : '未开启'}}</text>
           <text class="menu-arrow">›</text>
         </view>
-        <view wx:if="{{isParent}}" class="menu-item" bindtap="goShares">
+        <view wx:if="{{canShare}}" class="menu-item" bindtap="goShares">
           <view class="menu-icon menu-icon--purple">🤝</view>
           <text class="menu-label">家属共享</text>
           <text class="menu-arrow">›</text>

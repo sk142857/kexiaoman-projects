@@ -27,6 +27,7 @@ Page({
     identities: [],       // 共用微信多身份（家长 + 孩子 + 家属）
     notifyUnread: 0,      // 系统通知未读数（个人设置入口角标提示）
     subjectCount: -1,     // 我的科目数（-1=未加载；0=未设置，提示去创建）
+    learningManageDisabled: false,  // ⚠️ 特殊情况：别名家庭禁用「学习管理」入口（由 profile 下发）
   },
 
   async onShow() {
@@ -85,6 +86,8 @@ Page({
         level: (dash && dash.level) || null,
         streak: (dash && dash.streak) || { current: 0 },
         identities,
+        // ⚠️ 特殊情况：别名家庭直接使用管理员维护的科目/合集，隐藏「学习管理」入口
+        learningManageDisabled: !!(profile && profile.learning_manage_disabled),
       });
       wx.setStorageSync('lp_staff', s);
     } catch (e) {

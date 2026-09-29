@@ -52,6 +52,11 @@ function onStart(cb) { getRecorder().onStart(cb); }
 function onStop(cb) { getRecorder().onStop(cb); }
 function onError(cb) { getRecorder().onError(cb); }
 
+// 反注册（按函数引用精确移除，供页面 onUnload 清理，避免单例录音器回调叠加；审计 B7）
+function offStart(cb) { if (recorder) { try { recorder.offStart(cb); } catch (_) {} } }
+function offStop(cb) { if (recorder) { try { recorder.offStop(cb); } catch (_) {} } }
+function offError(cb) { if (recorder) { try { recorder.offError(cb); } catch (_) {} } }
+
 /** 取消录音（丢弃本次录音） */
 function cancel() {
   getRecorder().stop();
@@ -103,6 +108,6 @@ function uploadVoice(tempFilePath, durationMs) {
 
 module.exports = {
   start, stop, cancel,
-  onStart, onStop, onError,
+  onStart, onStop, onError, offStart, offStop, offError,
   uploadVoice,
 };

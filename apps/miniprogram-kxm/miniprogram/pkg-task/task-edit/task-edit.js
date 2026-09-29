@@ -26,6 +26,8 @@ Page({
     subjectIndex: -1,
     subjectOptions: [],
     subjectLoaded: false,
+    // ⚠️ 特殊情况：别名家庭（900001 家庭）直接使用管理员维护的科目，禁用「去创建科目」引导
+    subjectManageDisabled: false,
     deadline: '',
     startDate: '',
     tagText: '',
@@ -33,8 +35,8 @@ Page({
     description: '',
     images: [],
     files: [],
-    uploadGrid: { column: 3, width: 200, height: 200 },
-    uploadConfig: { sizeType: ['original'] }, // 默认选原图，压缩由后端完成
+    uploading: false,       // 是否有图片正在上传（禁止携带未完成上传静默保存）
+    failedCount: 0,         // 上传失败张数（提供重试入口）
     checkinType: 'image',
     checkinTypeIndex: 0,
     checkinTypeOptions: [
@@ -85,7 +87,12 @@ Page({
       const res = await lp.subjects();
       const list = (res && res.list) || [];
       const subjectOptions = list.map(s => s.name).filter(Boolean);
-      this.setData({ subjectOptions, subjectLoaded: true });
+      this.setData({
+        subjectOptions,
+        subjectLoaded: true,
+        // ⚠️ 特殊情况：别名家庭直接使用管理员维护的科目（禁用自行管理引导）
+        subjectManageDisabled: !!(res && res.manage_disabled),
+      });
     } catch (_) {
       this.setData({ subjectLoaded: true, subjectOptions: [] });
     }
@@ -152,7 +159,7 @@ Page({
         tags: t.tags || [],
         description: t.description || '',
         images: (t.images || []).map(fileUrl),
-        files: (t.images || []).map(p => ({ url: fileUrl(p), name: String(p).split('/').pop() || 'img', type: 'image', status: 'done' })),
+        files: (t.images || []).map((p, i) => ({ _uid: `src_${i}_${p}`, url: fileUrl(p), name: String(p).split('/').pop() || 'img', type: 'image', status: 'done' })),
         checkinType: t.checkin_type || 'image',
         checkinTypeIndex: Math.max(0, this.data.checkinTypeOptions.findIndex(o => o.value === (t.checkin_type || 'image'))),
         assigneeIds: this.data.isManager ? (t.assignee_ids || []).map(x => String(x)) : [],
@@ -214,6 +221,16 @@ Page({
 
   // 未设置科目时提示去创建（学习管理 → 科目）；学生无管理权限，引导联系主家长
   _promptCreateSubject() {
+    // ⚠️ 特殊情况：别名家庭（900001 家庭）直接用管理员维护的科目，不可自行创建
+    if (this.data.subjectManageDisabled) {
+      wx.showModal({
+        title: '还没有设置科目',
+        content: '本家庭直接使用管理员维护的科目，请联系管理员添加科目后再来创建任务。',
+        showCancel: false,
+        confirmText: '知道了',
+      });
+      return;
+    }
     const canManage = this.data.isManager || this.data.role === 'personal';
     wx.showModal({
       title: '还没有设置科目',
@@ -260,6 +277,8 @@ Page({
       return;
     }
     if (this.data.step === 2) {
+      // 离开「设置」步前确保任务图片上传已完成/无失败（不阻塞下一步，但最后保存仍会拦截）
+      this._syncImages();
       this.setData({ step: 3 });
       return;
     }
@@ -290,19 +309,45 @@ Page({
     });
   },
 
-  /** t-upload 选中图片后回调：先挂载占位图，再逐张上传原图（压缩由后端完成），成功后回填远程地址 */
-  handleUploadAdd(e) {
-    const added = (e.detail && e.detail.files) || [];
-    if (!added.length) return;
-    const items = added.map(f => ({
-      _uid: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name: f.name || 'img',
-      type: 'image',
-      url: f.url,
-      status: 'loading',
-    }));
-    this.setData({ files: this.data.files.concat(items) });
-    this._uploadItems(added, items);
+  /** 选择并逐张上传原图（压缩由后端完成）：先挂载本地占位图，成功后回填远程地址 */
+  chooseImages() {
+    const remain = 9 - (this.data.files || []).length;
+    if (remain <= 0) {
+      wx.showToast({ title: '最多 9 张', icon: 'none' });
+      return;
+    }
+    wx.chooseMedia({
+      count: remain,
+      mediaType: ['image'],
+      sizeType: ['original'],
+      success: (res) => {
+        const tempFiles = (res && res.tempFiles) || [];
+        if (!tempFiles.length) return;
+        const added = tempFiles.map(tf => ({
+          url: tf.tempFilePath,
+          name: String(tf.tempFilePath).split('/').pop() || 'img',
+        }));
+        const items = added.map(f => ({
+          _uid: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name: f.name || 'img',
+          type: 'image',
+          url: f.url,
+          status: 'loading',
+        }));
+        this.setData({ files: this.data.files.concat(items) });
+        this._syncUploadStatus();
+        this._uploadItems(added, items);
+      },
+      fail: () => {},
+    });
+  },
+
+  /** 预览已选任务图片 */
+  previewUploadImage(e) {
+    const urls = (this.data.files || []).filter(f => f.url).map(f => f.url);
+    if (!urls.length) return;
+    const index = Number(e.currentTarget.dataset.index) || 0;
+    wx.previewImage({ current: urls[index], urls });
   },
 
   async _uploadItems(added, items) {
@@ -322,19 +367,41 @@ Page({
       }
     }
     this._syncImages();
+    this._syncUploadStatus();
   },
 
+  // 上传进度状态同步（供提交拦截与失败重试提示）
+  _syncUploadStatus() {
+    const files = this.data.files || [];
+    this.setData({
+      uploading: files.some(f => f.status === 'loading'),
+      failedCount: files.filter(f => f.status === 'failed').length,
+    });
+  },
+
+  /** 重传上传失败的任务图片 */
+  onRetryFailedUploads() {
+    const failed = (this.data.files || []).filter(f => f.status === 'failed');
+    if (!failed.length) return;
+    this.setData({ files: (this.data.files || []).map(f => (f.status === 'failed' ? { ...f, status: 'loading' } : f)) });
+    this._syncUploadStatus();
+    this._uploadItems(failed, failed);
+  },
+
+  /** 上传单张图片到云存储并返回相对路径（原图直传，压缩由后端完成） */
   async _uploadOne(file) {
     const rel = await uploadImageFile(file.url, 'tasks');
     return rel || '';
   },
 
-  /** t-upload 删除图片回调 */
+  /** 删除已选图片 */
   handleUploadRemove(e) {
-    const idx = e.detail.index;
+    const idx = Number(e.currentTarget.dataset.index);
+    if (!(idx >= 0)) return;
     const files = this.data.files.filter((_, i) => i !== idx);
     this.setData({ files });
     this._syncImages();
+    this._syncUploadStatus();
   },
 
   _syncImages() {
@@ -354,6 +421,17 @@ Page({
   onSubmit() {
     if (this.data.submitting) return;
     this._syncImages();
+    // 图片上传未完成/存在失败项时禁止提交：避免未上传完成的图片被静默丢弃（审计 B6）
+    if ((this.data.files || []).some(f => f.status === 'loading')) {
+      wx.showToast({ title: '图片上传中，请稍候再保存', icon: 'none' });
+      return;
+    }
+    const failedCount = (this.data.files || []).filter(f => f.status === 'failed').length;
+    if (failedCount > 0) {
+      this.setData({ step: 2 });
+      wx.showToast({ title: `有 ${failedCount} 张图片上传失败，请点击重试后再保存`, icon: 'none' });
+      return;
+    }
     const { title, subject, deadline, startDate, tags, description, images } = this.data;
     // 完整性核验：家长/家属派发任务前必须已有孩子档案
     if (this.data.isManager && this.data.role !== 'admin' && this.data.childCount === 0) {

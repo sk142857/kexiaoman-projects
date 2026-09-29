@@ -8,6 +8,8 @@ Page({
     scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
     collectionCount: -1,
     subjectCount: -1,
+    // ⚠️ 特殊情况：别名家庭（900001 家庭）直接使用管理员维护的科目/合集，禁用本页管理入口
+    manageDisabled: false,
   },
 
   async onShow() {
@@ -29,6 +31,8 @@ Page({
       this.setData({
         collectionCount: Number((colRes && colRes.total) || (colRes && colRes.list && colRes.list.length) || 0),
         subjectCount: Number((subRes && subRes.list && subRes.list.length) || 0),
+        // ⚠️ 特殊情况：命中别名家庭 → 禁用管理入口（仅查看使用）
+        manageDisabled: !!(colRes && colRes.manage_disabled) || !!(subRes && subRes.manage_disabled),
       });
     } catch (_) {
       this.setData({ collectionCount: -1, subjectCount: -1 });

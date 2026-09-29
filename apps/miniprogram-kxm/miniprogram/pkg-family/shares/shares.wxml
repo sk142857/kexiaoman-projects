@@ -28,7 +28,8 @@
         <view class="share-meta" wx:if="{{item.bound_member}}">已绑定：{{item.bound_member}}</view>
         <view class="share-meta">{{item.bound_at ? '绑定时间：' + item.bound_at : '生成时间：' + item.created_at}}</view>
         <view class="share-actions">
-          <view class="share-btn" bindtap="onCopy" data-code="{{item.invite_code}}">复制</view>
+          <!-- 仅「待绑定」码可复制（已绑定/已作废码复制无意义，避免误导，审计 B4） -->
+          <view wx:if="{{item.status === 'available'}}" class="share-btn" bindtap="onCopy" data-code="{{item.invite_code}}">复制</view>
           <view wx:if="{{item.status !== 'revoked'}}" class="share-btn danger" bindtap="onRevoke" data-id="{{item.invite_id}}" data-bound="{{item.bound_staff_id}}">作废</view>
         </view>
       </view>

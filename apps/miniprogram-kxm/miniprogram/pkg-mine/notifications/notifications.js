@@ -83,12 +83,25 @@ Page({
         if (!r.confirm) return;
         try {
           await lp.notificationsRead({ all: true });
-        } catch (_) {}
+        } catch (e) {
+          // 失败不做乐观置已读：回滚并重拉未读数，避免界面与后端不一致（审计 B8）
+          wx.showToast({ title: (e && e.msg) || '操作失败，请重试', icon: 'none' });
+          this._syncUnread();
+          return;
+        }
         this.setData({
           list: this.data.list.map((n) => ({ ...n, is_read: 1, read_at: '' })),
           unread: 0,
         });
       },
     });
+  },
+
+  // 重拉未读数（全部已读失败后的回滚校正）
+  async _syncUnread() {
+    try {
+      const res = await lp.notificationsUnread();
+      this.setData({ unread: Number((res && res.count) || 0) });
+    } catch (_) {}
   },
 });

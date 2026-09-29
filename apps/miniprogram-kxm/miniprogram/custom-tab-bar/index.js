@@ -15,7 +15,7 @@ Component({
 
   lifetimes: {
     attached() {
-      this.setData({ list: tabList(), selected: Math.max(0, indexFor(currentRoute())) });
+      this.setData({ list: tabList().map((t) => ({ ...t, badgeProps: {} })), selected: Math.max(0, indexFor(currentRoute())) });
       this._loadBadges();
       this.badgeTimer = setInterval(() => this._loadBadges(), BADGE_REFRESH_INTERVAL);
     },
@@ -35,7 +35,7 @@ Component({
       const prevProps = {};
       prev.forEach((it) => { if (it.badgeProps) prevProps[it.badgeKey] = it.badgeProps; });
       this.setData({
-        list: tabList().map((t) => (prevProps[t.badgeKey] ? { ...t, badgeProps: prevProps[t.badgeKey] } : t)),
+        list: tabList().map((t) => ({ ...t, badgeProps: prevProps[t.badgeKey] || {} })),
         selected: indexFor(url),
       });
       this._loadBadges();

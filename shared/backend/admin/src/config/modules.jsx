@@ -33,9 +33,9 @@ const CHECKIN_TYPE_MAP = {
   video: { label: '视频', color: 'cyan' },
 };
 const CHECKIN_TYPE_OPTIONS = [
-  { value: 'image', label: '图文打卡（学生提交图片与文字）' },
-  { value: 'voice', label: '语音打卡（学生录制一段语音）' },
-  { value: 'video', label: '视频打卡（学生上传 ≤1GB 视频，提交后自动压缩）' },
+  { value: 'image', label: '图文打卡' },
+  { value: 'voice', label: '语音打卡' },
+  { value: 'video', label: '视频打卡' },
 ];
 // 发布/打卡来源（Web 后台 / 小程序）
 const TASK_SOURCE_MAP = {
@@ -1837,11 +1837,11 @@ export const MODULES = {
         { value: 'doing', label: '进行中' },
         { value: 'done', label: '已完成' },
       ], placeholder: '请选择任务状态' },
-      { name: 'checkin_type', label: '打卡方式', type: 'select', span: 12, options: CHECKIN_TYPE_OPTIONS, tip: '图文=学生提交图片与文字；语音=学生录制一段语音', placeholder: '请选择打卡方式' },
+      { name: 'checkin_type', label: '打卡方式', type: 'select', span: 12, options: CHECKIN_TYPE_OPTIONS, placeholder: '请选择打卡方式' },
       { name: 'score', label: '任务评分', type: 'rate', span: 12, disabledWhenCreate: true, tip: ({ editing }) => (editing ? undefined : '初始固定为 0 分，禁止评分') },
       { name: 'start_date', label: '开始日期', type: 'date', span: 12, placeholder: '请选择开始日期' },
       { name: 'deadline', label: '截止日期', type: 'date', span: 12, placeholder: '请选择截止日期' },
-      { name: 'tags', label: '标签（输入后回车添加，可多个）', type: 'tags', span: 12, placeholder: '输入后回车添加标签' },
+      { name: 'tags', label: '标签（输入后回车添加，可多个）', type: 'tags', span: 24, placeholder: '输入后回车添加标签' },
       { name: 'images', label: '任务图片（最多9张）', type: 'images', span: 24, side: 'right', max: 9, biz: 'tasks' },
       { name: 'task_link', label: '任务链接', type: 'text', span: 24, side: 'right', placeholder: '请输入任务链接（http/https 开头，详情页可点击跳转）' },
       { name: 'description', label: '任务描述', type: 'textarea', span: 24, side: 'right', placeholder: '请输入任务描述' },
@@ -1927,10 +1927,9 @@ export const MODULES = {
     ],
     columns: [
       { title: 'ID', dataIndex: 'collection_id', key: 'collection_id', width: 70 },
-      { title: '合集名称', dataIndex: 'name', key: 'name', width: 180, render: (v) => <PlainText value={v} maxWidth={170} /> },
+      { title: '合集名称', dataIndex: 'name', key: 'name', width: 261, render: (v) => <PlainText value={v} maxWidth={246} /> },
       { title: '任务数', dataIndex: 'task_count', key: 'task_count', width: 80 },
       { title: '封面', dataIndex: 'cover_images', key: 'cover_images', width: 80, render: (v) => <CoverThumb value={v} size={64} /> },
-      { title: '描述', dataIndex: 'description', key: 'description', width: 240, render: (v) => (v ? <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{v}</div> : <EmptyText />) },
       { title: '归属账号', dataIndex: 'staff_id', key: 'staff_id', width: 140, render: (v, r) => <StaffCell staffId={v} nickname={r._staffNickname} /> },
       { title: '状态', dataIndex: 'collection_status', key: 'collection_status', width: 80, render: (v) => <StatusTag value={v} map={{ 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'error' } }} /> },
       { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150 },
@@ -1942,7 +1941,6 @@ export const MODULES = {
       { name: 'collection_status', label: '状态', type: 'tag', map: { 1: { label: '启用', color: 'success' }, 0: { label: '停用', color: 'error' } } },
       { name: 'staff_id', label: '归属账号', type: 'staffCell' },
       { name: 'cover_images', label: '封面图', type: 'images', span: 2 },
-      { name: 'description', label: '合集描述', type: 'longText', span: 2 },
       { name: 'created_at', label: '创建时间', type: 'date' },
       { name: 'updated_at', label: '更新时间', type: 'date' },
     ],
@@ -1951,7 +1949,6 @@ export const MODULES = {
       { name: 'collection_id', label: '合集ID', type: 'pk', span: 12, createText: '创建后自动生成' },
       { name: 'collection_status', label: '状态', type: 'select', span: 12, options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], placeholder: '请选择状态' },
       { name: 'cover_images', label: '封面图（1张，正方形）', type: 'images', span: 12, max: 1, size: 120, biz: 'tasks', square: true },
-      { name: 'description', label: '合集描述', type: 'textarea', span: 24, placeholder: '请输入合集描述' },
     ],
   },
 

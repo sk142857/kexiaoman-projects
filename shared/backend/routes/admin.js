@@ -1284,9 +1284,10 @@ async function cascadeDeleteStaffData(staffId, actorStaffId, ctx) {
     }
   }
 
-  // 8) 参考数据缓存失效（员工行 / 合集 / 小程序授权）
+  // 8) 参考数据缓存失效（员工行 / 合集 / 小程序授权 / 家庭范围）
   invalidateStaffRows([id]);
   try { invalidatePrefix("staffapps:"); } catch (_) {}
+  try { invalidatePrefix("familyScope:"); } catch (_) {}
 }
 
 /** 判断某 openid 是否已无任何绑定（删除绑定后仍无其它绑定则视为孤儿微信用户） */
@@ -2208,6 +2209,8 @@ router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
     }
 
     logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: "后台新建家长-孩子绑定", module: "lp_children", apiPath: "/api/lp_children/bind_create", bizId: childId, extra: { child_name: childName, parent_staff_id: parent.staff_id, student_staff_id: studentId, invite_code: invite ? invite.invite_code : "", invite_note: hasMiniBinding ? "已有小程序绑定，未生成" : (availableInvite ? "复用已有可用邀请码" : "已生成") } });
+    // 失效 familyScope 缓存：家长新增孩子后，其名下孩子列表立即重建（否则家长端首页一直显示「还没有孩子」）
+    try { invalidatePrefix("familyScope:"); } catch (_) {}
     const baseMsg = `已创建孩子档案「${childName}」并绑定主家长「${parentName}」`;
     if (hasMiniBinding) {
       res.json(ok({ child_id: childId, child_name: childName, invite_code: "", student_nickname: studentName, invite_note: "already_bound" }, `${baseMsg}。该学生已完成小程序绑定，无需邀请码`));
@@ -2273,6 +2276,8 @@ router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
 
     await db.from("lp_children").update({ parent_staff_id: parent.staff_id, updated_at: nowSql() }).eq("child_id", child.child_id);
     logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "后台绑定家长-孩子", module: "lp_children", apiPath: "/api/lp_children/bind", bizId: child.child_id, extra: { child_name: child.child_name, from_parent: currentParentId || null, to_parent: parent.staff_id, parent_nickname: parentName } });
+    // 失效 familyScope 缓存：换绑后新旧主家长名下孩子列表立即重建（旧家长端不再看到该孩子，新家长端立刻可见）
+    try { invalidatePrefix("familyScope:"); } catch (_) {}
     res.json(ok(null, `已绑定，孩子「${child.child_name}」现归属主家长「${parentName}」`));
   } catch (e) {
     console.error("[admin] lp_children bind error", e);
@@ -2317,6 +2322,8 @@ router.post("/api/lp_children/unbind", adminAuth, async (req, res) => {
 
     await db.from("lp_children").update({ parent_staff_id: 0, updated_at: nowSql() }).eq("child_id", child.child_id);
     logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "后台解绑家长-孩子", module: "lp_children", apiPath: "/api/lp_children/unbind", bizId: child.child_id, extra: { child_name: child.child_name, from_parent: currentParentId, parent_nickname: parentName } });
+    // 失效 familyScope 缓存：解绑后旧主家长名下孩子列表立即重建（家长端不再看到该孩子）
+    try { invalidatePrefix("familyScope:"); } catch (_) {}
     res.json(ok(null, `已解绑，孩子「${child.child_name}」现无主家长归属`));
   } catch (e) {
     console.error("[admin] lp_children unbind error", e);
@@ -3268,8 +3275,8 @@ router.post("/api/task_collections/delete", adminAuth, async (req, res) => {
 });
 router.use("/api/task_collections", adminAuth, crudRouter({
   table: "task_collections", pk: "collection_id",
-  writable: ["name", "description", "cover_images", "collection_status"],
-  search: ["name", "description"],
+  writable: ["name", "cover_images", "collection_status"],
+  search: ["name"],
   filters: ["collection_status"],
   scopeFn: taskScope,
   readScopeFn: () => null,
@@ -3482,15 +3489,16 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
       if ((await storageFileExists(vUrl2)) === false) return res.json(fail("视频文件不存在，请重新上传"));
     } else {
       imgList = (images || []).slice(0, 9);
-      // 图文打卡强约束：必须输入文字 + 至少一张图片（与任务发布的打卡方式一致）
+      // 图文打卡：文字或图片二选一即可（仅二者都为空时拦截，与小程序打卡规则一致）
       const noteText = String(note || "").trim();
-      if (!noteText) return res.json(fail("图文打卡需输入打卡文字"));
-      if (imgList.length < 1) return res.json(fail("图文打卡需至少上传一张图片"));
-      // 完整性校验：每张图片必须已登记上传（active）
-      const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
-      const registered = new Set((imgRows || []).map(r => r.file_path));
-      const missing = imgList.filter(p => !registered.has(p));
-      if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
+      if (!noteText && imgList.length < 1) return res.json(fail("图文打卡请填写打卡文字或上传图片"));
+      if (imgList.length > 0) {
+        // 完整性校验：每张图片必须已登记上传（active）
+        const { data: imgRows } = await db.from("file_uploads").select("file_path").eq("file_status", "active").in("file_path", imgList).limit(imgList.length);
+        const registered = new Set((imgRows || []).map(r => r.file_path));
+        const missing = imgList.filter(p => !registered.has(p));
+        if (missing.length > 0) return res.json(fail("图片未上传成功，请重新上传"));
+      }
     }
 
     const checkinDate = date || formatDate(new Date());

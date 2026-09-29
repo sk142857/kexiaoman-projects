@@ -18,6 +18,7 @@ const { nextSeq } = require("../seq");
 const { LP_APP, createInvite, inviteById, staffById, createLpAccount, genRandomPassword } = require("./lpAuth");
 const { logEvent } = require("../events");
 const { invalidateStaffRows, cachedStaffRows } = require("../learningLib");
+const { invalidatePrefix } = require("../cache");
 const { textCheckNow, submitForAudit } = require("../contentSecurity");
 
 const router = express.Router();
@@ -228,6 +229,10 @@ router.post("/family/children/create", async (req, res) => {
     // 家长切孩授权不再物化绑定：运行时按「家谱继承」推导（见 lpAuth openidMayUseStaff），
     // 新孩子即刻在家长的可切换身份里出现，无需写入 lp_students、也不消耗孩子学生邀请码。
 
+    // 首页/学生列表按 familyScope 缓存解析「名下孩子」，新增孩子后必须失效，
+    // 否则家长端首页持续显示「还没有孩子」（DB 已关联但缓存仍是空 scope）
+    try { invalidatePrefix("familyScope:"); } catch (_) {}
+
     logEvent({
       appId: LP_APP.app_id, openid: myOpenid(req), eventType: "create", eventName: "新增孩子档案",
       pagePath: "/pages/child-edit/index", bizId: String(childId),
@@ -316,6 +321,8 @@ router.post("/family/children/delete", async (req, res) => {
       await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() })
         .eq("staff_id", Number(child.student_staff_id)).eq("bound_status", 1);
     }
+    // 失效 familyScope 缓存：删除孩子后家长名下的孩子列表须立即重建（避免家长端仍看到已删除孩子 / 列表错位）
+    try { invalidatePrefix("familyScope:"); } catch (_) {}
     res.json(ok(null, "已删除"));
   } catch (e) {
     console.error("[lp] child delete error", e);
@@ -401,6 +408,8 @@ router.post("/family/share/revoke", async (req, res) => {
         .eq("owner_staff_id", inv.owner_staff_id).eq("member_staff_id", inv.bound_staff_id);
       await db.from("lp_students").update({ bound_status: 0, updated_at: nowSql() }).eq("staff_id", inv.bound_staff_id);
     }
+    // 失效 familyScope 缓存：共享关系变更后，家属名下的孩子可见范围立即重建（解绑后不再看到主家长的孩子）
+    try { invalidatePrefix("familyScope:"); } catch (_) {}
     res.json(ok(null, "共享码已作废" + (inv.bound_staff_id ? "，已解除对应家属访问" : "")));
   } catch (e) {
     console.error("[lp] share revoke error", e);

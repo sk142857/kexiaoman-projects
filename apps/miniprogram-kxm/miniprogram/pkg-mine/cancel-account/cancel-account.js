@@ -11,16 +11,16 @@ const DEFAULT_COPY = {
   readTitle: '请仔细阅读注销说明',
   countdownSeconds: 10,
   notices: [
-    '注销后，当前账号的绑定关系将立即解除，无法使用该账号登录课小满。',
-    '注销后，该账号下的任务、打卡、积分、徽章等数据将被清除，且不可恢复。',
+    '注销后，当前账号的绑定关系将立即解除，账号被停用，无法再登录课小满。',
+    '注销仅解除绑定并停用账号，任务、打卡、积分、徽章等历史学习数据会被保留，但原账号将无法再访问这些数据。',
     '7天注销冷静期内将暂停使用业务功能，只能在本页撤销或等待生效；撤销后恢复正常。',
   ],
   risks: [
-    '注销属于不可逆操作，请谨慎决定。',
-    '若您是家长，您的孩子档案、家属关系与相关邀请码将一并作废。',
-    '注销后即使重新绑定，也无法找回已清除的历史数据。',
+    '注销后该账号将无法恢复使用，请谨慎决定。',
+    '若您是主家长，注销后将无法再通过该账号管理孩子档案与家属共享，其名下生成的各类邀请码会一并作废。',
+    '如需再次使用需重新注册或绑定新账号，历史学习数据不会随之迁移。',
   ],
-  immediate: { label: '立即注销', desc: '立即解除绑定并清除账号数据，即刻生效，不可恢复。' },
+  immediate: { label: '立即注销', desc: '立即解除绑定并停用账号，即刻生效。历史学习数据保留但不可访问。' },
   grace: { label: '7天注销', desc: '提交后有7天冷静期，期间暂停使用业务功能，可随时撤销，到期自动注销。' },
   pendingTitle: '注销申请待生效',
   pendingDesc: '冷静期内将暂停使用业务功能，您可随时撤销。',
@@ -43,6 +43,17 @@ Page({
   onLoad() {
     const role = getRole();
     this.setData({ role });
+    // 仅家长/个人可注销账号（审计 B9 角色守卫；后端 accountLib 同强度校验）
+    if (role !== 'parent' && role !== 'personal') {
+      wx.showToast({ title: '当前身份不支持注销账号', icon: 'none' });
+      const pages = getCurrentPages();
+      if (pages.length > 1) {
+        setTimeout(() => wx.navigateBack(), 600);
+      } else {
+        setTimeout(() => wx.reLaunch({ url: '/pages/home/home' }), 600);
+      }
+      return;
+    }
     trackEvent('page_view', '注销账号');
     this._loadCopy();
     this._loadStatus();
@@ -135,7 +146,7 @@ Page({
     if (!this.data.canOperate || this.data.submitting) return;
     wx.showModal({
       title: '确认立即注销',
-      content: '将立即解除绑定并清除账号数据，即刻生效且不可恢复。确定继续吗？',
+      content: '将立即解除绑定并停用账号，即刻生效且不可恢复。历史学习数据保留但不可访问。确定继续吗？',
       confirmText: '确认注销',
       confirmColor: '#d54941',
       success: (r) => {

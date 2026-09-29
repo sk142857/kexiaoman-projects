@@ -42,6 +42,8 @@ Page({
     try {
       const res = await lp.subjects();
       this.setData({ list: (res && res.list) || [] });
+      // ⚠️ 特殊情况：别名家庭（900001 家庭）直接使用管理员维护的科目 → 仅查看，禁用管理操作
+      if (res && res.manage_disabled) this.setData({ canManage: false });
     } catch (e) {
       wx.showToast({ title: e.msg || '加载失败', icon: 'none' });
     }

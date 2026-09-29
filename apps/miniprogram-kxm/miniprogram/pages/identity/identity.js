@@ -176,7 +176,7 @@ Page({
       });
   },
 
-  // 家长注册成功：保存共享码与后台账号（密码点击查看），跳后台账号页展示
+  // 家长注册成功：保存共享码；后台登录账号仅落本地公开信息（username）供「设置 → 后台账号」页展示，明文密码不落盘（审计 A2）
   _onParentReady(res) {
     persistLogin(res);
     if (res.identities) setIdentities(res.identities);
@@ -184,7 +184,8 @@ Page({
     wx.removeStorageSync('lp_share_code');
     wx.setStorageSync('lp_share_code', res.share_code || '');
     wx.removeStorageSync('lp_backend');
-    if (res.backend) wx.setStorageSync('lp_backend', res.backend);
+    const backend = res.backend || {};
+    if (backend.username) wx.setStorageSync('lp_backend', { username: backend.username });
     trackEvent('button_click', '选择身份-主家长');
     wx.hideLoading();
     this._startGuard();

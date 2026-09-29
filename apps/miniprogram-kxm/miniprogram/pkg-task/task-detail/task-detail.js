@@ -86,10 +86,11 @@ Page({
       const checkins = (res.checkins || []).map(c => {
         const st = c.review_status || 'approved';
         const theme = REVIEW_THEME[st] || REVIEW_THEME.approved;
-        // 仅内容安全违规（risk_status=reject）才脱敏：正文 ****、图片/语音/视频占位。
-        // 业务驳回（review_status=rejected）只是业务审核不通过，并非内容违规，须正常展示内容，
-        // 配合审核说明（review_note）让用户明确知道问题所在（后端已过滤 risk=reject 记录，此处兜底防御）。
-        const masked = c.risk_status === 'reject';
+        // 内容安全脱敏以 display 为准（audit_rejected = 后端已全量脱敏并标注）；
+        // 保留 risk_status=reject 作为兜底（后端接口未派生 display 时仍能拦截），两者取「或」，
+        // 避免 display 已标注但前端漏脱敏的窗口。业务驳回（review_status=rejected）属正常
+        // 审核结果并非内容违规，须正常展示并配合审核说明（review_note）让用户明确问题所在。
+        const masked = c.display === 'audit_rejected' || c.risk_status === 'reject';
         // 内容安全角标：业务已审核通过时展示（安全关闭/失败时无 display 字段 → 空，走旧逻辑）
         const secMeta = masked ? null : secBadgeMeta(c);
         const totalImages = masked ? 0 : (c.images || []).length;
@@ -101,7 +102,8 @@ Page({
           secBadge: secMeta ? secMeta.text : '',
           secColor: secMeta ? secMeta.color : '',
           secBg: secMeta ? secMeta.bg : '',
-          checkin_note: masked ? '****' : (c.checkin_note || ''),
+          // 已脱敏时不渲染备注（脱敏面板文案已说明，避免重复展示两段文字）
+          checkin_note: masked ? '' : (c.checkin_note || ''),
           // 列表展示用预览图缩略（省流量）：9 宫格展示，超过 9 张时第 9 张叠加「+N」角标；lightbox 预览全部原图
           images: masked ? [] : (c.images || []).slice(0, 9).map(p => previewUrl(p)),
           fullImages: masked ? [] : (c.images || []).map(fileUrl),

@@ -1,6 +1,7 @@
 // pages/shares/shares.js
-// 家属共享管理（主家长）：生成/作废共享码，查看已绑定家属
+// 家属共享管理（仅主家长）：生成/作废共享码，查看已绑定家属
 const { family } = require('../../utils/api');
+const { getRole } = require('../../utils/api');
 const { trackEvent } = require('../../utils/tracker');
 
 Page({
@@ -15,6 +16,17 @@ Page({
     this.setData({ scrollTop: 1 });
     wx.nextTick(() => this.setData({ scrollTop: 0 }));
     trackEvent('page_view', '家属共享');
+    // 仅主家长可管理家属共享（审计 B9 角色守卫；后端同强度校验）
+    if (getRole() !== 'parent') {
+      wx.showToast({ title: '仅主家长可管理家属共享', icon: 'none' });
+      const pages = getCurrentPages();
+      if (pages.length > 1) {
+        setTimeout(() => wx.navigateBack(), 600);
+      } else {
+        setTimeout(() => wx.reLaunch({ url: '/pages/home/home' }), 600);
+      }
+      return;
+    }
     this._load();
   },
 

@@ -14,7 +14,12 @@
         <text class="tip-text">管理任务合集与科目。合集用于给任务分类归档；科目用于给任务打标签，创建任务前需先设置科目。</text>
       </view>
 
-      <view class="menu-card">
+      <!-- ⚠️ 特殊情况：别名家庭（900001 家庭）直接使用管理员维护的科目/合集，禁用管理入口，仅查看使用 -->
+      <view wx:if="{{manageDisabled}}" class="tip-card">
+        <text class="tip-text">本家庭直接使用管理员维护的合集与科目，无需自行管理。</text>
+      </view>
+
+      <view wx:if="{{!manageDisabled}}" class="menu-card">
         <view class="menu-item" bindtap="goCollections">
           <view class="menu-icon menu-icon--cyan">📁</view>
           <view class="menu-label-col">

@@ -41,7 +41,10 @@
             </view>
             <view wx:if="{{canManage}}" class="child-info-item">
               <text class="child-info-label">学生邀请码</text>
-              <text class="child-info-value child-info-value--code">{{item.invite_code || '未生成'}}</text>
+              <view class="child-info-invite">
+                <text class="child-info-value child-info-value--code {{item.invite_status === 'available' ? '' : 'off'}}">{{item.invite_code || '未生成'}}</text>
+                <text wx:if="{{item.invite_code && item.invite_status !== 'available'}}" class="child-info-invite-state">{{item.inviteStatusText}}</text>
+              </view>
             </view>
           </view>
         </view>
@@ -50,11 +53,11 @@
         </view>
       </view>
 
-      <view class="foot">{{canManage ? '孩子档案由主家长维护，家属仅有查看与切换当前孩子权限' : '家属仅有查看与切换当前孩子权限'}}</view>
+      <view class="foot">{{canAdd ? '孩子档案由主家长维护，删除与重新生成仅主家长可操作' : canManage ? '管理员可编辑档案、生成学生邀请码' : '家属仅有查看与切换当前孩子权限'}}</view>
     </view>
   </scroll-view>
 
-  <view wx:if="{{canManage}}" class="fab" bindtap="goAdd">＋</view>
+  <view wx:if="{{canAdd}}" class="fab" bindtap="goAdd">＋</view>
 
   <!-- 操作菜单（底部弹层，支持右侧展示邀请码） -->
   <view wx:if="{{sheetVisible}}" class="mask" catchtouchmove="true" bindtap="closeSheet">

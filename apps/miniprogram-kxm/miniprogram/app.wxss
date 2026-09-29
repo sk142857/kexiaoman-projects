@@ -65,7 +65,9 @@ view {
   flex: 1;
 }
 
-/* 标签行间距：Skyline 下 flex gap 对自定义组件（t-tag）不生效，改用显式类 margin */
+/* 标签行间距：Skyline 下 flex gap 对自定义组件（t-tag）不生效，改用显式类 margin；
+   换行后行与行之间也需留间距，故同时补 margin-bottom 避免上下行紧贴 */
 .tag-gap {
   margin-right: 12rpx;
+  margin-bottom: 12rpx;
 }

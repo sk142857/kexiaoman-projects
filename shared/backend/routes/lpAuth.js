@@ -1149,6 +1149,17 @@ router.post("/pin", async (req, res) => {
     if (act === "set") {
       const p = String(pin || "");
       if (!/^\d{4,6}$/.test(p)) return res.json(fail("PIN 需为 4-6 位数字"));
+      // 已设 PIN 时修改必须验证旧 PIN（审计 B2），防止借用已登录家长会话覆盖他人 PIN
+      if (staff.pin_hash) {
+        const pinKey = `pin:${openid}:${staffId}`;
+        if (!pinAllow(pinKey)) return res.json(fail("PIN 尝试次数过多，请 15 分钟后再试", 429));
+        const { oldPin } = req.body || {};
+        if (!bcrypt.compareSync(String(oldPin || ""), staff.pin_hash)) {
+          recordPinAttempt(pinKey);
+          return res.json(fail("原 PIN 错误，请重试", 403));
+        }
+        clearPinAttempt(pinKey);
+      }
       await db.from("staff").update({
         pin_hash: bcrypt.hashSync(p, 10),
         updated_at: nowSql(),

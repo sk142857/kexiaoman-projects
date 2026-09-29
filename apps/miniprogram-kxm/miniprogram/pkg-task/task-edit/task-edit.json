@@ -7,7 +7,6 @@
     "t-navbar": "tdesign-miniprogram/navbar/navbar",
     "t-button": "tdesign-miniprogram/button/button",
     "t-steps": "tdesign-miniprogram/steps/steps",
-    "t-step-item": "tdesign-miniprogram/step-item/step-item",
-    "t-upload": "tdesign-miniprogram/upload/upload"
+    "t-step-item": "tdesign-miniprogram/step-item/step-item"
   }
 }

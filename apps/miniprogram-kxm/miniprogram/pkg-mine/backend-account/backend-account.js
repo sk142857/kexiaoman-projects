@@ -6,7 +6,6 @@ const { trackEvent } = require('../../utils/tracker');
 Page({
   data: {
     scrollTop: 0,   // 每次进入页面滚动区复位到顶部（新页面不受上一页面滚动位置影响）
-    first: false,
     username: '',
     password: '',
     showPassword: false,
@@ -17,15 +16,19 @@ Page({
   onLoad(options) {
     this.setData({ scrollTop: 1 });
     wx.nextTick(() => this.setData({ scrollTop: 0 }));
-    const first = options && options.first === '1';
-    this.setData({ first });
-    // 从注册流程带过来的明文密码（仅注册/重置后存在，正常打开为空）
+    // 后台凭据处理：本地仅缓存公开登录账号 username；明文密码不落盘（审计 A2）。
+    // 历史版本曾把 password 写入 lp_backend，此处读取即作一次性收敛清理，仅保留 username 供展示。
     let backend = {};
     try { backend = wx.getStorageSync('lp_backend') || {}; } catch (_) {}
+    if (backend.password) {
+      try { wx.setStorageSync('lp_backend', { username: backend.username || '' }); } catch (_) {}
+      backend.password = '';
+    }
     this.setData({
       username: backend.username || '',
-      password: backend.password || '',
-      hasPassword: !!backend.password,
+      password: '',
+      showPassword: false,
+      hasPassword: false,
     });
     trackEvent('page_view', '后台账号');
   },
@@ -51,7 +54,7 @@ Page({
         try {
           const res = await family.passwordReset();
           trackEvent('button_click', '后台账号-重置密码');
-          wx.setStorageSync('lp_backend', { ...this._backend(), password: res.password });
+          // 新密码仅在本页内存展示一次，不写入 storage（审计 A2：避免明文密码长期落盘/跨身份残留）
           this.setData({ password: res.password, showPassword: true, hasPassword: true, loading: false });
           wx.showToast({ title: '已重置，请妥善保存', icon: 'none' });
         } catch (e) {
@@ -60,10 +63,6 @@ Page({
         }
       },
     });
-  },
-
-  _backend() {
-    try { return wx.getStorageSync('lp_backend') || {}; } catch (_) { return {}; }
   },
 
   onCopyUsername() {

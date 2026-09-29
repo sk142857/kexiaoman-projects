@@ -22,7 +22,7 @@ Page({
     maxDate: todayStr(),   // 可打卡最晚日期：今天与任务截止日期取早
     step: 0,               // 0 打卡内容 / 1 打卡媒体
     date: todayStr(),
-    note: '',
+    note: '已完成',
     images: [],
     // 语音打卡状态：idle 未录 / recording 录音中 / recorded 已录音
     voiceState: 'idle',
@@ -52,25 +52,35 @@ Page({
     this.setData({ taskId: options.taskId || '' });
     trackEvent('page_view', '打卡页', { taskId: options.taskId || '' });
     this._loadTitle(options.taskId);
-    // 录音事件统一绑定（惰性单例录音器，避免重复注册）
-    voice.onStop((res) => {
-      this._clearRecTimer();
-      this.setData({
-        voiceState: 'recorded',
-        voiceTempPath: res.tempFilePath || '',
-        voiceDuration: Math.max(1, Math.round((res.duration || 0) / 1000)),
-        recordingMs: 0,
-      });
-    });
-    voice.onError(() => {
-      this._clearRecTimer();
-      this.setData({ voiceState: 'idle', recordingMs: 0 });
-      wx.showToast({ title: '录音失败，请重试', icon: 'none' });
+    this._destroyed = false;
+    // 录音事件按方法引用注册，onUnload 用 offStop/offError 精确反注册，避免多次进出叠加回调（审计 B7）
+    voice.onStop(this._onVoiceStop);
+    voice.onError(this._onVoiceError);
+  },
+
+  _onVoiceStop(res) {
+    if (this._destroyed) return;
+    this._clearRecTimer();
+    this.setData({
+      voiceState: 'recorded',
+      voiceTempPath: (res && res.tempFilePath) || '',
+      voiceDuration: Math.max(1, Math.round(((res && res.duration) || 0) / 1000)),
+      recordingMs: 0,
     });
   },
 
+  _onVoiceError() {
+    if (this._destroyed) return;
+    this._clearRecTimer();
+    this.setData({ voiceState: 'idle', recordingMs: 0 });
+    wx.showToast({ title: '录音失败，请重试', icon: 'none' });
+  },
+
   onUnload() {
-    // 清理录音、录音计时器与本地试听
+    // 先标记销毁并反注册回调，再停止可能仍在进行的录音（避免旧实例收到 onStop 后执行 setData）
+    this._destroyed = true;
+    voice.offStop(this._onVoiceStop);
+    voice.offError(this._onVoiceError);
     this._clearRecTimer();
     if (this.data.voiceState === 'recording') {
       try { voice.stop(); } catch (_) {}
@@ -206,25 +216,30 @@ Page({
       wx.showToast({ title: '请选择有效打卡日期', icon: 'none' });
       return;
     }
-    // 图文打卡：必须输入文字 + 至少一张图片（与后端强约束一致）
+    // 各类型就绪性校验统一前置：不满足直接拦截返回（不进入 .then 成功分支，避免假成功跳走）
     if (this.data.checkinType === 'image') {
-      if (!String(this.data.note || '').trim()) {
-        wx.showToast({ title: '图文打卡需输入打卡文字', icon: 'none' });
+      // 图文打卡：文字或图片二选一即可（默认备注“已完成”，仅二者都为空时拦截）
+      if (!String(this.data.note || '').trim() && (!this.data.images || this.data.images.length < 1)) {
+        wx.showToast({ title: '图文打卡请填写打卡文字或上传图片', icon: 'none' });
         return;
       }
-      if (!this.data.images || this.data.images.length < 1) {
-        wx.showToast({ title: '图文打卡需至少上传一张图片', icon: 'none' });
+    } else if (this.data.checkinType === 'voice') {
+      // 语音打卡：必须先录音
+      if (this.data.voiceState !== 'recorded' || !this.data.voiceTempPath) {
+        wx.showToast({ title: '请先录制语音', icon: 'none' });
+        return;
+      }
+    } else if (this.data.checkinType === 'video') {
+      // 视频打卡：必须先选择视频（≤1GB）
+      if (this.data.videoState !== 'chosen' || !this.data.videoTempPath) {
+        wx.showToast({ title: '请先选择视频', icon: 'none' });
         return;
       }
     }
     this.setData({ submitting: true });
     const submit = async () => {
       if (this.data.checkinType === 'video') {
-        // 视频打卡：必须已选择视频（≤1GB），上传并登记后再提交
-        if (this.data.videoState !== 'chosen' || !this.data.videoTempPath) {
-          wx.showToast({ title: '请先选择视频', icon: 'none' });
-          return;
-        }
+        // 视频打卡：上传并登记后再提交
         wx.showLoading({ title: '上传视频中', mask: true });
         const { path, duration } = await video.uploadVideo(this.data.videoTempPath, this.data.videoDuration, this.data.videoSize);
         wx.hideLoading();
@@ -237,11 +252,7 @@ Page({
         });
       }
       if (this.data.checkinType === 'voice') {
-        // 语音打卡：必须已录音，上传后再提交
-        if (this.data.voiceState !== 'recorded') {
-          wx.showToast({ title: '请先录制语音', icon: 'none' });
-          return;
-        }
+        // 语音打卡：上传后再提交（已录音校验在进入提交前完成）
         wx.showLoading({ title: '上传语音中', mask: true });
         const { path, duration } = await voice.uploadVoice(this.data.voiceTempPath, this.data.voiceDuration * 1000);
         wx.hideLoading();
