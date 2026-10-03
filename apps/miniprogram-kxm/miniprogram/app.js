@@ -16,29 +16,14 @@ App({
     if (wx.cloud) {
       wx.cloud.init({ env: CLOUD_ENV || undefined, traceUser: true });
     }
-    // 隐私授权兜底：未在《用户隐私保护指引》声明的接口（如 chooseAvatar）调用前会触发，
-    // 这里弹窗征求同意，避免用户拒绝后无提示直接失败
-    this._initPrivacy();
+    // 隐私授权：不注册 wx.onNeedPrivacyAuthorization，交由微信官方隐私弹窗处理。
+    // 若自行注册该事件，必须在用户点击 open-type="agreePrivacyAuthorization" 按钮后
+    // 调用 resolve({ event: 'agree', buttonId })；此前用 showModal 只 resolve({event:'agree'})
+    // 缺少 buttonId，微信不认可授权，导致 chooseMedia/chooseAvatar 等隐私接口被中断且无响应。
     // 历史版本曾把后台账号明文密码写入 lp_backend，启动即收敛为仅保留登录账号（审计 A2）
     this._scrubLegacyBackend();
     // 暴露登录就绪 Promise，登录加载页等它完成后按绑定状态分流入首页 / 身份选择页
     this.lpReady = this.ensureLogin();
-  },
-
-  // 隐私接口授权：用户需先同意《用户隐私保护指引》才能调用 chooseAvatar 等接口。
-  // 若接口未在隐私协议中声明，则应在 mp 后台补充声明（否则本弹窗仍无法通过）
-  _initPrivacy() {
-    if (!wx.onNeedPrivacyAuthorization) return;
-    wx.onNeedPrivacyAuthorization((resolve) => {
-      wx.showModal({
-        title: '隐私保护提示',
-        content: '使用头像、昵称等功能需你同意《用户隐私保护指引》',
-        confirmText: '同意',
-        cancelText: '拒绝',
-        success: (r) => resolve({ event: r.confirm ? 'agree' : 'disagree' }),
-        fail: () => resolve({ event: 'disagree' }),
-      });
-    });
   },
 
   // 遗留数据收敛：lp_backend 只允许保留 username，历史写入的 password 启动即清除

@@ -9,6 +9,7 @@
  * 返回/存储：云存储「相对路径」（如 kxm/videos/2026-08-19/xxx.mp4），
  * 展示时用 utils/image.js 的 fileUrl() 拼完整域名。
  */
+const { isCancel, failMessage } = require('../../utils/privacy');
 const CLOUD_ENV = 'cloud1-d6gddqzrsda16338f';
 const CLOUD_SERVICE = 'kxm-service';
 // 视频大小上限：1GB（与后端 storage.js VIDEO_MAX_SIZE 一致）
@@ -60,7 +61,13 @@ function chooseVideo() {
         const duration = Math.max(1, Math.round(Number(item.duration) || 0));
         resolve({ tempFilePath: item.tempFilePath, duration, size });
       },
-      fail: () => resolve(null),
+      fail: (err) => {
+        // 用户主动取消：静默返回；隐私未授权/未声明：给出可读提示，避免「无响应」
+        if (isCancel(err)) return resolve(null);
+        const msg = failMessage(err, '视频选择失败');
+        wx.showToast({ title: msg, icon: 'none' });
+        reject({ code: -1, msg });
+      },
     });
   });
 }

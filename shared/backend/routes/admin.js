@@ -397,7 +397,7 @@ async function ensureDefaultDicts() {
       ["subject", "语文", "语文"], ["subject", "数学", "数学"], ["subject", "英语", "英语"],
       ["subject", "阅读", "阅读"], ["subject", "作业", "作业"], ["subject", "运动", "运动"],
       ["gender", "0", "保密"], ["gender", "1", "男"], ["gender", "2", "女"],
-      ["task_status", "todo", "待完成"], ["task_status", "doing", "进行中"], ["task_status", "done", "已完成"],
+      ["task_status", "todo", "待完成"], ["task_status", "doing", "进行中"], ["task_status", "done", "已完成"], ["task_status", "suspended", "任务挂起"],
     ];
     for (const [code, value, label] of items) {
       await db.from("dict_items").insert({ item_id: await nextSeq("dict_item_id"), dict_code: code, item_value: value, item_label: label, sort: 1, item_status: 1, created_at: nowSql(), updated_at: nowSql() });
@@ -3188,11 +3188,12 @@ router.use("/api/tasks", adminAuth, crudRouter({
       const c = String(values.checkin_type || "image").trim();
       values.checkin_type = normalizeCheckinType(c);
     }
-    // 状态流转同步进度：已完成=100；进行中(已有打卡)=50；回到待完成=1
+    // 状态流转同步进度：已完成=100；进行中(已有打卡)=50；回到待完成=1；挂起=0（暂停，不计入完成进度）
     if (values.task_status !== undefined) {
       if (values.task_status === "done") values.progress = 100;
       else if (values.task_status === "doing") values.progress = (oldRecord.checkin_count || 0) > 0 ? 50 : 1;
       else if (values.task_status === "todo") values.progress = 1;
+      else if (values.task_status === "suspended") values.progress = 0;
     }
     return null;
   },
@@ -3452,6 +3453,10 @@ router.post("/api/tasks/checkin", adminAuth, async (req, res) => {
     // 安全审计 S7：非管理员只能对本家庭可见任务打卡（创建人=本人 或 派发给本人/名下孩子）
     if (!(await canAccessTask(req, taskId))) {
       return res.json(fail("无权操作该任务", 403));
+    }
+    // 兜底风控：挂起任务暂停，任何人不可打卡（需先恢复状态）
+    if (task.task_status === "suspended") {
+      return res.json(fail("任务已挂起，不能打卡"));
     }
     // 兜底风控：已完成任务仅可查看，学生禁止打卡（管理员不受限）
     if (req.staff && req.staff.role === "student" && task.task_status === "done") {
@@ -3746,7 +3751,7 @@ router.use("/api/task_checkins", adminAuth, crudRouter({
         ...r,
         task_title: t.title || "",
         task_status: t.task_status || "",
-        task_progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+        task_progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : t.task_status === "suspended" ? 0 : 1),
       };
     });
     return attachStaffInfo(rowsWithTask);
@@ -3811,7 +3816,7 @@ router.get("/api/todo_tasks/list", adminAuth, async (req, res) => {
         task_link: t.task_link,
         images: parseImgList(t.images),
         task_status: t.task_status,
-        progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+        progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : t.task_status === "suspended" ? 0 : 1),
         checkin_type: normalizeCheckinType(t.checkin_type),
         source: normalizeTaskSource(t.source),
         risk_status: t.risk_status || "pending",
@@ -3865,7 +3870,7 @@ async function attachReviewInfo(rows) {
         task_title: t.title || "(任务已删除)",
         task_subject: t.subject || "",
         task_status: t.task_status || "",
-        task_progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+        task_progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : t.task_status === "suspended" ? 0 : 1),
         student: {
           staff_id: String(c.created_by),
           nickname: s.staff_nickname || s.staff_username || "学生",
@@ -4615,12 +4620,15 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
     const todoCount = tasks.filter(t => t.task_status === "todo").length;
     const doingCount = tasks.filter(t => t.task_status === "doing").length;
     const doneCount = tasks.filter(t => t.task_status === "done").length;
+    const suspendedCount = tasks.filter(t => t.task_status === "suspended").length;
+    // 完成率分母排除挂起任务（挂起=暂停，不计入完成进度）
+    const activeTaskCount = Math.max(0, totalTasks - suspendedCount);
     const totalCheckins = checkins.length;
     const today = formatDate(new Date());
     const todayCheckins = checkins.filter(c => String(c.checkin_date || "").slice(0, 10) === today).length;
     const todayCheckedIn = todayCheckins > 0;
-    const completionRate = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
-    const avgCheckin = totalTasks > 0 ? Math.round(totalCheckins / totalTasks) : 0;
+    const completionRate = activeTaskCount > 0 ? Math.round((doneCount / activeTaskCount) * 100) : 0;
+    const avgCheckin = activeTaskCount > 0 ? Math.round(totalCheckins / activeTaskCount) : 0;
 
     // 游戏化：经验值来自积分账本（审核通过+10/完成任务+30，删除与回退自动扣分，杜绝只增不减）；
     // 选中单个学生=该学生余额；管理员全部=所有学生余额之和
@@ -4693,6 +4701,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       { name: "待完成", value: todoCount, color: "#f5222d" },
       { name: "进行中", value: doingCount, color: "#1677ff" },
       { name: "已完成", value: doneCount, color: "#52c41a" },
+      { name: "任务挂起", value: suspendedCount, color: "#faad14" },
     ].filter(x => x.value > 0);
 
     // 任务打卡排行（按打卡次数，仅有效任务）
@@ -4730,7 +4739,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       { key: "task_done_20", name: "任务宗师", desc: "完成 20 个任务", icon: "🏅", unlocked: doneCount >= 20, progress: Math.min(1, doneCount / 20) },
       { key: "task_create_5", name: "筑梦起航", desc: "创建 5 个任务", icon: "🏗️", unlocked: totalTasks >= 5, progress: Math.min(1, totalTasks / 5) },
       { key: "task_create_10", name: "规划大师", desc: "创建 10 个任务", icon: "📋", unlocked: totalTasks >= 10, progress: Math.min(1, totalTasks / 10) },
-      { key: "all_task_done", name: "全任务达成", desc: "所有任务全部完成", icon: "🏁", unlocked: totalTasks > 0 && doneCount >= totalTasks, progress: totalTasks > 0 ? Math.min(1, doneCount / totalTasks) : 0 },
+      { key: "all_task_done", name: "全任务达成", desc: "所有任务全部完成", icon: "🏁", unlocked: activeTaskCount > 0 && doneCount >= activeTaskCount, progress: activeTaskCount > 0 ? Math.min(1, doneCount / activeTaskCount) : 0 },
 
       // —— 等级系列 ——
       { key: "level_3", name: "初露锋芒", desc: "达到 Lv.3", icon: "🌱", unlocked: level.level >= 3, progress: Math.min(1, level.level / 3) },
@@ -4804,7 +4813,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
     let overdueCount = 0;
     let dueSoonCount = 0;
     tasks.forEach(t => {
-      if (t.task_status === "done") return;
+      if (t.task_status === "done" || t.task_status === "suspended") return;
       const dl = String(t.deadline || "").slice(0, 10);
       if (!dl) return;
       const dlMs = new Date(`${dl}T00:00:00`).getTime();
@@ -4827,7 +4836,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
     const reminders = buildLearningReminders({
       todayCheckedIn, todayCheckins, currentStreak,
       completionRate, doneCount, totalTasks,
-      remainingCount: totalTasks - doneCount,
+      remainingCount: activeTaskCount - doneCount,
       activeCount: doingCount,
       overdueCount, dueSoonCount,
       nextBadge: badgesWithTime.find(b => !b.unlocked) || null,
@@ -4842,11 +4851,11 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       points: xp,
       pointLogs,
       stats: {
-        totalTasks, todoCount, doingCount, doneCount,
+        totalTasks, todoCount, doingCount, doneCount, suspendedCount,
         totalCheckins, todayCheckins, todayCheckedIn,
         completionRate, avgCheckin,
         activeCount: doingCount,
-        remainingCount: totalTasks - doneCount,
+        remainingCount: activeTaskCount - doneCount,
       },
       level,
       streak: { current: currentStreak, max: maxStreak, todayCheckedIn },

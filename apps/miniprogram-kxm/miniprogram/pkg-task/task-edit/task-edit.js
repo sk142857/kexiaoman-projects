@@ -2,6 +2,7 @@
 // 新增/编辑任务（步骤式表单）：标题 → 时间 → 设置 → 描述 → 确认预览
 const { lp, family, getRole, getViewStudent } = require('../../utils/api');
 const { uploadImageFile, fileUrl, relPath } = require('../../utils/image');
+const { isCancel, failMessage } = require('../../utils/privacy');
 const { trackEvent } = require('../../utils/tracker');
 
 const MANAGER_ROLES = ['admin', 'parent', 'family'];
@@ -338,7 +339,11 @@ Page({
         this._syncUploadStatus();
         this._uploadItems(added, items);
       },
-      fail: () => {},
+      fail: (err) => {
+        // 用户主动取消：静默返回；隐私未授权/未声明：给出可读提示
+        if (isCancel(err)) return;
+        wx.showToast({ title: failMessage(err, '图片选择失败'), icon: 'none' });
+      },
     });
   },
 

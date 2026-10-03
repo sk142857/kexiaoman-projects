@@ -11,6 +11,7 @@ const FALLBACK = {
     todo: { label: '待完成', color: '#f5222d' },
     doing: { label: '进行中', color: '#1677ff' },
     done: { label: '已完成', color: '#52c41a' },
+    suspended: { label: '任务挂起', color: '#faad14' },
   },
   checkin_type: {
     image: { label: '图文打卡', color: '#1677ff' },

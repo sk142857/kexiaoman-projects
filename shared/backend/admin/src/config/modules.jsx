@@ -25,6 +25,7 @@ const TASK_STATUS_MAP = {
   todo: { label: '待完成', color: 'default' },
   doing: { label: '进行中', color: 'processing' },
   done: { label: '已完成', color: 'success' },
+  suspended: { label: '任务挂起', color: 'warning' },
 };
 // 打卡方式（图文/语音/视频）
 const CHECKIN_TYPE_MAP = {
@@ -47,7 +48,7 @@ const TASK_SOURCE_OPTIONS = [
   { value: 'miniprogram', label: '小程序' },
 ];
 // 任务状态 → 进度百分比兜底（正常由任务独立字段 progress 驱动，见 taskProgressOf）
-const TASK_STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
+const TASK_STATUS_PROGRESS = { todo: 1, doing: 50, done: 100, suspended: 0 };
 /** 任务进度取值：优先独立字段 progress，缺失按状态兜底（待完成默认 1%） */
 export const taskProgressOf = (record) => {
   const p = Number(record && record.progress);
@@ -1779,6 +1780,7 @@ export const MODULES = {
         { value: 'todo', label: '待完成' },
         { value: 'doing', label: '进行中' },
         { value: 'done', label: '已完成' },
+        { value: 'suspended', label: '任务挂起' },
       ] },
       { name: 'subject', label: '科目', optionsSource: 'dict_items', optionsParams: { dict_code: 'subject' }, optionsMap: { value: 'item_value', label: 'item_label' } },
       { name: 'collection_id', label: '合集', type: 'collection' },
@@ -1836,6 +1838,7 @@ export const MODULES = {
         { value: 'todo', label: '待完成' },
         { value: 'doing', label: '进行中' },
         { value: 'done', label: '已完成' },
+        { value: 'suspended', label: '任务挂起' },
       ], placeholder: '请选择任务状态' },
       { name: 'checkin_type', label: '打卡方式', type: 'select', span: 12, options: CHECKIN_TYPE_OPTIONS, placeholder: '请选择打卡方式' },
       { name: 'score', label: '任务评分', type: 'rate', span: 12, disabledWhenCreate: true, tip: ({ editing }) => (editing ? undefined : '初始固定为 0 分，禁止评分') },

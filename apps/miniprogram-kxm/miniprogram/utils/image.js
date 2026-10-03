@@ -8,6 +8,7 @@
  * 返回/存储：云存储「相对路径」（如 kxm/tasks/2026-08-13/xxx.jpg），
  * 展示时必须拼上云存储公开访问域名前缀（fileUrl），否则 <image> 无法加载。
  */
+const { isCancel, failMessage } = require('./privacy');
 const CLOUD_ENV = 'cloud1-d6gddqzrsda16338f';
 const CLOUD_SERVICE = 'kxm-service';
 
@@ -134,7 +135,12 @@ function chooseAndUploadImages(max = 9, biz = 'tasks', existing = []) {
           reject(e);
         }
       },
-      fail: () => resolve([]),
+      fail: (err) => {
+        // 用户主动取消：静默返回；隐私未授权/未声明：给出可读提示
+        if (isCancel(err)) return resolve([]);
+        wx.showToast({ title: failMessage(err, '图片选择失败'), icon: 'none' });
+        resolve([]);
+      },
     });
   });
 }

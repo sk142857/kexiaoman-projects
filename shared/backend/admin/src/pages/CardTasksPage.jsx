@@ -516,7 +516,7 @@ export default function CardTasksPage() {
   // actions 数组即按钮权限控制——管理端传全部操作，被锁定/非本人记录按需禁用或隐藏
   const buildCard = (record, progress) => {
     const desc = record.description;
-    const overdue = record.deadline && String(record.deadline).slice(0, 10) < todayStr && record.task_status !== 'done';
+    const overdue = record.deadline && String(record.deadline).slice(0, 10) < todayStr && record.task_status !== 'done' && record.task_status !== 'suspended';
     const checkinTypeLabel = (CHECKIN_TYPE_MAP[record.checkin_type] || {}).label || record.checkin_type || '-';
     const assignees = Array.isArray(record.assignee_names) && record.assignee_names.length > 0
       ? record.assignee_names.join('、')

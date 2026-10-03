@@ -159,7 +159,7 @@ async function runOnce() {
     const mySet = myTasks[sidStr] || new Set();
     for (const tid of mySet) {
       const t = taskMap[tid];
-      if (!t || t.task_status === "done") continue;
+      if (!t || t.task_status === "done" || t.task_status === "suspended") continue;
       const dl = String(t.deadline || "").slice(0, 10);
       if (!dl || dl < startDate || dl > endDate) continue;
       if (todayDone.has(`${sidStr}:${tid}`) || sentToday.has(`${sidStr}:${tid}`)) continue;

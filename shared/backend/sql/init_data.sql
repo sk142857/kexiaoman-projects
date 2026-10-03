@@ -161,7 +161,8 @@ INSERT INTO t_dict_items (item_id, dict_code, item_value, item_label, color, sor
   (12, 'task_status', 'done', '已完成', '#52c41a', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (13, 'checkin_type', 'image', '图文打卡', '#1677ff', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (14, 'checkin_type', 'voice', '语音打卡', '#faad14', 2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  (15, 'checkin_type', 'video', '视频打卡', '#13c2c2', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  (15, 'checkin_type', 'video', '视频打卡', '#13c2c2', 3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (16, 'task_status', 'suspended', '任务挂起', '#faad14', 4, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   ON DUPLICATE KEY UPDATE item_label = VALUES(item_label), color = VALUES(color);
 
 -- 5. 系统通知模板（类型 × 角色，占位符 {xxx} 由业务变量渲染；后台「消息通知 → 通知模板」可改）

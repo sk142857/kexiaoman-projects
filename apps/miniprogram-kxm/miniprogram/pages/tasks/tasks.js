@@ -9,11 +9,12 @@ const STATUS_TABS = [
   { value: 'todo', label: '待完成' },
   { value: 'doing', label: '进行中' },
   { value: 'done', label: '已完成' },
+  { value: 'suspended', label: '任务挂起' },
 ];
 
-const STATUS_PROGRESS = { todo: 1, doing: 50, done: 100 };
+const STATUS_PROGRESS = { todo: 1, doing: 50, done: 100, suspended: 0 };
 // t-tag 无法使用 style，改用 theme 属性区分状态
-const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success' };
+const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success', suspended: 'warning' };
 // 发布来源：web（Web后台）/ miniprogram（小程序）
 const SOURCE_TEXT = { web: 'Web后台', miniprogram: '小程序' };
 const PAGE_SIZE = 20;

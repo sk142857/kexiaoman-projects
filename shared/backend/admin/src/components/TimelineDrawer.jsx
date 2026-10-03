@@ -21,7 +21,7 @@ const EVENT_STYLE = {
 };
 const DEFAULT_STYLE = { color: '#bfbfbf', icon: <HistoryOutlined />, label: '事件', tag: 'default' };
 
-const TASK_STATUS = { todo: '未开始', doing: '进行中', done: '已完成' };
+const TASK_STATUS = { todo: '未开始', doing: '进行中', done: '已完成', suspended: '任务挂起' };
 
 // ==================== 时间列：日期 + 时间 两行，右对齐 ====================
 function TimeTitle({ t }) {

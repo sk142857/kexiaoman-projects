@@ -93,8 +93,8 @@ const badgeGradient = (key) => {
   return GRADIENT_POOL[h % GRADIENT_POOL.length];
 };
 
-const STATUS_COLOR = { todo: '#bfbfbf', doing: '#1677ff', done: '#52c41a', 待完成: '#bfbfbf', 进行中: '#1677ff', 已完成: '#52c41a' };
-const STATUS_LABEL = { todo: '待完成', doing: '进行中', done: '已完成' };
+const STATUS_COLOR = { todo: '#bfbfbf', doing: '#1677ff', done: '#52c41a', suspended: '#faad14', 待完成: '#bfbfbf', 进行中: '#1677ff', 已完成: '#52c41a', 任务挂起: '#faad14' };
+const STATUS_LABEL = { todo: '待完成', doing: '进行中', done: '已完成', suspended: '任务挂起' };
 
 // 提醒告警配色：严重=红、警告=橙、提示=蓝、完成=绿
 const ALERT_THEME = {

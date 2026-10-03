@@ -5,9 +5,9 @@ const { trackEvent } = require('../../utils/tracker');
 const { secBadgeMeta } = require('../../utils/display');
 const { ensureDict, statusMeta } = require('../../utils/dict');
 
-const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成' };
+const STATUS_TEXT = { todo: '待完成', doing: '进行中', done: '已完成', suspended: '任务挂起' };
 // t-tag 无法使用 style，任务状态改用 theme 属性区分
-const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success' };
+const STATUS_THEME = { todo: 'danger', doing: 'primary', done: 'success', suspended: 'warning' };
 const REVIEW_TEXT = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
 const REVIEW_LABEL = { pending: '审核说明', approved: '老师点评', rejected: '驳回原因' };
 const REVIEW_THEME = {
@@ -153,7 +153,8 @@ Page({
         creatorText: `${(task && (task.creator_name || '创建者')) || '创建者'} 于 ${fmtFull(task && task.created_at)}${SOURCE_TEXT[(task && task.source)] ? ' ' + (SOURCE_TEXT[(task && task.source)] || '') + '发布' : ' 创建'}`,
         // 已完成任务仅可查看：学生隐藏编辑/删除/打卡；家长/家属/管理员不受限
         canManage: this.data.isManager || (own && !isDone),
-        canCheckin: !this.data.isManager && !isDone,
+        // 挂起任务暂停：任何人不可打卡（家长/管理员可编辑状态恢复）
+        canCheckin: !this.data.isManager && !isDone && task.task_status !== 'suspended',
         // 复制：可见任务均可复制（后端按 myTaskIds 校验：派发给我/我创建）
         canCopy: !!task,
       });
@@ -227,6 +228,10 @@ Page({
   },
 
   onCheckin() {
+    if (this.data.task.task_status === 'suspended') {
+      wx.showToast({ title: '任务已挂起，不能打卡', icon: 'none' });
+      return;
+    }
     if (this.data.task.task_status === 'done') {
       wx.showToast({ title: '任务已完成，不能打卡', icon: 'none' });
       return;

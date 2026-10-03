@@ -23,8 +23,8 @@ const TASK_SOURCE_MAP = {
   miniprogram: { label: '小程序', color: 'blue' },
 };
 // 任务状态字典（label / color 直接取自字典）
-const STATUS_MAP = { todo: '待完成', doing: '进行中', done: '已完成' };
-const STATUS_COLOR = { todo: 'default', doing: 'processing', done: 'success' };
+const STATUS_MAP = { todo: '待完成', doing: '进行中', done: '已完成', suspended: '任务挂起' };
+const STATUS_COLOR = { todo: 'default', doing: 'processing', done: 'success', suspended: 'warning' };
 const SCORE_OPTIONS = [0, 3, 5, 7, 9, 10].map(v => ({ value: v, label: `${v}分` }));
 // 内容安全状态（打卡内容机器检测结果）
 const RISK_STATUS_MAP = {

@@ -618,7 +618,7 @@ router.get("/tasks", async (req, res) => {
       images: parseImgList(t.images),
       task_status: t.task_status,
       risk_status: t.risk_status || "pending",
-      progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : 1),
+      progress: Number(t.progress) >= 0 ? Number(t.progress) : (t.task_status === "done" ? 100 : t.task_status === "doing" ? 50 : t.task_status === "suspended" ? 0 : 1),
       checkin_type: normalizeCheckinType(t.checkin_type),
       source: normalizeTaskSource(t.source),
       score: t.score,
@@ -685,7 +685,7 @@ router.get("/tasks/detail", async (req, res) => {
       images: parseImgList(task.images),
       task_status: task.task_status,
       risk_status: task.risk_status || "pending",
-      progress: Number(task.progress) >= 0 ? Number(task.progress) : (task.task_status === "done" ? 100 : task.task_status === "doing" ? 50 : 1),
+      progress: Number(task.progress) >= 0 ? Number(task.progress) : (task.task_status === "done" ? 100 : task.task_status === "doing" ? 50 : task.task_status === "suspended" ? 0 : 1),
       checkin_type: normalizeCheckinType(task.checkin_type),
       source: normalizeTaskSource(task.source),
       score: task.score,
@@ -1230,6 +1230,8 @@ router.post("/checkins/create", async (req, res) => {
     if (error) throw error;
     const task = rows && rows[0];
     if (!task) return res.json(fail("任务不存在"));
+    // 兜底风控：挂起任务暂停，任何人不可打卡（需先恢复状态）
+    if (task.task_status === "suspended") return res.json(fail("任务已挂起，不能打卡"));
     // 兜底风控：已完成任务仅可查看，学生禁止打卡（管理员不受限）
     if (!isAdmin(req) && task.task_status === "done") return res.json(fail("任务已完成，不能打卡"));
 
@@ -2435,11 +2437,14 @@ async function buildDashboard(req, staffId) {
     const todoCount = tasks.filter(t => t.task_status === "todo").length;
     const doingCount = tasks.filter(t => t.task_status === "doing").length;
     const doneCount = tasks.filter(t => t.task_status === "done").length;
+    const suspendedCount = tasks.filter(t => t.task_status === "suspended").length;
+    // 完成率分母排除挂起任务（挂起=暂停，不计入完成进度）
+    const activeTaskCount = Math.max(0, totalTasks - suspendedCount);
     const totalCheckins = checkins.length;
     const today = formatDate(new Date());
     const todayCheckins = checkins.filter(c => String(c.checkin_date || "").slice(0, 10) === today).length;
     const todayCheckedIn = todayCheckins > 0;
-    const completionRate = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
+    const completionRate = activeTaskCount > 0 ? Math.round((doneCount / activeTaskCount) * 100) : 0;
 
     // 游戏化：经验值来自积分账本（审核通过+10/完成任务+30，删除与回退自动扣分）
     const xp = await staffPoints(staffId);
@@ -2467,6 +2472,7 @@ async function buildDashboard(req, staffId) {
       { name: "待完成", value: todoCount, color: "#f5222d" },
       { name: "进行中", value: doingCount, color: "#1677ff" },
       { name: "已完成", value: doneCount, color: "#52c41a" },
+      { name: "任务挂起", value: suspendedCount, color: "#faad14" },
     ].filter(x => x.value > 0);
     const taskRank = [...tasks].map(t => ({ title: t.title, value: t.checkin_count || 0 })).sort((a, b) => b.value - a.value).slice(0, 8);
 
@@ -2475,7 +2481,7 @@ async function buildDashboard(req, staffId) {
     const soonMs = todayMs + 3 * 86400000;
     let overdueCount = 0, dueSoonCount = 0;
     tasks.forEach(t => {
-      if (t.task_status === "done") return;
+      if (t.task_status === "done" || t.task_status === "suspended") return;
       const dl = String(t.deadline || "").slice(0, 10);
       if (!dl) return;
       const dlMs = new Date(`${dl}T00:00:00`).getTime();
@@ -2504,7 +2510,7 @@ async function buildDashboard(req, staffId) {
       { key: "task_done_5", name: "任务能手", desc: "完成 5 个任务", icon: "🚀", unlocked: doneCount >= 5, progress: Math.min(1, doneCount / 5) },
       { key: "task_done_10", name: "任务大师", desc: "完成 10 个任务", icon: "🎓", unlocked: doneCount >= 10, progress: Math.min(1, doneCount / 10) },
       { key: "task_create_5", name: "筑梦起航", desc: "创建 5 个任务", icon: "🏗️", unlocked: totalTasks >= 5, progress: Math.min(1, totalTasks / 5) },
-      { key: "all_task_done", name: "全任务达成", desc: "所有任务全部完成", icon: "🏁", unlocked: totalTasks > 0 && doneCount >= totalTasks, progress: totalTasks > 0 ? Math.min(1, doneCount / totalTasks) : 0 },
+      { key: "all_task_done", name: "全任务达成", desc: "所有任务全部完成", icon: "🏁", unlocked: activeTaskCount > 0 && doneCount >= activeTaskCount, progress: activeTaskCount > 0 ? Math.min(1, doneCount / activeTaskCount) : 0 },
       { key: "level_3", name: "初露锋芒", desc: "达到 Lv.3", icon: "🌱", unlocked: level.level >= 3, progress: Math.min(1, level.level / 3) },
       { key: "level_5", name: "小有名气", desc: "达到 Lv.5", icon: "🌟", unlocked: level.level >= 5, progress: Math.min(1, level.level / 5) },
       { key: "level_10", name: "巅峰学霸", desc: "达成满级 Lv.10", icon: "🏆", unlocked: level.level >= 10, progress: Math.min(1, level.level / 10) },
@@ -2524,7 +2530,7 @@ async function buildDashboard(req, staffId) {
 
     const reminders = buildLearningReminders({
       todayCheckedIn, todayCheckins, currentStreak, completionRate,
-      doneCount, totalTasks, remainingCount: totalTasks - doneCount,
+      doneCount, totalTasks, remainingCount: activeTaskCount - doneCount,
       activeCount: doingCount, overdueCount, dueSoonCount,
       nextBadge: badgesWithTime.find(b => !b.unlocked) || null,
     });
@@ -2565,7 +2571,7 @@ async function buildDashboard(req, staffId) {
 
   return {
     staff: viewed || { staff_id: String(staffId), nickname: "同学" },
-    stats: { totalTasks, todoCount, doingCount, doneCount, totalCheckins, todayCheckins, todayCheckedIn, completionRate },
+    stats: { totalTasks, todoCount, doingCount, doneCount, suspendedCount, totalCheckins, todayCheckins, todayCheckedIn, completionRate },
     level,
     streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
     badges: badgesWithTime,
