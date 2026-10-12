@@ -36,6 +36,7 @@ Page({
     videoDuration: 0,
     videoSize: 0,
     videoSizeText: '',
+    uploadingImages: false,   // 打卡图片是否有正在进行的上传（未完成前禁止提交，避免附件丢失）
     submitting: false,
   },
 
@@ -137,9 +138,22 @@ Page({
 
   // ==================== 图文打卡 ====================
   addImages() {
+    // 上传期间禁止重复选图，避免与提交并发导致附件状态错乱
+    if (this.data.uploadingImages) {
+      wx.showToast({ title: '图片上传中，请稍候', icon: 'none' });
+      return;
+    }
+    this.setData({ uploadingImages: true });
     chooseAndUploadImages(9, 'tasks', this.data.images)
-      .then((paths) => this.setData({ images: [...this.data.images, ...paths.map(fileUrl)] }))
-      .catch(() => {});
+      .then((paths) => {
+        if (paths && paths.length) {
+          this.setData({ images: [...this.data.images, ...paths.map(fileUrl)] });
+        }
+      })
+      .catch((e) => {
+        wx.showToast({ title: (e && e.msg) || '图片上传失败，请重试', icon: 'none' });
+      })
+      .finally(() => this.setData({ uploadingImages: false }));
   },
   previewImage(e) {
     const urls = this.data.images;
@@ -218,6 +232,11 @@ Page({
     }
     // 各类型就绪性校验统一前置：不满足直接拦截返回（不进入 .then 成功分支，避免假成功跳走）
     if (this.data.checkinType === 'image') {
+      // 图片上传未完成时禁止提交：避免未上传完成的图片被静默丢弃（附件丢失）
+      if (this.data.uploadingImages) {
+        wx.showToast({ title: '图片上传中，请稍候再提交', icon: 'none' });
+        return;
+      }
       // 图文打卡：文字或图片二选一即可（默认备注“已完成”，仅二者都为空时拦截）
       if (!String(this.data.note || '').trim() && (!this.data.images || this.data.images.length < 1)) {
         wx.showToast({ title: '图文打卡请填写打卡文字或上传图片', icon: 'none' });

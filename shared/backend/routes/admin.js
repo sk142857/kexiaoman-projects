@@ -17,7 +17,8 @@ const { logStaffEvent } = require("../staffAudit");
 const { logTaskEvent } = require("../taskTimeline");
 const { listStaffApps, listAllApps, isStaffAllowedApp, invalidateAppConfig } = require("../apps");
 const { createInvite, inviteById, genUniqueInviteCode, familyScope } = require("./lpAuth");
-const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted, staffPoints, staffPointsMap, recentPointLogs, syncBadgeUnlocks, taskAllRecipientsDone } = require("../learningLib");
+const { cachedStaffRows, cachedCollectionNames, cachedDictItems, invalidateStaffRows, invalidateCollectionRows, invalidateDictItems, normalizeCheckinType, normalizeTaskSource, applyTaskStatusPoints, awardCheckinApproved, deductCheckinDeleted, deductTaskDeleted, staffPoints, staffPointsMap, recentPointLogs, syncBadgeUnlocks, taskAllRecipientsDone, levelFromXp } = require("../learningLib");
+const { getDecayConfig } = require("../decayLib");
 const { invalidatePrefix } = require("../cache");
 const { invalidateParams } = require("../params");
 const { isProtectedStaff } = require("../protect");
@@ -652,6 +653,7 @@ router.post("/api/users/lock", adminAuth, async (req, res) => {
       locked_at: nowSql(),
       updated_at: nowSql(),
     }).eq("user_id", uid);
+    try { invalidatePrefix(`authCtx:${u.openid}:`); } catch (_) {}
     const durationText = h % 24 === 0 ? `${h / 24} 天` : `${h} 小时`;
     logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "锁定用户账号", module: "users", apiPath: "/api/users/lock", bizId: uid, extra: { user_uid: u.user_uid, nickname: u.nickname, hours: h, until: until.toISOString(), reason: reason || "" } });
     res.json(ok({ locked_until: until, durationText }, `已锁定 ${durationText}`));
@@ -676,6 +678,7 @@ router.post("/api/users/unlock", adminAuth, async (req, res) => {
       locked_reason: "",
       updated_at: nowSql(),
     }).eq("user_id", uid);
+    try { invalidatePrefix(`authCtx:${u.openid}:`); } catch (_) {}
     logStaffEvent({ req, staff: req.staff, eventType: "custom", eventName: "解锁用户账号", module: "users", apiPath: "/api/users/unlock", bizId: uid, extra: { user_uid: u.user_uid, nickname: u.nickname } });
     res.json(ok(null, "已解锁"));
   } catch (e) {
@@ -1288,6 +1291,7 @@ async function cascadeDeleteStaffData(staffId, actorStaffId, ctx) {
   invalidateStaffRows([id]);
   try { invalidatePrefix("staffapps:"); } catch (_) {}
   try { invalidatePrefix("familyScope:"); } catch (_) {}
+  try { invalidatePrefix("authCtx:"); } catch (_) {}
 }
 
 /** 判断某 openid 是否已无任何绑定（删除绑定后仍无其它绑定则视为孤儿微信用户） */
@@ -2211,6 +2215,7 @@ router.post("/api/lp_children/bind_create", adminAuth, async (req, res) => {
     logStaffEvent({ req, staff: req.staff, eventType: "create", eventName: "后台新建家长-孩子绑定", module: "lp_children", apiPath: "/api/lp_children/bind_create", bizId: childId, extra: { child_name: childName, parent_staff_id: parent.staff_id, student_staff_id: studentId, invite_code: invite ? invite.invite_code : "", invite_note: hasMiniBinding ? "已有小程序绑定，未生成" : (availableInvite ? "复用已有可用邀请码" : "已生成") } });
     // 失效 familyScope 缓存：家长新增孩子后，其名下孩子列表立即重建（否则家长端首页一直显示「还没有孩子」）
     try { invalidatePrefix("familyScope:"); } catch (_) {}
+    try { invalidatePrefix("authCtx:"); } catch (_) {}
     const baseMsg = `已创建孩子档案「${childName}」并绑定主家长「${parentName}」`;
     if (hasMiniBinding) {
       res.json(ok({ child_id: childId, child_name: childName, invite_code: "", student_nickname: studentName, invite_note: "already_bound" }, `${baseMsg}。该学生已完成小程序绑定，无需邀请码`));
@@ -2278,6 +2283,7 @@ router.post("/api/lp_children/bind", adminAuth, async (req, res) => {
     logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "后台绑定家长-孩子", module: "lp_children", apiPath: "/api/lp_children/bind", bizId: child.child_id, extra: { child_name: child.child_name, from_parent: currentParentId || null, to_parent: parent.staff_id, parent_nickname: parentName } });
     // 失效 familyScope 缓存：换绑后新旧主家长名下孩子列表立即重建（旧家长端不再看到该孩子，新家长端立刻可见）
     try { invalidatePrefix("familyScope:"); } catch (_) {}
+    try { invalidatePrefix("authCtx:"); } catch (_) {}
     res.json(ok(null, `已绑定，孩子「${child.child_name}」现归属主家长「${parentName}」`));
   } catch (e) {
     console.error("[admin] lp_children bind error", e);
@@ -2324,6 +2330,7 @@ router.post("/api/lp_children/unbind", adminAuth, async (req, res) => {
     logStaffEvent({ req, staff: req.staff, eventType: "update", eventName: "后台解绑家长-孩子", module: "lp_children", apiPath: "/api/lp_children/unbind", bizId: child.child_id, extra: { child_name: child.child_name, from_parent: currentParentId, parent_nickname: parentName } });
     // 失效 familyScope 缓存：解绑后旧主家长名下孩子列表立即重建（家长端不再看到该孩子）
     try { invalidatePrefix("familyScope:"); } catch (_) {}
+    try { invalidatePrefix("authCtx:"); } catch (_) {}
     res.json(ok(null, `已解绑，孩子「${child.child_name}」现无主家长归属`));
   } catch (e) {
     console.error("[admin] lp_children unbind error", e);
@@ -4327,43 +4334,9 @@ router.get("/dashboard/monitor", adminAuth, async (req, res) => {
 // 说明：
 // - 面向学生角色，突出游戏化等级体验（经验值/等级/连续打卡/成就徽章），激励学生坚持打卡；
 // - 统计口径：已删除任务的打卡（孤儿打卡）一律剔除，不进入任何统计与列表，保证「已删除任务/打卡不统计到仪表盘」。
-// 等级配置：经验值 = 积分账本余额（打卡审核通过 +10、完成任务 +30；删除已通过打卡 -10、任务回退 -30、删除任务回扣，见 learningLib 积分账本）
-const LEARNING_LEVELS = [
-  { level: 1, xp: 0, title: "学习新手" },
-  { level: 2, xp: 100, title: "初学乍练" },
-  { level: 3, xp: 250, title: "渐入佳境" },
-  { level: 4, xp: 450, title: "小有所成" },
-  { level: 5, xp: 700, title: "学有所得" },
-  { level: 6, xp: 1000, title: "游刃有余" },
-  { level: 7, xp: 1400, title: "融会贯通" },
-  { level: 8, xp: 1900, title: "博学多才" },
-  { level: 9, xp: 2500, title: "学富五车" },
-  { level: 10, xp: 3200, title: "一代学霸" },
-];
-
-/** 由累计 XP 推导等级与升级进度（满级封顶） */
-function levelFromXp(xp) {
-  let current = LEARNING_LEVELS[0];
-  let next = null;
-  for (let i = LEARNING_LEVELS.length - 1; i >= 0; i--) {
-    if (xp >= LEARNING_LEVELS[i].xp) {
-      current = LEARNING_LEVELS[i];
-      next = LEARNING_LEVELS[i + 1] || null;
-      break;
-    }
-  }
-  const span = next ? next.xp - current.xp : 0;
-  const progress = next ? Math.min(100, Math.floor(((xp - current.xp) / span) * 100)) : 100;
-  return {
-    level: current.level,
-    title: current.title,
-    xp,
-    xpInLevel: xp - current.xp,
-    xpToNext: next ? next.xp - xp : 0,
-    progress,
-    maxLevel: !next,
-  };
-}
+// 等级配置：经验值 = 积分账本余额（打卡审核通过 +10、完成任务 +30；删除已通过打卡 -10、
+// 任务回退 -30、删除任务回扣、连续未打卡衰减，见 learningLib 积分账本）。
+// 等级模型统一取自 learningLib（无限等级 + 段位称号，永不封顶），避免与小程序端重复定义漂移。
 
 /** 以某天为终点向前计算连续打卡天数（含终点当天） */
 function streakEndingAt(dateSet, endDate) {
@@ -4647,6 +4620,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       xp = Object.values(pmap).reduce((s, v) => s + (Number(v) || 0), 0);
     }
     const level = levelFromXp(xp);
+    const decay = await getDecayConfig();
     const checkinDates = new Set(checkins.map(c => String(c.checkin_date || "").slice(0, 10)).filter(Boolean));
     // 当前连击：以今天为终点；今天未打卡时以昨天为终点，避免当天连击数归零
     const todayStreak = streakEndingAt(checkinDates, new Date());
@@ -4741,11 +4715,16 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       { key: "task_create_10", name: "规划大师", desc: "创建 10 个任务", icon: "📋", unlocked: totalTasks >= 10, progress: Math.min(1, totalTasks / 10) },
       { key: "all_task_done", name: "全任务达成", desc: "所有任务全部完成", icon: "🏁", unlocked: activeTaskCount > 0 && doneCount >= activeTaskCount, progress: activeTaskCount > 0 ? Math.min(1, doneCount / activeTaskCount) : 0 },
 
-      // —— 等级系列 ——
+      // —— 等级系列（无限等级，里程碑不断延伸） ——
       { key: "level_3", name: "初露锋芒", desc: "达到 Lv.3", icon: "🌱", unlocked: level.level >= 3, progress: Math.min(1, level.level / 3) },
       { key: "level_5", name: "小有名气", desc: "达到 Lv.5", icon: "🌟", unlocked: level.level >= 5, progress: Math.min(1, level.level / 5) },
       { key: "level_8", name: "声名鹊起", desc: "达到 Lv.8", icon: "🚀", unlocked: level.level >= 8, progress: Math.min(1, level.level / 8) },
-      { key: "level_10", name: "巅峰学霸", desc: "达成满级 Lv.10", icon: "🏆", unlocked: level.level >= 10, progress: Math.min(1, level.level / 10) },
+      { key: "level_10", name: "一代学霸", desc: "达到 Lv.10", icon: "🏆", unlocked: level.level >= 10, progress: Math.min(1, level.level / 10) },
+      { key: "level_15", name: "学海领航", desc: "达到 Lv.15", icon: "🧭", unlocked: level.level >= 15, progress: Math.min(1, level.level / 15) },
+      { key: "level_20", name: "独占鳌头", desc: "达到 Lv.20", icon: "🥇", unlocked: level.level >= 20, progress: Math.min(1, level.level / 20) },
+      { key: "level_30", name: "学界新星", desc: "达到 Lv.30", icon: "💫", unlocked: level.level >= 30, progress: Math.min(1, level.level / 30) },
+      { key: "level_50", name: "一代宗师", desc: "达到 Lv.50", icon: "🎖️", unlocked: level.level >= 50, progress: Math.min(1, level.level / 50) },
+      { key: "level_100", name: "传奇学神", desc: "达到 Lv.100", icon: "👑", unlocked: level.level >= 100, progress: Math.min(1, level.level / 100) },
 
       // —— 科目系列 ——
       { key: "subject_3", name: "博学多闻", desc: "涉猎 3 个科目", icon: "📚", unlocked: subjectDist.length >= 3, progress: Math.min(1, subjectDist.length / 3) },
@@ -4842,6 +4821,19 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
       nextBadge: badgesWithTime.find(b => !b.unlocked) || null,
     });
 
+    // 连续未打卡衰减提醒（单人视图：中断超宽限期时置顶提示，避免经验被扣/降级）
+    if (target && decay.enabled && checkinDates.size > 0 && !todayCheckedIn) {
+      const lastDate = [...checkinDates].sort().pop();
+      const inactiveDays = Math.round((new Date(`${today}T00:00:00`) - new Date(`${lastDate}T00:00:00`)) / 86400000);
+      if (inactiveDays > decay.graceDays) {
+        reminders.unshift({
+          type: "banner", severity: "danger", priority: -1, icon: "overdue",
+          title: `已连续 ${inactiveDays} 天未打卡`,
+          desc: `超过 ${decay.graceDays} 天宽限期，经验按每天 ${decay.pointsPerDay} 分衰减，等级可能下调，快提醒 TA 打卡吧！`,
+        });
+      }
+    }
+
     res.json(ok({
       student: target
         ? { staff_id: target.staff_id, nickname: target.nickname, username: target.username }
@@ -4858,6 +4850,7 @@ router.get("/dashboard/learning", adminAuth, async (req, res) => {
         remainingCount: activeTaskCount - doneCount,
       },
       level,
+      decay,
       streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
       badges: badgesWithTime,
       days,

@@ -13,9 +13,17 @@ const { db } = require("./db");
 const { nowSql } = require("./utils");
 const { nextSeq } = require("./seq");
 const { LP_APP } = require("./routes/lpAuth");
+const { invalidate } = require("./cache");
 
 const GRACE_DAYS = 7;
 const ALLOWED_ROLES = ["parent", "personal"];
+
+/** 注销申请/撤销/执行后清掉中间件的待注销短缓存，避免 460 拦截延迟生效 */
+function invalidateCancelCache(appId, openid) {
+  const oid = String(openid || "");
+  if (!oid) return;
+  invalidate(`authCancel:${appId || LP_APP.app_id}:${oid}`);
+}
 
 /** 校验角色是否可注销 */
 function roleCanCancel(role) {
@@ -112,6 +120,7 @@ async function requestCancellation({ appId, staffId, openid, role, mode = "grace
       updated_at: now,
     });
     await executeCancellation({ staff_id: staff, openid: oid, app_id: app });
+    invalidateCancelCache(app, oid);
     return { mode: "immediate", status: "executed", effective_at: now, msg: "账号已注销" };
   }
 
@@ -131,6 +140,7 @@ async function requestCancellation({ appId, staffId, openid, role, mode = "grace
     created_at: now,
     updated_at: now,
   });
+  invalidateCancelCache(app, oid);
   return { mode: "grace", status: "pending", effective_at: effectiveAt, msg: "已提交7天注销申请，冷静期内可撤销" };
 }
 
@@ -142,6 +152,7 @@ async function cancelPendingCancellation(appId, openid) {
       .update({ status: "cancelled", cancelled_at: nowSql(), updated_at: nowSql() })
       .eq("app_id", app).eq("openid", String(openid || "")).eq("status", "pending");
     if (error) throw error;
+    invalidateCancelCache(app, openid);
     return true;
   } catch (e) {
     console.error("[accountLib] 撤销注销失败", e);

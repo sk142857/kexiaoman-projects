@@ -75,28 +75,39 @@ Page({
       this._loadStudents();
       if (role !== 'admin') this._loadFamilyCheck();
     }
+    // 等启动登录完成再拉科目/任务，避免冷启动 token 未就绪导致科目字典加载失败
+    const app = getApp();
+    const ready = app && app.lpReady ? Promise.resolve(app.lpReady).catch(() => {}) : Promise.resolve();
     // 先加载科目，再加载任务/合集，保证编辑时科目下拉能反映任务原科目
-    this._loadSubjects().then(() => {
+    ready.then(() => this._loadSubjects()).then(() => {
       if (id) this._loadTask(id);
       else this._loadCollections();
     });
   },
 
-  // 加载我的科目（动态下拉；未设置科目时提示去创建）
+  // 加载我的科目（动态下拉；家庭科目表为空时回退全局「科目字典」，避免下拉为空、选不了科目）
   async _loadSubjects() {
+    let subjectOptions = [];
+    let manageDisabled = false;
     try {
       const res = await lp.subjects();
       const list = (res && res.list) || [];
-      const subjectOptions = list.map(s => s.name).filter(Boolean);
-      this.setData({
-        subjectOptions,
-        subjectLoaded: true,
-        // ⚠️ 特殊情况：别名家庭直接使用管理员维护的科目（禁用自行管理引导）
-        subjectManageDisabled: !!(res && res.manage_disabled),
-      });
+      subjectOptions = list.map(s => s.name).filter(Boolean);
+      // ⚠️ 特殊情况：别名家庭直接使用管理员维护的科目（禁用自行管理引导）
+      manageDisabled = !!(res && res.manage_disabled);
     } catch (_) {
-      this.setData({ subjectLoaded: true, subjectOptions: [] });
+      subjectOptions = [];
     }
+    // 兜底：家庭科目表为空（或请求失败）时，回退后端「科目字典」（同后台任务表单的数据源），
+    // 保证克隆/新建任务的科目下拉始终可加载，否则会出现「下拉列表为空，选不了科目」。
+    if (subjectOptions.length === 0) {
+      try {
+        const dictRes = await lp.dicts(['subject']);
+        const items = (dictRes && dictRes.subject) || [];
+        subjectOptions = [...new Set(items.map(it => (it && (it.label || it.value)) || '').filter(Boolean))];
+      } catch (_) { /* 字典也不可用时保持为空，由页面引导创建科目 */ }
+    }
+    this.setData({ subjectOptions, subjectLoaded: true, subjectManageDisabled: manageDisabled });
   },
 
   async _loadStudents() {

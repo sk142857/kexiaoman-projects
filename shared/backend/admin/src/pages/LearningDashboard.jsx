@@ -160,9 +160,11 @@ export default function LearningDashboard() {
     ...(data?.stats || {}),
   };
   const level = {
-    level: 1, title: '学习新手', xp: 0, xpInLevel: 0, xpToNext: 100, progress: 0, maxLevel: false,
+    level: 1, title: '启蒙学徒', nextLevel: 2, nextTitle: '启蒙学徒',
+    xp: 0, xpInLevel: 0, xpToNext: 100, progress: 0, maxLevel: false,
     ...(data?.level || {}),
   };
+  const decay = { enabled: false, graceDays: 3, pointsPerDay: 5, ...(data?.decay || {}) };
   const streak = { current: 0, max: 0, todayCheckedIn: false, ...(data?.streak || {}) };
   // 图表数据同样兜底：value 统一归一化为数字，类别字段回退默认值，杜绝图表标签/坐标轴渲染 undefined/NaN
   const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -182,8 +184,8 @@ export default function LearningDashboard() {
   const unlockedCount = badges.filter(b => b.unlocked).length;
 
   const kpis = [
-    { title: '当前等级', value: `Lv.${level.level ?? 1}`, icon: <TrophyOutlined />, grad: GRADIENTS.gold, sub: level.title || '学习新手' },
-    { title: '累计经验', value: level.xp ?? 0, icon: <StarFilled />, grad: GRADIENTS.purple, sub: level.maxLevel ? '已满级' : `距下一级还差 ${level.xpToNext ?? 0}` },
+    { title: '当前等级', value: `Lv.${level.level ?? 1}`, icon: <TrophyOutlined />, grad: GRADIENTS.gold, sub: level.title || '启蒙学徒' },
+    { title: '累计经验', value: level.xp ?? 0, icon: <StarFilled />, grad: GRADIENTS.purple, sub: `距 Lv.${level.nextLevel ?? 2} 还差 ${level.xpToNext ?? 0}` },
     { title: '连续打卡', value: `${streak.current ?? 0} 天`, icon: <FireOutlined />, grad: GRADIENTS.orange, sub: `历史最长 ${streak.max ?? 0} 天` },
     { title: '累计打卡', value: stats.totalCheckins ?? 0, icon: <CalendarOutlined />, grad: GRADIENTS.cyan, sub: '总打卡次数' },
     { title: '今日打卡', value: stats.todayCheckedIn ? '已完成' : '待完成', icon: <CheckCircleOutlined />, grad: stats.todayCheckedIn ? GRADIENTS.green : GRADIENTS.gray, sub: stats.todayCheckins ? `今日 ${stats.todayCheckins ?? 0} 次` : '记得打卡哦' },
@@ -284,7 +286,7 @@ export default function LearningDashboard() {
               <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.1, background: 'linear-gradient(180deg,#ffd666,#ff9c2e)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 Lv.{level.level ?? 1}
               </div>
-              <div style={{ fontSize: 13, opacity: 0.92 }}>{level.title || '学习新手'}</div>
+              <div style={{ fontSize: 13, opacity: 0.92 }}>{level.title || '启蒙学徒'}</div>
             </div>
 
             <div style={{ textAlign: 'center', padding: '0 16px', minWidth: 130 }}>
@@ -305,7 +307,7 @@ export default function LearningDashboard() {
           <div style={{ marginTop: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6, opacity: 0.95 }}>
               <span>⭐ 经验值 {level.xp ?? 0}</span>
-              <span>{level.maxLevel ? '🎉 已达成满级' : `距离下一级还差 ${level.xpToNext ?? 0} 经验（打卡 +10 · 完成任务 +30）`}</span>
+              <span>{`距 Lv.${level.nextLevel ?? 2}「${level.nextTitle || ''}」还差 ${level.xpToNext ?? 0} 经验（打卡 +10 · 完成任务 +30${decay.enabled ? ` · 连续 ${decay.graceDays} 天未打卡每天 -${decay.pointsPerDay}` : ''}）`}</span>
             </div>
             <Progress
               percent={level.progress ?? 0}

@@ -142,7 +142,8 @@ CREATE TABLE t_api_trace (
   KEY idx_created (created_at),
   KEY idx_openid_created (openid, created_at),
   KEY idx_user_id (user_id),
-  KEY idx_trace_status (trace_status)
+  KEY idx_trace_status (trace_status),
+  KEY idx_status_created (trace_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口调用链路';
 
 -- ==================== 后台管理 ====================
@@ -202,7 +203,8 @@ CREATE TABLE t_staff (
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (staff_id),
-  UNIQUE KEY uk_staff_username (staff_username)
+  UNIQUE KEY uk_staff_username (staff_username),
+  KEY idx_role_status (staff_role, staff_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台管理员';
 
 -- 后台 staff 操作审计日志表（登录/登出/点击菜单/增删改查等）
@@ -226,7 +228,8 @@ CREATE TABLE t_staff_events (
   KEY idx_staff_created (staff_id, created_at),
   KEY idx_type_created (event_type, created_at),
   KEY idx_module_created (module, created_at),
-  KEY idx_app_created (app_id, created_at)
+  KEY idx_app_created (app_id, created_at),
+  KEY idx_app_staff_created (app_id, staff_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台操作审计';
 
 -- 小程序注册表（多小程序共享后台；密钥类配置存表，后台可维护，不用环境变量）
@@ -417,7 +420,9 @@ CREATE TABLE t_lp_tasks (
   KEY idx_created_by (created_by),
   KEY idx_status (task_status),
   KEY idx_collection (collection_id),
-  KEY idx_subject (subject)
+  KEY idx_subject (subject),
+  KEY idx_status_updated (task_status, updated_at),
+  KEY idx_created_by_created (created_by, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习任务';
 
 -- 任务派发表（任务→学生角色的后台员工，一个任务可派发给多名学生；学生自建任务自动派发给自己）
@@ -460,7 +465,10 @@ CREATE TABLE t_lp_task_checkins (
   KEY idx_date (checkin_date),
   KEY idx_created_at (created_at),
   KEY idx_review_status (review_status),
-  KEY idx_review_created (review_status, created_by)
+  KEY idx_review_created (review_status, created_by),
+  KEY idx_review_created_at (review_status, created_at),
+  KEY idx_created_by_date (created_by, checkin_date),
+  KEY idx_task_created (task_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学习任务打卡';
 -- 学习积分账本表（主键由序列 point_log_id 发放；积分=流水累加，审核通过/任务完成加分，删除/回退自动回扣）
 DROP TABLE IF EXISTS t_lp_point_logs;
@@ -573,7 +581,8 @@ CREATE TABLE t_lp_students (
   PRIMARY KEY (id),
   UNIQUE KEY uk_app_openid_staff (app_id, openid, staff_id),
   KEY idx_app_openid (app_id, openid),
-  KEY idx_staff (staff_id)
+  KEY idx_staff (staff_id),
+  KEY idx_app_bound (app_id, bound_status, staff_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满小程序用户-账号绑定（一 openid 多身份，共用微信）';
 
 -- 课小满邀请码独立表（学生码 / 家长码 / 家属共享码；邀请码不再挂 t_staff 维护）
@@ -597,7 +606,8 @@ CREATE TABLE t_lp_invites (
   KEY idx_owner (owner_staff_id),
   KEY idx_status (status),
   KEY idx_kind (kind),
-  KEY idx_child (child_id)
+  KEY idx_child (child_id),
+  KEY idx_owner_status (owner_staff_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满邀请码独立表（学生码/家长码/家属共享码）';
 
 -- 课小满孩子档案（家长-孩子关系）
@@ -619,7 +629,9 @@ CREATE TABLE t_lp_children (
   PRIMARY KEY (child_id),
   KEY idx_parent (parent_staff_id),
   KEY idx_student (student_staff_id),
-  KEY idx_app_parent (app_id, parent_staff_id)
+  KEY idx_app_parent (app_id, parent_staff_id),
+  KEY idx_parent_status (parent_staff_id, child_status),
+  KEY idx_student_status (student_staff_id, child_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满孩子档案（家长-孩子关系）';
 
 -- 课小满家属关系（主家长-家属）
@@ -637,7 +649,9 @@ CREATE TABLE t_lp_family_members (
   PRIMARY KEY (id),
   UNIQUE KEY uk_owner_member (owner_staff_id, member_staff_id),
   KEY idx_owner (owner_staff_id),
-  KEY idx_member (member_staff_id)
+  KEY idx_member (member_staff_id),
+  KEY idx_member_status (member_staff_id, member_status),
+  KEY idx_owner_status (owner_staff_id, member_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满家属关系（主家长-家属）';
 
 -- 课小满订阅消息授权记录表（主键由序列 subscribe_grant_id 发放）
@@ -660,7 +674,8 @@ CREATE TABLE t_lp_subscribe_grants (
   KEY idx_openid (openid),
   KEY idx_status (grant_status),
   KEY idx_staff_status (staff_id, grant_status),
-  KEY idx_app_created (app_id, created_at)
+  KEY idx_app_created (app_id, created_at),
+  KEY idx_staff_created (staff_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满订阅消息授权记录';
 
 -- 课小满订阅消息发送记录表（主键由序列 subscribe_send_id 发放）
@@ -685,7 +700,8 @@ CREATE TABLE t_lp_subscribe_sends (
   KEY idx_staff_created (staff_id, created_at),
   KEY idx_biz (biz_type, biz_id),
   KEY idx_status (send_status),
-  KEY idx_event_app_created (event_type, app_id, created_at)
+  KEY idx_event_app_created (event_type, app_id, created_at),
+  KEY idx_app_created (app_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满订阅消息发送记录';
 
 -- 课小满系统通知模板表（类型 × 角色，占位符模板，管理员可改；主键由序列 template_id 发放）
@@ -725,7 +741,8 @@ CREATE TABLE t_lp_notifications (
   PRIMARY KEY (notify_id),
   KEY idx_staff_created (staff_id, created_at),
   KEY idx_staff_read (staff_id, is_read, created_at),
-  KEY idx_app_type (app_id, type)
+  KEY idx_app_type (app_id, type),
+  KEY idx_staff_app_created (staff_id, app_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课小满系统通知（站内信，与订阅消息隔离）';
 
 -- 系统参数表（常量维护，支持 JSON 文案集中维护；主键由序列 param_id 发放）

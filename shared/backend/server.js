@@ -16,6 +16,7 @@ const familyRouter = require("./routes/family");
 const { router: adminRouter } = require("./routes/admin");
 const { startMonitor } = require("./monitor");
 const { startReminder } = require("./reminder");
+const { startDecay } = require("./decayLib");
 const { traceMiddleware } = require("./trace");
 const { resolveApp, ensureAppInDb } = require("./apps");
 const { normalizeOpenid } = require("./appAuth");
@@ -164,6 +165,8 @@ app.listen(PORT, () => {
   startMonitor();
   // 打卡提醒定时任务（每天提醒窗口内扫描发送，进程内定时器）
   startReminder();
+  // 打卡衰减定时任务（连续未打卡自动扣分/降级，进程内定时器，账本按天幂等）
+  startDecay();
   // 内容安全 worker（旁路检测；开关关闭时全链路短路，不影响业务）
   startAuditWorker();
   // 账号注销到期扫描（7天冷静期到期自动注销；进程内定时器，多实例时靠状态更新幂等兜底）

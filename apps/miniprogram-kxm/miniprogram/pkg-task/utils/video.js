@@ -2,7 +2,9 @@
  * 课小满 - 视频工具（选择 + 直传云存储 + 登记）
  *
  * 打卡视频 ≤1GB：选片后原样 wx.cloud.uploadFile 直传云存储
- * （绕过 callContainer 请求体 100KB 限制，前端不做本地压缩），
+ * （绕过 callContainer 请求体 100KB 限制，前端不做本地压缩；
+ * 选片时强制 sizeType:['original']，否则微信会对视频做本地压缩，
+ * 压缩产生的临时文件喂给 wx.cloud.uploadFile 会一直不回调导致「上传中」卡死），
  * 最后调 /api/storage/upload 登记 t_file_uploads（biz=videos，路径 kxm/videos/{date}/{id}.mp4）。
  * 后端在打卡创建后对视频做 ffmpeg 异步压缩（720p CRF23）节省空间，压缩完成前
  * video_url 为原始路径，压缩完成后自动回写为压缩后路径。
@@ -49,6 +51,7 @@ function chooseVideo() {
       count: 1,
       mediaType: ['video'],
       sourceType: ['album', 'camera'],
+      sizeType: ['original'], // 必须选原图：微信本地压缩后的临时文件会导致 cloud.uploadFile 卡死（压缩统一由后端异步完成）
       success: async (res) => {
         const item = (res.tempFiles || [])[0];
         if (!item) return resolve(null);
@@ -80,6 +83,17 @@ function uploadVideo(tempFilePath, duration, size) {
   return new Promise((resolve, reject) => {
     if (!tempFilePath) return reject(new Error('视频文件不存在'));
     const cloudPath = `kxm/videos/${todayDir()}/${genFileId()}.mp4`;
+    // 兜底：上传/登记回调若始终不触发（如临时文件异常），超时后结束等待，避免前端永久「加载中」
+    let done = false;
+    let timer = null;
+    const finish = (ok, payload) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      if (ok) resolve(payload);
+      else reject(payload);
+    };
+    timer = setTimeout(() => finish(false, { code: -2, msg: '视频上传超时，请重新选择原图后重试' }), 20 * 60 * 1000);
     wx.cloud.uploadFile({
       cloudPath,
       filePath: tempFilePath,
@@ -104,15 +118,15 @@ function uploadVideo(tempFilePath, duration, size) {
           success: (regRes) => {
             const body = (regRes && regRes.data) || {};
             if (body.code === 0) {
-              resolve({ path: cloudPath, duration: Math.max(1, Math.min(3600, Math.round(Number(duration) || 0))) });
+              finish(true, { path: cloudPath, duration: Math.max(1, Math.min(3600, Math.round(Number(duration) || 0))) });
             } else {
-              reject({ code: body.code, msg: body.msg || '视频登记失败' });
+              finish(false, { code: body.code, msg: body.msg || '视频登记失败' });
             }
           },
-          fail: () => reject({ code: -1, msg: '视频登记失败，请重试' }),
+          fail: () => finish(false, { code: -1, msg: '视频登记失败，请重试' }),
         });
       },
-      fail: (err) => reject({ code: -1, msg: (err && err.errMsg) || '视频上传失败' }),
+      fail: (err) => finish(false, { code: -1, msg: (err && err.errMsg) || '视频上传失败' }),
     });
   });
 }

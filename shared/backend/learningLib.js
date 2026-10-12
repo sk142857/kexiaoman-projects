@@ -213,8 +213,8 @@ async function syncTaskAssignees(staffId, role, taskId, assigneeIds) {
       if (!error && Array.isArray(sts)) validIds = sts.map(s => Number(s.staff_id));
     }
     await db.from("task_assignees").delete().eq("task_id", taskId);
-    for (const sid of validIds) {
-      await db.from("task_assignees").insert({ task_id: taskId, staff_id: sid, created_at: nowSql() });
+    if (validIds.length > 0) {
+      await db.from("task_assignees").insert(validIds.map(sid => ({ task_id: taskId, staff_id: sid, created_at: nowSql() })));
     }
   } catch (e) {
     console.error("[learningLib] syncTaskAssignees error", e);
@@ -234,40 +234,110 @@ async function isTaskDone(taskId) {
   }
 }
 
-// ==================== 学习仪表盘统计 ====================
-const LEARNING_LEVELS = [
-  { level: 1, xp: 0, title: "学习新手" },
-  { level: 2, xp: 100, title: "初学乍练" },
-  { level: 3, xp: 250, title: "渐入佳境" },
-  { level: 4, xp: 450, title: "小有所成" },
-  { level: 5, xp: 700, title: "学有所得" },
-  { level: 6, xp: 1000, title: "游刃有余" },
-  { level: 7, xp: 1400, title: "融会贯通" },
-  { level: 8, xp: 1900, title: "博学多才" },
-  { level: 9, xp: 2500, title: "学富五车" },
-  { level: 10, xp: 3200, title: "一代学霸" },
+// ==================== 学习等级（无限成长模型） ====================
+// 设计目标：等级永不封顶，让用户始终有「下一级」可追，持续获得升级正反馈；
+// 越往后每一级所需经验越多，因此升级会自然放缓但永不终止（打卡 3 年、10 年也不会满级）。
+//
+// 曲线（与历史 1~10 级阈值精确衔接，向后兼容，老用户等级不降反升）：
+//   升级所需经验（从 L 级升到 L+1 级）：
+//     - 1~4 级：固定 100 / 150 / 200 / 250
+//     - 5 级起：100 * (L - 2)（300 / 400 / 500 / …，逐级线性递增）
+//   累计经验为二次函数，等级 ∝ √经验：早期升级快、后期稳步放缓但无限延伸。
+//
+// 经验来源：积分账本余额（打卡审核通过 +10、完成任务 +30，删除/回退/不打卡衰减自动扣分）。
+const LEVEL_UP_BASE = [100, 150, 200, 250]; // 1→2 … 4→5 级升级所需经验
+const LEVEL_SLOPE = 100;                    // 5 级起每级经验递增斜率
+const LEVEL_THRESHOLD_SMALL = [0, 100, 250, 450, 700]; // 1~5 级累计经验
+
+/** 从 level 级升到 level+1 级所需经验（level>=1） */
+function xpToNextLevel(level) {
+  const lv = Math.max(1, Math.floor(Number(level) || 1));
+  if (lv <= LEVEL_UP_BASE.length) return LEVEL_UP_BASE[lv - 1];
+  return LEVEL_SLOPE * (lv - 2); // 5级:300 6级:400 … 10级:800 … 无限递增
+}
+
+/** 达到指定等级所需的累计经验（level>=1；level=1 为 0） */
+function levelThreshold(level) {
+  const lv = Math.max(1, Math.floor(Number(level) || 1));
+  if (lv <= LEVEL_THRESHOLD_SMALL.length) return LEVEL_THRESHOLD_SMALL[lv - 1];
+  // lv>=5：T(L) = 400 + 50*(L-3)*(L-2)（由等差数列求和闭式化，O(1)）
+  return 400 + 50 * (lv - 3) * (lv - 2);
+}
+
+// 段位称号：区间为 [from, 下一段 from)；超出最后一段后按「星」累加，
+// 保证任意等级都有称号、永不出现「无称号/已满级」。
+const LEVEL_TIERS = [
+  { from: 1,   name: "启蒙学徒" },
+  { from: 3,   name: "初学乍练" },
+  { from: 5,   name: "勤学不辍" },
+  { from: 8,   name: "渐入佳境" },
+  { from: 12,  name: "小有所成" },
+  { from: 17,  name: "学有所长" },
+  { from: 23,  name: "游刃有余" },
+  { from: 30,  name: "融会贯通" },
+  { from: 38,  name: "博学多才" },
+  { from: 47,  name: "学富五车" },
+  { from: 57,  name: "才高八斗" },
+  { from: 68,  name: "学贯中西" },
+  { from: 80,  name: "出类拔萃" },
+  { from: 93,  name: "卓尔不群" },
+  { from: 107, name: "誉满杏坛" },
+  { from: 122, name: "一代宗师" },
+  { from: 138, name: "学界泰斗" },
+  { from: 155, name: "传奇学者" },
+  { from: 173, name: "星辰学神" },
+  { from: 192, name: "神话学神" },
 ];
 
-function levelFromXp(xp) {
-  let current = LEARNING_LEVELS[0];
-  let next = null;
-  for (let i = LEARNING_LEVELS.length - 1; i >= 0; i--) {
-    if (xp >= LEARNING_LEVELS[i].xp) {
-      current = LEARNING_LEVELS[i];
-      next = LEARNING_LEVELS[i + 1] || null;
-      break;
-    }
+/** 等级对应段位称号（无限延伸：末段起按星数递增） */
+function levelTitle(level) {
+  const lv = Math.max(1, Math.floor(Number(level) || 1));
+  let band = LEVEL_TIERS[0];
+  for (const t of LEVEL_TIERS) {
+    if (lv >= t.from) band = t; else break;
   }
-  const span = next ? next.xp - current.xp : 0;
-  const progress = next ? Math.min(100, Math.floor(((xp - current.xp) / span) * 100)) : 100;
+  const last = LEVEL_TIERS[LEVEL_TIERS.length - 1];
+  if (lv >= last.from) return `${last.name}·${lv - last.from + 1}星`;
+  return band.name;
+}
+
+/**
+ * 由累计经验推导等级与升级进度（无限等级，永不封顶）。
+ * 返回：level/title/nextLevel/nextTitle/xp/xpInLevel/xpToNext/progress，
+ * maxLevel 恒为 false（保留字段以兼容旧前端）。
+ */
+function levelFromXp(xp) {
+  const x = Math.max(0, Math.floor(Number(xp) || 0));
+  let level;
+  if (x < LEVEL_THRESHOLD_SMALL[LEVEL_THRESHOLD_SMALL.length - 1]) {
+    level = 1;
+    for (let i = LEVEL_THRESHOLD_SMALL.length - 1; i >= 0; i--) {
+      if (x >= LEVEL_THRESHOLD_SMALL[i]) { level = i + 1; break; }
+    }
+  } else {
+    // 解 50*a*(a+1) + 400 <= x（a = level-3），a = floor((-1+√(1+4K))/2)，K=(x-400)/50
+    const K = (x - 400) / 50;
+    let a = Math.floor((-1 + Math.sqrt(1 + 4 * K)) / 2);
+    level = a + 3;
+    // 浮点边界修正
+    while (levelThreshold(level + 1) <= x) level++;
+    while (level > 1 && levelThreshold(level) > x) level--;
+  }
+  const cur = levelThreshold(level);
+  const next = levelThreshold(level + 1);
+  const span = next - cur;
+  const xpInLevel = x - cur;
+  const progress = span > 0 ? Math.min(100, Math.floor((xpInLevel / span) * 100)) : 0;
   return {
-    level: current.level,
-    title: current.title,
-    xp,
-    xpInLevel: xp - current.xp,
-    xpToNext: next ? next.xp - xp : 0,
+    level,
+    title: levelTitle(level),
+    nextLevel: level + 1,
+    nextTitle: levelTitle(level + 1),
+    xp: x,
+    xpInLevel,
+    xpToNext: span - xpInLevel,
     progress,
-    maxLevel: !next,
+    maxLevel: false,
   };
 }
 
@@ -306,6 +376,7 @@ const POINT_REASON_MAP = {
   checkin_deleted: "删除已通过打卡",
   task_undone: "任务状态回退",
   task_deleted: "删除任务回扣",
+  inactive_decay: "连续未打卡衰减",
   admin_adjust: "管理员调整",
 };
 
@@ -478,13 +549,9 @@ async function applyTaskStatusPoints(task, oldStatus, newStatus, actorStaffId = 
   const recipients = await taskDoneRecipients(task);
   if (recipients.length === 0) return;
   if (newStatus === "done") {
-    for (const sid of recipients) {
-      await logPoints({ staffId: sid, points: 30, reason: "task_done", refType: "task", refId: task.task_id, note: `完成任务「${title}」`, createdBy: actorStaffId });
-    }
+    await Promise.all(recipients.map(sid => logPoints({ staffId: sid, points: 30, reason: "task_done", refType: "task", refId: task.task_id, note: `完成任务「${title}」`, createdBy: actorStaffId })));
   } else if (oldStatus === "done") {
-    for (const sid of recipients) {
-      await logPoints({ staffId: sid, points: -30, reason: "task_undone", refType: "task", refId: task.task_id, note: `任务「${title}」状态回退`, createdBy: actorStaffId });
-    }
+    await Promise.all(recipients.map(sid => logPoints({ staffId: sid, points: -30, reason: "task_undone", refType: "task", refId: task.task_id, note: `任务「${title}」状态回退`, createdBy: actorStaffId })));
   }
 }
 
@@ -526,11 +593,10 @@ async function syncBadgeUnlocks(staffId, unlockedKeys) {
     const missing = keys.filter(k => !map[k]);
     if (missing.length > 0) {
       const at = nowSql();
-      for (const k of missing) {
-        try {
-          await db.from("badge_unlocks").insert({ staff_id: sid, badge_key: k, unlocked_at: at });
-        } catch (_) { /* 并发重复插入忽略 */ }
-      }
+      try {
+        // 一次性批量写入（幂等：主键 (staff_id,badge_key) 冲突时整批忽略，下次刷新缓存后不再补写）
+        await db.from("badge_unlocks").insert(missing.map(k => ({ staff_id: sid, badge_key: k, unlocked_at: at })));
+      } catch (_) { /* 并发重复插入忽略 */ }
       cache.delete(cacheKey);
       map = await cached(cacheKey, load, BADGE_UNLOCK_TTL);
     }
@@ -547,19 +613,14 @@ async function deductTaskDeleted(task, actorStaffId = 0) {
   const title = String(task.title || "").slice(0, 40);
   const recipients = await taskDoneRecipients(task);
   if (task.task_status === "done") {
-    for (const sid of recipients) {
-      await logPoints({ staffId: sid, points: -30, reason: "task_deleted", refType: "task", refId: task.task_id, note: `删除任务「${title}」回扣完成分`, createdBy: actorStaffId });
-    }
+    await Promise.all(recipients.map(sid => logPoints({ staffId: sid, points: -30, reason: "task_deleted", refType: "task", refId: task.task_id, note: `删除任务「${title}」回扣完成分`, createdBy: actorStaffId })));
   }
   try {
     const { data, error } = await db.from("task_checkins")
       .select("checkin_id, created_by, review_status").eq("task_id", task.task_id).limit(10000);
     if (!error && Array.isArray(data)) {
-      for (const c of data) {
-        if (String(c.review_status) === "approved" && c.created_by) {
-          await logPoints({ staffId: c.created_by, points: -10, reason: "checkin_deleted", refType: "task_checkin", refId: c.checkin_id, note: `删除任务回扣打卡分「${title}」`, createdBy: actorStaffId });
-        }
-      }
+      const approved = data.filter(c => String(c.review_status) === "approved" && c.created_by);
+      await Promise.all(approved.map(c => logPoints({ staffId: c.created_by, points: -10, reason: "checkin_deleted", refType: "task_checkin", refId: c.checkin_id, note: `删除任务回扣打卡分「${title}」`, createdBy: actorStaffId })));
     }
   } catch (e) {
     console.error("[learningLib] deductTaskDeleted checkins error", e);
@@ -649,7 +710,10 @@ module.exports = {
   invalidateDictItems,
   syncTaskAssignees,
   isTaskDone,
-  LEARNING_LEVELS,
+  LEVEL_TIERS,
+  xpToNextLevel,
+  levelThreshold,
+  levelTitle,
   levelFromXp,
   streakEndingAt,
   maxStreakOf,

@@ -29,7 +29,7 @@ const { nowSql } = require("../utils");
 const { nextSeq } = require("../seq");
 const { ensureUser, genUniqueNickname } = require("../appAuth");
 const { getAppConfig } = require("../apps");
-const { cached } = require("../cache");
+const { cached, invalidatePrefix } = require("../cache");
 
 const router = express.Router();
 
@@ -371,6 +371,8 @@ async function activateBinding(openid, staffId, source = "invite") {
       updated_at: nowSql(),
     });
   }
+  // 绑定变化立即生效：清掉该 openid 的鉴权缓存（避免刚绑定/解绑后 15s 内仍用旧结论）
+  invalidateAuthContext(openid);
 }
 
 /** 仅校验会话 token 并取 openid（不要求已绑定业务身份，供绑定接口使用） */
@@ -767,6 +769,7 @@ router.post("/unbind", async (req, res) => {
         .update({ bound_status: 0, updated_at: nowSql() })
         .eq("app_id", LP_APP.app_id).eq("openid", openid).eq("bound_status", 1);
     }
+    invalidateAuthContext(openid);
     res.json(ok({ unbound: staffId ? String(staffId) : "" }, "已解除绑定"));
   } catch (e) {
     console.error("[lpAuth] unbind error", e);
@@ -1086,6 +1089,7 @@ router.post("/switchChild", async (req, res) => {
     touchUserProfile(openid);
     const identities = await listBoundStaffs(openid);
     const activeToken = await signToken(openid, targetId);
+    invalidateAuthContext(openid);
     res.json(ok({
       token: activeToken,
       bound: true,
@@ -1226,6 +1230,50 @@ async function notCancelling(res, openid) {
   return false;
 }
 
+// ==================== 鉴权上下文短 TTL 缓存 ====================
+// 每个业务请求都要解析「账号锁定 + 身份可用 + staff + 角色 + 家庭可见范围」，原先 4~8 次 RDB 往返。
+// 结果按 (openid, 活动 staffId) 缓存 15s：与前端会话心跳 20s 一致，后台解绑/锁定最迟 15s 内生效
+// （心跳仍会实时复核兜底），把每请求固定往返降到 0（命中缓存时）。写绑定/锁定/注销时主动失效。
+const AUTH_CTX_TTL = 15 * 1000;
+
+async function loadAuthContext(openid, activeStaffId) {
+  const [lockRec, usable] = await Promise.all([
+    userLockedUntil(openid),
+    openidMayUseStaff(openid, activeStaffId),
+  ]);
+  if (lockRec) return { kind: "locked", lockRec };
+  let staff = null;
+  if (activeStaffId) {
+    try { staff = await staffById(activeStaffId); } catch (_) { staff = null; }
+  }
+  const role = staff && LP_ROLES.includes(staff.staff_role) ? staff.staff_role : "";
+  if (!staff || staff.staff_status !== 1 || !role || !usable) return { kind: "invalid" };
+  let scope = null;
+  try { scope = await familyScope(staff.staff_id, role); } catch (_) { scope = null; }
+  return { kind: "ok", staffId: String(staff.staff_id), role, scope };
+}
+
+/** 读取鉴权上下文（按 openid + 活动 staffId 缓存 15s） */
+function cachedAuthContext(openid, activeStaffId) {
+  const sid = Number(activeStaffId) || 0;
+  return cached(`authCtx:${openid}:${sid}`, () => loadAuthContext(openid, sid), AUTH_CTX_TTL);
+}
+
+/** 让某 openid 的鉴权缓存立即失效（绑定/解绑/锁定/家庭关系变更后调用） */
+function invalidateAuthContext(openid) {
+  if (!openid) return;
+  invalidatePrefix(`authCtx:${openid}:`);
+}
+
+/** 待生效注销查询短缓存（按 openid；申请/撤销后写方失效） */
+function cachedPendingCancellation(appId, openid) {
+  if (!openid) return Promise.resolve(null);
+  return cached(`authCancel:${appId}:${openid}`, async () => {
+    const { getPendingCancellation } = require("../accountLib");
+    return getPendingCancellation(appId, openid);
+  }, AUTH_CTX_TTL);
+}
+
 async function lpAuth(req, res, next) {
   try {
     // 白名单：GET 只读接口无需会话身份（兼容 req.path 挂载剥离与 originalUrl 两种形态）
@@ -1286,20 +1334,35 @@ async function lpAuth(req, res, next) {
     }
 
     // 业务身份由「会话 openid + 活动身份 staffId」实时解析：
-    // 允许 = 直接绑定（lp_students）或 家谱继承（openid 绑定的主家长名下孩子）。解除/删除即时生效。
+    // 允许 = 直接绑定（lp_students）或 家谱继承（openid 绑定的主家长名下孩子）。解除/删除由缓存 TTL + 心跳实时兜底。
     // 多身份：token 携带当前活动身份 staffId
     const activeStaffId = Number(decoded.staffId) || 0;
 
-    // 锁定检查与身份可用校验相互独立，并行执行（上报接口无需校验，跳过）
-    const [lockRec, usableRes] = await Promise.all([
-      userLockedUntil(openid),
-      isReport
-        ? Promise.resolve(false)
-        : openidMayUseStaff(openid, activeStaffId),
-    ]);
+    // 上报接口（collectSession/collectEvent/reportTrace）：仅需会话身份，实时校验锁定即可，跳过身份/范围解析
+    if (isReport) {
+      const lockRec = await userLockedUntil(openid);
+      if (lockRec) {
+        return res.status(403).json({
+          code: 403,
+          msg: lockMsg(lockRec.locked_until),
+          lockUntil: lockRec.locked_until,
+          lockInfo: lockInfo(lockRec),
+          data: null,
+        });
+      }
+      req.lp = { staffId: "", openid, role: "", scope: null };
+      req.lpRole = "";
+      req.app = LP_APP;
+      req.appId = LP_APP.app_id;
+      return next();
+    }
 
-    // 账号级锁定（后台按 user_id 锁定 t_users）：锁定期内实时拦截，作废即刻生效
-    if (lockRec) {
+    // 业务身份解析（短 TTL 缓存）：锁定 + 身份可用 + staff + 角色 + 家庭可见范围，命中缓存时 0 次往返
+    const ctx = await cachedAuthContext(openid, activeStaffId);
+
+    // 账号级锁定（后台按 user_id 锁定 t_users）：锁定期内实时拦截
+    if (ctx.kind === "locked") {
+      const lockRec = ctx.lockRec;
       return res.status(403).json({
         code: 403,
         msg: lockMsg(lockRec.locked_until),
@@ -1309,34 +1372,15 @@ async function lpAuth(req, res, next) {
       });
     }
 
-    if (isReport) {
-      req.lp = { staffId: "", openid, role: "", scope: null };
-      req.lpRole = "";
-      req.app = LP_APP;
-      req.appId = LP_APP.app_id;
-      return next();
-    }
-
-    const usable = !!usableRes;
-
-    let staff = null;
-    if (activeStaffId) {
-      try { staff = await staffById(activeStaffId); } catch (_) { staff = null; }
-    }
-
-    const role = staff && LP_ROLES.includes(staff.staff_role) ? staff.staff_role : "";
-    const invalid = !staff || staff.staff_status !== 1 || !role || !usable || !activeStaffId;
-    if (invalid) {
+    if (ctx.kind === "invalid") {
       // 绑定解除/账号不可用/家谱关系断开 ≠ 账号被锁定：按会话失效处理（前端回身份页重新绑定，不展示锁定态）
       return res.status(401).json({ code: 401, msg: "绑定状态已失效，请重新绑定", data: null });
     }
 
     // 注销流程中（7天冷静期）：禁止访问业务系统，只能停留在注销页撤销/等待（如抖音/公众号注销流程）。
     // 仅放行注销本身 + 注销页文案支撑接口；前端收到 460 后强制 reLaunch 到注销页。
-    // 注意：accountLib 与 lpAuth 相互依赖，此处延迟 require 避免模块加载期的循环依赖。
     if (!isCancelSupportPath(req.path || req.originalUrl || "")) {
-      const { getPendingCancellation } = require("../accountLib");
-      const pendingCancel = await getPendingCancellation(LP_APP.app_id, openid);
+      const pendingCancel = await cachedPendingCancellation(LP_APP.app_id, openid);
       if (pendingCancel) {
         return res.status(460).json({
           code: 460,
@@ -1353,17 +1397,13 @@ async function lpAuth(req, res, next) {
       }
     }
 
-    // 家庭可见范围（parent/family → 其名下孩子的 student staff_id 集合；admin=null 全部；student=本人）
-    let scope = null;
-    try { scope = await familyScope(staff.staff_id, role); } catch (_) { scope = null; }
-
     req.lp = {
-      staffId: String(staff.staff_id),
+      staffId: ctx.staffId,
       openid,
-      role,
-      scope, // 可查看/管理的孩子 student staff_id 数组；null=全部（admin）
+      role: ctx.role,
+      scope: ctx.scope, // 可查看/管理的孩子 student staff_id 数组；null=全部（admin）
     };
-    req.lpRole = role;
+    req.lpRole = ctx.role;
     req.app = LP_APP;
     req.appId = LP_APP.app_id;
     next();

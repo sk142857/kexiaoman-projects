@@ -50,6 +50,7 @@
             </view>
             <view wx:if="{{images.length < 9}}" class="img add" bindtap="addImages">＋</view>
           </view>
+          <view wx:if="{{uploadingImages}}" class="upload-status">图片上传中，请稍候…</view>
         </view>
       </view>
     </block>

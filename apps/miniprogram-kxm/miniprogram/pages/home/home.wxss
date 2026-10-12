@@ -135,6 +135,12 @@
   font-size: 24rpx;
   opacity: 0.9;
 }
+.xp-hint {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  opacity: 0.82;
+}
 .streak-row {
   margin-top: 24rpx;
   display: flex;

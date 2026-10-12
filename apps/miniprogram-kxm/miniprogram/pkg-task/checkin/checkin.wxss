@@ -129,6 +129,11 @@
   border: 2rpx dashed #d8dce3;
   background: #fafbfc;
 }
+.upload-status {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #2b6de0;
+}
 
 /* ==================== 语音打卡 ==================== */
 .voice-box {

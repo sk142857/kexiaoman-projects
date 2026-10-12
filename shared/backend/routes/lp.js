@@ -36,6 +36,7 @@ const {
   taskAllRecipientsDone,
   syncBadgeUnlocks,
 } = require("../learningLib");
+const { getDecayConfig } = require("../decayLib");
 
 const router = express.Router();
 
@@ -520,17 +521,18 @@ router.get("/admin/students", async (req, res) => {
           else if (st === "done") c.done += 1;
         });
       });
-      // 待审核打卡数：按学生精确 count（学生数少，并行执行；避免拉全量打卡行再 JS 计数）
-      const pendCounts = await Promise.all(staffIds.map(async (sid) => {
-        try {
-          const count = await countRows("task_checkins", "checkin_id", (q) => q.eq("review_status", "pending").eq("created_by", sid));
-          return { sid, count };
-        } catch (_) { return { sid, count: 0 }; }
-      }));
-      pendCounts.forEach(({ sid, count }) => {
-        const s = statMap[String(sid)];
-        if (s) s.pendingReview = count;
-      });
+      // 待审核打卡数：一次按 created_by IN 拉回后在 JS 分组（避免每个学生一次 count 往返，学生多时退化为 N 次查询）
+      try {
+        const { data: pendRows } = await db.from("task_checkins")
+          .select("created_by")
+          .eq("review_status", "pending")
+          .in("created_by", staffIds)
+          .limit(10000);
+        (pendRows || []).forEach((r) => {
+          const s = statMap[String(r.created_by)];
+          if (s) s.pendingReview += 1;
+        });
+      } catch (_) { /* 统计失败不阻断学生列表 */ }
     }
 
     res.json(ok({
@@ -2416,8 +2418,9 @@ async function buildDashboard(req, staffId) {
   } catch (_) { /* 取不到名字时回退默认文案 */ }
   const ids = await myTaskIds(String(staffId));
 
-    const taskQ = ids.length > 0 ? db.from("tasks").select().in("task_id", ids).in("risk_status", ["pass", "pending"]).limit(2000) : Promise.resolve({ data: [], error: null });
-    const checkinQ = ids.length > 0 ? db.from("task_checkins").select().in("task_id", ids).limit(2000) : Promise.resolve({ data: [], error: null });
+    // 仅取统计所需列，避免拉取 images/备注等大字段（打卡记录含图片/语音/视频路径，全列select 传输量大）
+    const taskQ = ids.length > 0 ? db.from("tasks").select("task_id, title, task_status, subject, deadline, collection_id, checkin_count").in("task_id", ids).in("risk_status", ["pass", "pending"]).limit(2000) : Promise.resolve({ data: [], error: null });
+    const checkinQ = ids.length > 0 ? db.from("task_checkins").select("checkin_id, task_id, checkin_date").in("task_id", ids).limit(2000) : Promise.resolve({ data: [], error: null });
     const recentQ = ids.length > 0 ? db.from("task_checkins").select().order("created_at", { ascending: false }).in("task_id", ids).in("risk_status", ["pass", "pending"]).limit(100) : Promise.resolve({ data: [], error: null });
     const subjectItemsQ = cachedDictItems("subject");
 
@@ -2449,6 +2452,7 @@ async function buildDashboard(req, staffId) {
     // 游戏化：经验值来自积分账本（审核通过+10/完成任务+30，删除与回退自动扣分）
     const xp = await staffPoints(staffId);
     const level = levelFromXp(xp);
+    const decay = await getDecayConfig();
     const checkinDates = new Set(checkins.map(c => String(c.checkin_date || "").slice(0, 10)).filter(Boolean));
     const todayStreak = streakEndingAt(checkinDates, new Date());
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
@@ -2513,7 +2517,13 @@ async function buildDashboard(req, staffId) {
       { key: "all_task_done", name: "全任务达成", desc: "所有任务全部完成", icon: "🏁", unlocked: activeTaskCount > 0 && doneCount >= activeTaskCount, progress: activeTaskCount > 0 ? Math.min(1, doneCount / activeTaskCount) : 0 },
       { key: "level_3", name: "初露锋芒", desc: "达到 Lv.3", icon: "🌱", unlocked: level.level >= 3, progress: Math.min(1, level.level / 3) },
       { key: "level_5", name: "小有名气", desc: "达到 Lv.5", icon: "🌟", unlocked: level.level >= 5, progress: Math.min(1, level.level / 5) },
-      { key: "level_10", name: "巅峰学霸", desc: "达成满级 Lv.10", icon: "🏆", unlocked: level.level >= 10, progress: Math.min(1, level.level / 10) },
+      { key: "level_8", name: "声名鹊起", desc: "达到 Lv.8", icon: "🚀", unlocked: level.level >= 8, progress: Math.min(1, level.level / 8) },
+      { key: "level_10", name: "一代学霸", desc: "达到 Lv.10", icon: "🏆", unlocked: level.level >= 10, progress: Math.min(1, level.level / 10) },
+      { key: "level_15", name: "学海领航", desc: "达到 Lv.15", icon: "🧭", unlocked: level.level >= 15, progress: Math.min(1, level.level / 15) },
+      { key: "level_20", name: "独占鳌头", desc: "达到 Lv.20", icon: "🥇", unlocked: level.level >= 20, progress: Math.min(1, level.level / 20) },
+      { key: "level_30", name: "学界新星", desc: "达到 Lv.30", icon: "💫", unlocked: level.level >= 30, progress: Math.min(1, level.level / 30) },
+      { key: "level_50", name: "一代宗师", desc: "达到 Lv.50", icon: "🎖️", unlocked: level.level >= 50, progress: Math.min(1, level.level / 50) },
+      { key: "level_100", name: "传奇学神", desc: "达到 Lv.100", icon: "👑", unlocked: level.level >= 100, progress: Math.min(1, level.level / 100) },
       { key: "subject_3", name: "博学多闻", desc: "涉猎 3 个科目", icon: "📚", unlocked: subjectDist.length >= 3, progress: Math.min(1, subjectDist.length / 3) },
       { key: "active_30", name: "学习满月", desc: "累计活跃打卡 30 天", icon: "📅", unlocked: distinctActiveDays >= 30, progress: Math.min(1, distinctActiveDays / 30) },
       { key: "day_multi_3", name: "一鸣惊人", desc: "单日打卡 3 次以上", icon: "🎇", unlocked: maxDailyCheckins >= 3, progress: Math.min(1, maxDailyCheckins / 3) },
@@ -2534,6 +2544,19 @@ async function buildDashboard(req, staffId) {
       activeCount: doingCount, overdueCount, dueSoonCount,
       nextBadge: badgesWithTime.find(b => !b.unlocked) || null,
     });
+
+    // 连续未打卡衰减提醒：中断超宽限期时置顶提示，避免经验被扣/降级
+    if (decay.enabled && checkinDates.size > 0 && !todayCheckedIn) {
+      const lastDate = [...checkinDates].sort().pop();
+      const inactiveDays = Math.round((new Date(`${today}T00:00:00`) - new Date(`${lastDate}T00:00:00`)) / 86400000);
+      if (inactiveDays > decay.graceDays) {
+        reminders.unshift({
+          type: "banner", severity: "danger", priority: -1, icon: "overdue",
+          title: `已连续 ${inactiveDays} 天未打卡`,
+          desc: `超过 ${decay.graceDays} 天宽限期，经验按每天 ${decay.pointsPerDay} 分衰减，等级可能下调，今天打卡即可停止衰减！`,
+        });
+      }
+    }
 
     // 最近打卡（含任务标题）
     const taskTitleMap = {};
@@ -2573,6 +2596,7 @@ async function buildDashboard(req, staffId) {
     staff: viewed || { staff_id: String(staffId), nickname: "同学" },
     stats: { totalTasks, todoCount, doingCount, doneCount, suspendedCount, totalCheckins, todayCheckins, todayCheckedIn, completionRate },
     level,
+    decay,
     streak: { current: currentStreak, max: maxStreak, todayCheckedIn },
     badges: badgesWithTime,
     days,

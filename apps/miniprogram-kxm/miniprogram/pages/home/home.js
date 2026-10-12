@@ -16,6 +16,7 @@ Page({
     viewStudentName: '',
     staff: {},
     level: null,
+    decay: null,
     streak: null,
     stats: null,
     days: [],
@@ -95,6 +96,7 @@ Page({
       const maxV = rawDays.reduce((m, d) => Math.max(m, Number(d.value) || 0), 1);
       this.setData({
         level: dash.level || null,
+        decay: dash.decay || null,
         streak: dash.streak || null,
         stats: dash.stats || null,
         days: rawDays.map(d => ({

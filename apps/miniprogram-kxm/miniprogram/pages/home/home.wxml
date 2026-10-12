@@ -50,9 +50,9 @@
       </view>
       <view class="xp-row">
         <text>经验值 {{level.xp}}</text>
-        <text wx:if="{{level && !level.maxLevel}}">距 Lv.{{level.level + 1}} 还差 {{level.xpToNext}}</text>
-        <text wx:elif="{{level && level.maxLevel}}">已满级</text>
+        <text wx:if="{{level}}">距 Lv.{{level.nextLevel}}「{{level.nextTitle}}」还差 {{level.xpToNext}}</text>
       </view>
+      <view wx:if="{{decay && decay.enabled}}" class="xp-hint">🔥 连续 {{decay.graceDays}} 天未打卡起，每天衰减 {{decay.pointsPerDay}} 经验，坚持打卡不掉级</view>
       <view class="level-foot">
         <button class="level-share" open-type="share" hover-class="level-share--hover" aria-label="分享课小满">
           <t-icon name="share" size="30rpx" />

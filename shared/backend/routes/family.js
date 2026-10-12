@@ -232,6 +232,7 @@ router.post("/family/children/create", async (req, res) => {
     // 首页/学生列表按 familyScope 缓存解析「名下孩子」，新增孩子后必须失效，
     // 否则家长端首页持续显示「还没有孩子」（DB 已关联但缓存仍是空 scope）
     try { invalidatePrefix("familyScope:"); } catch (_) {}
+    try { invalidatePrefix("authCtx:"); } catch (_) {}
 
     logEvent({
       appId: LP_APP.app_id, openid: myOpenid(req), eventType: "create", eventName: "新增孩子档案",
@@ -323,6 +324,7 @@ router.post("/family/children/delete", async (req, res) => {
     }
     // 失效 familyScope 缓存：删除孩子后家长名下的孩子列表须立即重建（避免家长端仍看到已删除孩子 / 列表错位）
     try { invalidatePrefix("familyScope:"); } catch (_) {}
+    try { invalidatePrefix("authCtx:"); } catch (_) {}
     res.json(ok(null, "已删除"));
   } catch (e) {
     console.error("[lp] child delete error", e);
@@ -410,6 +412,7 @@ router.post("/family/share/revoke", async (req, res) => {
     }
     // 失效 familyScope 缓存：共享关系变更后，家属名下的孩子可见范围立即重建（解绑后不再看到主家长的孩子）
     try { invalidatePrefix("familyScope:"); } catch (_) {}
+    try { invalidatePrefix("authCtx:"); } catch (_) {}
     res.json(ok(null, "共享码已作废" + (inv.bound_staff_id ? "，已解除对应家属访问" : "")));
   } catch (e) {
     console.error("[lp] share revoke error", e);
